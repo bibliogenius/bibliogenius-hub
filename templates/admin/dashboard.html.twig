@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BiblioGenius Hub - Admin Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: #333; margin-bottom: 30px; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stat-card h3 { color: #666; font-size: 14px; margin-bottom: 10px; }
+        .stat-card .value { font-size: 32px; font-weight: bold; color: #4CAF50; }
+        .libraries {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .libraries h2 {
+            padding: 20px;
+            background: #4CAF50;
+            color: white;
+            margin: 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #f9f9f9;
+            font-weight: 600;
+            color: #333;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status.online { background: #e8f5e9; color: #4CAF50; }
+        .status.offline { background: #ffebee; color: #f44336; }
+        .tags {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        .tag {
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .empty {
+            padding: 40px;
+            text-align: center;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌐 BiblioGenius Hub - Admin Dashboard</h1>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <h3>Total Libraries</h3>
+                <div class="value">{{ total_libraries }}</div>
+            </div>
+            <div class="stat-card">
+                <h3>Active Libraries</h3>
+                <div class="value">{{ active_libraries }}</div>
+            </div>
+        </div>
+
+        <div class="libraries">
+            <h2>Registered Libraries</h2>
+            {% if libraries is empty %}
+                <div class="empty">
+                    <p>No libraries registered yet.</p>
+                    <p style="margin-top: 10px; font-size: 14px;">Libraries will appear here when they register with the hub.</p>
+                </div>
+            {% else %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>URL</th>
+                            <th>Tags</th>
+                            <th>Last Heartbeat</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for library in libraries %}
+                            <tr>
+                                <td><strong>{{ library.name }}</strong></td>
+                                <td><code>{{ library.url }}</code></td>
+                                <td>
+                                    <div class="tags">
+                                        {% for tag in library.tags %}
+                                            <span class="tag">{{ tag }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </td>
+                                <td>{{ library.lastHeartbeat|date('Y-m-d H:i:s') }}</td>
+                                <td>
+                                    {% set isActive = date(library.lastHeartbeat) > date('-1 hour') %}
+                                    <span class="status {{ isActive ? 'online' : 'offline' }}">
+                                        {{ isActive ? 'Online' : 'Offline' }}
+                                    </span>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+    auto_https off
+    admin off
+}
+
+:80 {
+    root * /app/public
+    encode zstd gzip
+    
+    # Serve static files directly
+    @static {
+        file
+        path *.css *.js *.ico *.gif *.jpg *.jpeg *.png *.svg *.woff *.woff2
+    }
+    handle @static {
+        file_server
+    }
+    
+    # Handle all other requests through Symfony
+    reverse_proxy localhost:9000 {
+        transport fastcgi {
+            root /app/public
+            split .php
+        }
+    }
+}
