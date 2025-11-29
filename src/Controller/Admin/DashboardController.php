@@ -1,42 +1,54 @@
 <?php
 
-declare(strict_types=1);
-
 namespace App\Controller\Admin;
 
-use App\Entity\RegisteredLibrary;
-use Doctrine\ORM\EntityManagerInterface;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminDashboard;
+use EasyCorp\Bundle\EasyAdminBundle\Config\Dashboard;
+use EasyCorp\Bundle\EasyAdminBundle\Config\MenuItem;
+use EasyCorp\Bundle\EasyAdminBundle\Controller\AbstractDashboardController;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\Routing\Attribute\Route;
 
-#[Route('/admin', name: 'admin_')]
-class DashboardController extends AbstractController
+#[AdminDashboard(routePath: '/admin', routeName: 'admin')]
+class DashboardController extends AbstractDashboardController
 {
-    public function __construct(
-        private readonly EntityManagerInterface $entityManager,
-    ) {
-    }
-
-    #[Route('', name: 'dashboard', methods: ['GET'])]
     public function index(): Response
     {
-        $libraries = $this->entityManager
-            ->getRepository(RegisteredLibrary::class)
-            ->findAll();
+        return parent::index();
 
-        $totalLibraries = count($libraries);
+        // Option 1. You can make your dashboard redirect to some common page of your backend
+        //
+        // 1.1) If you have enabled the "pretty URLs" feature:
+        // return $this->redirectToRoute('admin_user_index');
+        //
+        // 1.2) Same example but using the "ugly URLs" that were used in previous EasyAdmin versions:
+        // $adminUrlGenerator = $this->container->get(AdminUrlGenerator::class);
+        // return $this->redirect($adminUrlGenerator->setController(OneOfYourCrudController::class)->generateUrl());
 
-        // Count active libraries (heartbeat within last hour)
-        $oneHourAgo = new \DateTime('-1 hour');
-        $activeLibraries = array_filter($libraries, function (RegisteredLibrary $lib) use ($oneHourAgo) {
-            return $lib->getLastHeartbeat() > $oneHourAgo;
-        });
+        // Option 2. You can make your dashboard redirect to different pages depending on the user
+        //
+        // if ('jane' === $this->getUser()->getUsername()) {
+        //     return $this->redirectToRoute('...');
+        // }
 
-        return $this->render('admin/dashboard.html.twig', [
-            'libraries' => $libraries,
-            'total_libraries' => $totalLibraries,
-            'active_libraries' => count($activeLibraries),
-        ]);
+        // Option 3. You can render some custom template to display a proper dashboard with widgets, etc.
+        // (tip: it's easier if your template extends from @EasyAdmin/page/content.html.twig)
+        //
+        // return $this->render('some/path/my-dashboard.html.twig');
+    }
+
+    public function configureDashboard(): Dashboard
+    {
+        return Dashboard::new()
+            ->setTitle('BiblioGenius Hub');
+    }
+
+    public function configureMenuItems(): iterable
+    {
+        yield MenuItem::linkToDashboard('Dashboard', 'fa fa-home');
+        yield MenuItem::section('Translations');
+        yield MenuItem::linkToCrud('Languages', 'fas fa-language', \App\Entity\Language::class);
+        yield MenuItem::linkToCrud('Translations', 'fas fa-list', \App\Entity\Translation::class);
+        yield MenuItem::section('System');
+        yield MenuItem::linkToCrud('Users', 'fas fa-users', \App\Entity\User::class);
     }
 }
