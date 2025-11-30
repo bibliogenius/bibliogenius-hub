@@ -39,6 +39,46 @@ class PeerController extends AbstractController
         return $this->json(['data' => $data]);
     }
 
+    #[Route('/search', name: 'search', methods: ['GET'])]
+    public function search(Request $request): JsonResponse
+    {
+        $query = $request->query->get('q');
+        if (!$query) {
+            return $this->json(['data' => []]);
+        }
+
+        // Search in local peers
+        $peers = $this->peerRepository->createQueryBuilder('p')
+            ->where('p.name LIKE :query')
+            ->setParameter('query', '%' . $query . '%')
+            ->getQuery()
+            ->getResult();
+
+        $data = array_map(function (Peer $peer) {
+            return [
+                'id' => $peer->getId(),
+                'name' => $peer->getName(),
+                'url' => $peer->getUrl(),
+                'status' => $peer->getStatus(),
+                'source' => 'local',
+            ];
+        }, $peers);
+
+        // MOCK: Simulate finding a remote library in the global directory
+        // In production, this would call the central Directory Server
+        if (stripos('Bibliothèque de Thomas', $query) !== false) {
+            $data[] = [
+                'id' => 999, // Fake ID
+                'name' => 'Bibliothèque de Thomas',
+                'url' => 'http://thomas-library.local', // Fake URL
+                'status' => 'new',
+                'source' => 'directory',
+            ];
+        }
+
+        return $this->json(['data' => $data]);
+    }
+
     #[Route('/connect', name: 'connect', methods: ['POST'])]
     public function connect(Request $request): JsonResponse
     {
