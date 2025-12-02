@@ -11,15 +11,17 @@
         "doctrine/orm": "^3.0",
         "easycorp/easyadmin-bundle": "^4.27",
         "nelmio/cors-bundle": "^2.6",
-        "symfony/console": "7.1.*",
-        "symfony/dotenv": "7.1.*",
+        "symfony/console": "^7.1",
+        "symfony/dotenv": "^7.1",
         "symfony/flex": "^2",
-        "symfony/framework-bundle": "7.1.*",
+        "symfony/framework-bundle": "^7.1",
         "symfony/maker-bundle": "^1.52",
-        "symfony/runtime": "7.1.*",
-        "symfony/security-bundle": "7.1.*",
-        "symfony/twig-bundle": "7.1.*",
-        "symfony/yaml": "7.1.*"
+        "symfony/mcp-bundle": "@dev",
+        "symfony/monolog-bundle": "^4.0",
+        "symfony/runtime": "^7.1",
+        "symfony/security-bundle": "^7.1",
+        "symfony/twig-bundle": "^7.1",
+        "symfony/yaml": "^7.1"
     },
     "config": {
         "allow-plugins": {
@@ -67,7 +69,7 @@
     "extra": {
         "symfony": {
             "allow-contrib": false,
-            "require": "7.1.*"
+            "require": "^7.1"
         }
     }
 }
