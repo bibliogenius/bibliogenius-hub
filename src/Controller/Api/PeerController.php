@@ -98,13 +98,80 @@ class PeerController extends AbstractController
         $peer = new Peer();
         $peer->setName($data['name']);
         $peer->setUrl($data['url']);
+        $peer->setDirection('outgoing');
         // Status defaults to 'pending'
 
         $this->entityManager->persist($peer);
         $this->entityManager->flush();
 
+        // Notify remote peer's Rust server about incoming connection
+        try {
+            // Get my library config to send my details
+            $myConfig = $this->entityManager->getRepository(\App\Entity\LibraryConfig::class)->findOneBy([]);
+
+            if ($myConfig) {
+                $myName = $myConfig->getName();
+                // The remote peer needs to know MY URL to connect back
+                // For Docker setup: bibliogenius-a:8000 or bibliogenius-b:8000
+                // We need to determine which instance we are
+                $myUrl = $_ENV['MY_LIBRARY_URL'] ?? 'http://bibliogenius-a:8000'; // TODO: Make configurable
+
+                $remoteUrl = $data['url'] . '/api/peers/incoming';
+                $postData = json_encode([
+                    'name' => $myName,
+                    'url' => $myUrl,
+                ]);
+
+                $options = [
+                    'http' => [
+                        'header' => "Content-type: application/json\r\n",
+                        'method' => 'POST',
+                        'content' => $postData,
+                        'timeout' => 2,
+                    ]
+                ];
+                $context = stream_context_create($options);
+                @file_get_contents($remoteUrl, false, $context);
+            }
+        } catch (\Throwable $e) {
+            // Notification failed, but we still created our outgoing peer
+            // User can manually connect from the other side if needed
+        }
+
         return $this->json([
             'message' => 'Connection request sent',
+            'peer_id' => $peer->getId(),
+            'status' => $peer->getStatus(),
+        ]);
+    }
+
+    #[Route('/receive_connection', name: 'receive_connection', methods: ['POST'])]
+    public function receiveConnection(Request $request): JsonResponse
+    {
+        $data = json_decode($request->getContent(), true);
+
+        if (!isset($data['name'], $data['url'])) {
+            return $this->json(['error' => 'Missing required fields'], 400);
+        }
+
+        // Check if peer already exists
+        $existing = $this->peerRepository->findOneBy(['url' => $data['url']]);
+
+        if ($existing) {
+            return $this->json(['message' => 'Peer already exists', 'status' => $existing->getStatus()]);
+        }
+
+        $peer = new Peer();
+        $peer->setName($data['name']);
+        $peer->setUrl($data['url']);
+        $peer->setDirection('incoming');
+        $peer->setStatus('pending');
+
+        $this->entityManager->persist($peer);
+        $this->entityManager->flush();
+
+        return $this->json([
+            'message' => 'Connection request received',
             'peer_id' => $peer->getId(),
             'status' => $peer->getStatus(),
         ]);
@@ -120,6 +187,7 @@ class PeerController extends AbstractController
                 'id' => $peer->getId(),
                 'name' => $peer->getName(),
                 'url' => $peer->getUrl(),
+                'direction' => $peer->getDirection(),
                 'created_at' => $peer->getCreatedAt()->format('c'),
             ];
         }, $pendingPeers);

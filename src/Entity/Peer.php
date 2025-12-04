@@ -23,6 +23,9 @@ class Peer
     #[ORM\Column(length: 20)]
     private string $status = 'pending';
 
+    #[ORM\Column(length: 20, options: ['default' => 'incoming'])]
+    private string $direction = 'incoming'; // 'incoming' or 'outgoing'
+
     #[ORM\Column]
     private ?\DateTimeImmutable $createdAt = null;
 
@@ -68,6 +71,18 @@ class Peer
     public function setStatus(string $status): static
     {
         $this->status = $status;
+
+        return $this;
+    }
+
+    public function getDirection(): string
+    {
+        return $this->direction;
+    }
+
+    public function setDirection(string $direction): static
+    {
+        $this->direction = $direction;
 
         return $this;
     }
