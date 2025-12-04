@@ -40,6 +40,10 @@ class TranslationController extends AbstractController
 
         // Fallback to empty object if no translations found, or handle 404?
         // Returning empty object allows app to fallback to default.
+        if (empty($data)) {
+            return $this->json(new \stdClass());
+        }
+
         return $this->json($data);
     }
 }
