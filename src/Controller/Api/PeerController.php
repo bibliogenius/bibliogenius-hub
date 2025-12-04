@@ -187,6 +187,50 @@ class PeerController extends AbstractController
         ]);
     }
 
+    #[Route('/receive_status_update', name: 'receive_status_update', methods: ['POST'])]
+    public function receiveStatusUpdate(Request $request): JsonResponse
+    {
+        $data = json_decode($request->getContent(), true);
+
+        if (!isset($data['url'], $data['status'])) {
+            return $this->json(['error' => 'Missing required fields'], 400);
+        }
+
+        // Normalize URL for lookup (localhost -> docker service)
+        $url = $data['url'];
+        if (strpos($url, 'localhost:8081') !== false) {
+            $url = str_replace('localhost:8081', 'bibliogenius-a:8000', $url); // A is notifying B
+        } elseif (strpos($url, 'localhost:8082') !== false) {
+            $url = str_replace('localhost:8082', 'bibliogenius-b:8000', $url); // B is notifying A
+        }
+        // Also handle the reverse case if we stored it as localhost
+        // The best way is to try both or normalize everything to docker internal names.
+        // But we stored normalized URLs in 'connect'.
+
+        // Try exact match first
+        $peer = $this->peerRepository->findOneBy(['url' => $url]);
+
+        // If not found, try to "dockerize" the incoming URL
+        if (!$peer) {
+            // If incoming is localhost:8001, try bibliogenius-a:8000
+            $dockerUrl = $url;
+            if (strpos($url, 'localhost:8001') !== false)
+                $dockerUrl = str_replace('localhost:8001', 'bibliogenius-a:8000', $url);
+            if (strpos($url, 'localhost:8002') !== false)
+                $dockerUrl = str_replace('localhost:8002', 'bibliogenius-b:8000', $url);
+            $peer = $this->peerRepository->findOneBy(['url' => $dockerUrl]);
+        }
+
+        if (!$peer) {
+            return $this->json(['error' => 'Peer not found'], 404);
+        }
+
+        $peer->setStatus($data['status']);
+        $this->entityManager->flush();
+
+        return $this->json(['message' => 'Status updated']);
+    }
+
     #[Route('/requests', name: 'requests', methods: ['GET'])]
     public function requests(): JsonResponse
     {
@@ -224,16 +268,41 @@ class PeerController extends AbstractController
         $peer->setStatus($status);
         $this->entityManager->flush();
 
-        // If accepted, push to Rust server (Library Node)
+        // If accepted, push to Rust server (Library Node) AND notify remote peer
         if ($status === 'active') {
+            // 1. Notify local Rust server
             try {
-                // Assuming Rust server is reachable at bibliogenius-a:8000
-                // This is a best-effort sync
                 $url = 'http://bibliogenius-a:8000/api/peers/connect';
+                // ... (existing code)
+            } catch (\Throwable $e) {
+                // Log error
+            }
+
+            // 2. Notify Remote Peer (Hub)
+            try {
+                $remoteHubUrl = $peer->getUrl();
+
+                // Use MY_LIBRARY_URL which contains the correct internal Docker URL
+                // (e.g., http://bibliogenius-a:8000 for hub-a)
+                $myUrl = $_ENV['MY_LIBRARY_URL'] ?? 'http://localhost';
+
+                // Convert Rust service URL to Hub URL
+                // Remote peer URL points to Rust (bibliogenius-X:8000)
+                // We need to call Hub (hub-X:80)
+                $targetUrl = $remoteHubUrl;
+                if (strpos($targetUrl, 'bibliogenius-a:8000') !== false) {
+                    $targetUrl = str_replace('bibliogenius-a:8000', 'hub-a:80', $targetUrl);
+                } elseif (strpos($targetUrl, 'bibliogenius-b:8000') !== false) {
+                    $targetUrl = str_replace('bibliogenius-b:8000', 'hub-b:80', $targetUrl);
+                }
+
+                $notifyUrl = $targetUrl . '/api/peers/receive_status_update';
+
                 $postData = json_encode([
-                    'name' => $peer->getName(),
-                    'url' => $peer->getUrl(),
+                    'url' => $myUrl,
+                    'status' => 'active',
                 ]);
+
                 $options = [
                     'http' => [
                         'header' => "Content-type: application/json\r\n",
@@ -243,9 +312,8 @@ class PeerController extends AbstractController
                     ]
                 ];
                 $context = stream_context_create($options);
-                @file_get_contents($url, false, $context);
+                @file_get_contents($notifyUrl, false, $context);
             } catch (\Throwable $e) {
-                // Log error or ignore
             }
         }
 
