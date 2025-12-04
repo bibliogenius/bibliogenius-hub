@@ -96,8 +96,17 @@ class PeerController extends AbstractController
         }
 
         $peer = new Peer();
+        $url = $data['url'];
+
+        // Normalize localhost URLs to Docker service names for consistency
+        if (str_contains($url, 'localhost:8001')) {
+            $url = str_replace('localhost:8001', 'bibliogenius-a:8000', $url);
+        } elseif (str_contains($url, 'localhost:8002')) {
+            $url = str_replace('localhost:8002', 'bibliogenius-b:8000', $url);
+        }
+
         $peer->setName($data['name']);
-        $peer->setUrl($data['url']);
+        $peer->setUrl($url);
         $peer->setDirection('outgoing');
         // Status defaults to 'pending'
 
@@ -116,7 +125,8 @@ class PeerController extends AbstractController
                 // We need to determine which instance we are
                 $myUrl = $_ENV['MY_LIBRARY_URL'] ?? 'http://bibliogenius-a:8000'; // TODO: Make configurable
 
-                $remoteUrl = $data['url'] . '/api/peers/incoming';
+                // URL is already normalized to Docker service name
+                $remoteUrl = $url . '/api/peers/incoming';
                 $postData = json_encode([
                     'name' => $myName,
                     'url' => $myUrl,
