@@ -11,3 +11,11 @@ services:
             - '../src/DependencyInjection/'
             - '../src/Entity/'
             - '../src/Kernel.php'
+
+    # Jira integration service
+    App\Service\JiraService:
+        arguments:
+            $jiraBaseUrl: '%env(JIRA_BASE_URL)%'
+            $jiraProjectKey: '%env(JIRA_PROJECT_KEY)%'
+            $jiraEmail: '%env(JIRA_EMAIL)%'
+            $jiraApiToken: '%env(JIRA_API_TOKEN)%'

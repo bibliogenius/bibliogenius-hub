@@ -1,0 +1,16 @@
+# FrankenPHP Caddyfile for Scaleway Serverless Container
+{
+    frankenphp
+    order php_server before file_server
+}
+
+:80 {
+    root * /app/public
+    encode zstd gzip
+    
+    # Health check endpoint
+    respond /health "OK" 200
+    
+    # PHP handling via FrankenPHP
+    php_server
+}

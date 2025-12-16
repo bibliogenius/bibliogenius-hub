@@ -1,0 +1,30 @@
+# Docker Compose for Production (Infomaniak)
+
+services:
+  hub:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - APP_ENV=prod
+      - APP_SECRET=${APP_SECRET}
+      - DATABASE_URL=sqlite:///%kernel.project_dir%/var/data.db
+      - CORS_ALLOW_ORIGIN=${CORS_ALLOW_ORIGIN}
+      - JIRA_BASE_URL=${JIRA_BASE_URL}
+      - JIRA_PROJECT_KEY=${JIRA_PROJECT_KEY}
+      - JIRA_EMAIL=${JIRA_EMAIL}
+      - JIRA_API_TOKEN=${JIRA_API_TOKEN}
+    volumes:
+      - hub_data:/app/var
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost/api/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  hub_data:
+    driver: local

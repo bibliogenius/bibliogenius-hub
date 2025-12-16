@@ -12,6 +12,7 @@ Optional central directory and discovery service for the BiblioGenius ecosystem.
 ## Purpose
 
 This is a **lightweight hub** that provides:
+
 - Library registry (directory of active servers)
 - Peer discovery (find libraries by tags)
 - Admin monitoring dashboard
@@ -59,10 +60,14 @@ GET  /api/catalog/search       # Search public catalogs
 
 Access at: `http://localhost:8080/admin`
 
-## Documentation
+## 🗺️ Roadmap
 
-See [POC_ROADMAP.md](../docs/POC_ROADMAP.md) for implementation details.
+| Version | Status | Focus |
+|---------|--------|-------|
+| **v1.0.0-beta** | ✅ Current | Registry + Discovery |
+| v1.0.0 | Q1 2026 | Public catalog aggregation |
+| v2.0.0 | Q2-Q3 2026 | Federation support |
 
 ## Repository
 
-https://github.com/bibliogenius/bibliogenius-hub
+<https://github.com/bibliogenius/bibliogenius-hub>

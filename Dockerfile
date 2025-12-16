@@ -10,7 +10,9 @@ RUN apt-get update && apt-get install -y \
 
 # Install PHP extensions
 RUN install-php-extensions \
+    pdo \
     pdo_sqlite \
+    sqlite3 \
     opcache
 
 # Install Composer
@@ -22,19 +24,27 @@ WORKDIR /app
 # Copy application files
 COPY . .
 
+# Copy Caddyfile for FrankenPHP
+COPY Caddyfile.container /etc/caddy/Caddyfile
+
+# Set environment for production
+ENV APP_ENV=prod
+ENV APP_DEBUG=0
+
 # Install dependencies
 RUN composer install --no-interaction --optimize-autoloader --no-dev
 
-# Create necessary directories
+# Create necessary directories and set permissions
 RUN mkdir -p var/cache var/log var/data && \
     chmod -R 777 var
 
-# Set up database
-RUN php bin/console doctrine:database:create --if-not-exists || true && \
-    php bin/console doctrine:schema:update --force || true
+# Copy and set up entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Expose port
 EXPOSE 80
 
-# Start FrankenPHP in PHP server mode
-CMD ["frankenphp", "php-server", "-r", "/app/public"]
+# Use entrypoint for runtime initialization
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+

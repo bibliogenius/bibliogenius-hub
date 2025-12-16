@@ -2,6 +2,7 @@
     "name": "bibliogenius/hub",
     "type": "project",
     "description": "BiblioGenius Hub - Optional central directory service",
+    "version": "1.0.0-beta.1",
     "require": {
         "php": ">=8.3",
         "ext-ctype": "*",
@@ -15,6 +16,7 @@
         "symfony/dotenv": "^7.1",
         "symfony/flex": "^2",
         "symfony/framework-bundle": "^7.1",
+        "symfony/http-client": "^7.1",
         "symfony/maker-bundle": "^1.52",
         "symfony/mcp-bundle": "@dev",
         "symfony/monolog-bundle": "^4.0",

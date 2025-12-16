@@ -1,0 +1,23 @@
+# Production Caddyfile for Infomaniak deployment
+# Automatic HTTPS via Let's Encrypt
+
+{$DOMAIN:hub.bibliogenius.org} {
+    root * /app/public
+    encode zstd gzip
+    
+    # Health check endpoint
+    respond /api/health "OK" 200
+    
+    # Serve static files directly
+    @static {
+        file
+        path *.css *.js *.ico *.gif *.jpg *.jpeg *.png *.svg *.woff *.woff2
+    }
+    handle @static {
+        file_server
+    }
+    
+    # Handle all other requests through PHP
+    php_fastcgi unix//run/php/php-fpm.sock
+    file_server
+}
