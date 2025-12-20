@@ -64,7 +64,7 @@ Access at: `http://localhost:8080/admin`
 
 | Version | Status | Focus |
 |---------|--------|-------|
-| **v1.0.0-alpha** | ✅ Current | Registry + Discovery |
+| **In Development** | ✅ Current | Registry + Discovery |
 | v1.0.0 | Q1 2026 | Public catalog aggregation |
 | v2.0.0 | Q2-Q3 2026 | Federation support |
 
