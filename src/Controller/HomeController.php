@@ -13,7 +13,7 @@ class HomeController extends AbstractController
     {
         return $this->json([
             'name' => 'BiblioGenius Hub',
-            'version' => '1.0.0-beta',
+            'version' => '1.0.0-alpha',
             'description' => 'Central directory and discovery service for BiblioGenius ecosystem',
             'endpoints' => [
                 'GET /api/peers' => 'List registered peers',
