@@ -98,13 +98,6 @@ class PeerController extends AbstractController
         $peer = new Peer();
         $url = $data['url'];
 
-        // Normalize localhost URLs to Docker service names for consistency
-        if (str_contains($url, 'localhost:8001')) {
-            $url = str_replace('localhost:8001', 'bibliogenius-a:8000', $url);
-        } elseif (str_contains($url, 'localhost:8002')) {
-            $url = str_replace('localhost:8002', 'bibliogenius-b:8000', $url);
-        }
-
         $peer->setName($data['name']);
         $peer->setUrl($url);
         $peer->setDirection('outgoing');
@@ -196,30 +189,13 @@ class PeerController extends AbstractController
             return $this->json(['error' => 'Missing required fields'], 400);
         }
 
-        // Normalize URL for lookup (localhost -> docker service)
         $url = $data['url'];
-        if (strpos($url, 'localhost:8081') !== false) {
-            $url = str_replace('localhost:8081', 'bibliogenius-a:8000', $url); // A is notifying B
-        } elseif (strpos($url, 'localhost:8082') !== false) {
-            $url = str_replace('localhost:8082', 'bibliogenius-b:8000', $url); // B is notifying A
-        }
         // Also handle the reverse case if we stored it as localhost
         // The best way is to try both or normalize everything to docker internal names.
         // But we stored normalized URLs in 'connect'.
 
-        // Try exact match first
+        // Try exact match
         $peer = $this->peerRepository->findOneBy(['url' => $url]);
-
-        // If not found, try to "dockerize" the incoming URL
-        if (!$peer) {
-            // If incoming is localhost:8001, try bibliogenius-a:8000
-            $dockerUrl = $url;
-            if (strpos($url, 'localhost:8001') !== false)
-                $dockerUrl = str_replace('localhost:8001', 'bibliogenius-a:8000', $url);
-            if (strpos($url, 'localhost:8002') !== false)
-                $dockerUrl = str_replace('localhost:8002', 'bibliogenius-b:8000', $url);
-            $peer = $this->peerRepository->findOneBy(['url' => $dockerUrl]);
-        }
 
         if (!$peer) {
             return $this->json(['error' => 'Peer not found'], 404);
@@ -286,15 +262,7 @@ class PeerController extends AbstractController
                 // (e.g., http://bibliogenius-a:8000 for hub-a)
                 $myUrl = $_ENV['MY_LIBRARY_URL'] ?? 'http://localhost';
 
-                // Convert Rust service URL to Hub URL
-                // Remote peer URL points to Rust (bibliogenius-X:8000)
-                // We need to call Hub (hub-X:80)
                 $targetUrl = $remoteHubUrl;
-                if (strpos($targetUrl, 'bibliogenius-a:8000') !== false) {
-                    $targetUrl = str_replace('bibliogenius-a:8000', 'hub-a:80', $targetUrl);
-                } elseif (strpos($targetUrl, 'bibliogenius-b:8000') !== false) {
-                    $targetUrl = str_replace('bibliogenius-b:8000', 'hub-b:80', $targetUrl);
-                }
 
                 $notifyUrl = $targetUrl . '/api/peers/receive_status_update';
 
