@@ -1,0 +1,61 @@
+name: Hub Deployment
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'bibliogenius-hub/**'
+  workflow_dispatch:
+
+env:
+  REGISTRY: rg.fr-par.scw.cloud/bibliogenius-hub
+  IMAGE_NAME: hub
+  CONTAINER_ID: 5e740f84-f17f-4535-b9a2-9a6ee1c7bec3
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./bibliogenius-hub
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Scaleway Registry
+        uses: docker/login-action@v3
+        with:
+          registry: rg.fr-par.scw.cloud
+          username: nologin
+          password: ${{ secrets.SCW_SECRET_KEY }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./bibliogenius-hub
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          platforms: linux/amd64
+
+      - name: Install Scaleway CLI
+        uses: scaleway/action-scw@v0
+        with:
+          save-config: true
+          export-config: true
+          access-key: ${{ secrets.SCW_ACCESS_KEY }}
+          secret-key: ${{ secrets.SCW_SECRET_KEY }}
+          default-project-id: ${{ secrets.SCW_DEFAULT_PROJECT_ID }}
+          default-zone: fr-par-1
+
+      - name: Update Container Configuration
+        run: |
+          scw container container update ${{ env.CONTAINER_ID }} \
+            environment-variables.JIRA_BASE_URL="${{ secrets.JIRA_BASE_URL }}" \
+            environment-variables.JIRA_PROJECT_KEY="${{ secrets.JIRA_PROJECT_KEY }}" \
+            environment-variables.JIRA_EMAIL="${{ secrets.JIRA_EMAIL }}" \
+            environment-variables.JIRA_API_TOKEN="${{ secrets.JIRA_API_TOKEN }}" \
+            environment-variables.APP_SECRET="${{ secrets.APP_SECRET }}"
+
+      - name: Deploy Container
+        run: |
+          scw container container deploy ${{ env.CONTAINER_ID }}

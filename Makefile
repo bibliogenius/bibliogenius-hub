@@ -1,5 +1,9 @@
 # BiblioGenius Hub - Deployment Makefile
 
+# Load local environment variables if they exist
+-include .env.local
+export
+
 # Configuration
 REGISTRY := rg.fr-par.scw.cloud/bibliogenius-hub
 IMAGE_NAME := hub
