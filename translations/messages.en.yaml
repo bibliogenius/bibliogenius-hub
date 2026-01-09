@@ -1,0 +1,6 @@
+search_sources: "Search Sources"
+source_openlibrary_desc: "Broad coverage, especially for English books"
+source_google_desc: "Excellent for covers and modern metadata"
+settings_saved: "Settings saved"
+disable_fallback_openlibrary: "Disable OpenLibrary"
+disable_fallback_google_books: "Disable Google Books"

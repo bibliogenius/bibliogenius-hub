@@ -1,0 +1,6 @@
+search_sources: "Sources de Recherche"
+source_openlibrary_desc: "Large couverture, surtout livres anglophones"
+source_google_desc: "Excellent pour couvertures et livres récents"
+settings_saved: "Paramètres enregistrés"
+disable_fallback_openlibrary: "Désactiver OpenLibrary"
+disable_fallback_google_books: "Désactiver Google Books"
