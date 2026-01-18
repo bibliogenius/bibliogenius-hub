@@ -1,73 +1,58 @@
-# BiblioGenius Hub - Symfony
+# BiblioGenius Hub
 
-Optional central directory and discovery service for the BiblioGenius ecosystem.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Symfony](https://img.shields.io/badge/symfony-7.0-black)](https://symfony.com)
+[![PHP](https://img.shields.io/badge/php-8.3-blue)](https://www.php.net)
 
-## Tech Stack
+**Central discovery and directory service for the BiblioGenius network.**
 
-- **Framework**: Symfony 7
-- **Language**: PHP 8.3
-- **Database**: PostgreSQL
-- **Cache**: Redis
+The Hub is an optional, lightweight service facilitating P2P node discovery across different networks. It does *not* store user library data.
 
-## Purpose
+## 🚀 Features
 
-This is a **lightweight hub** that provides:
+- **Node Directory**: Register and discover usage nodes.
+- **Relay Signaling**: NAT traversal assistance (WebRTC signaling).
+- **Telemetry**: (Optional) Anonymous usage statistics.
 
-- Library registry (directory of active servers)
-- Peer discovery (find libraries by tags)
-- Admin monitoring dashboard
-- Public catalog aggregation (opt-in)
-- Announcement distribution
+## 📋 Prerequisites
 
-**Note**: This is NOT a full application. Book management happens in the Rust server.
+- **PHP**: 8.3+
+- **Composer**: Dependency manager
+- **PostgreSQL**: Database
+- **Redis**: Caching (Optional)
 
-## Features
-
-- ✅ Library registry
-- ✅ Peer discovery API
-- ✅ Admin dashboard
-- ✅ Public catalog search
-- ❌ Book CRUD (use Rust server)
-- ❌ User authentication (admin only)
-
-## Getting Started
+## ⚡ Quick Start
 
 ```bash
-# Install dependencies
+# Clone repository
+git clone https://github.com/bibliogenius/bibliogenius-hub.git
+cd bibliogenius-hub
+
+# Install Dependencies
 composer install
 
-# Configure database
-cp .env .env.local
-# Edit .env.local with your database credentials
-
-# Run migrations
-php bin/console doctrine:migrations:migrate
-
-# Start server
+# Start Local Server
 symfony server:start
 ```
 
-## API Endpoints
+## 🛠️ Configuration
 
+Copy the example environment file:
+
+```bash
+cp .env .env.local
 ```
-POST /api/registry/register    # Register a server
-POST /api/registry/heartbeat   # Update heartbeat
-GET  /api/discovery/peers      # Find peers by tags
-GET  /api/catalog/search       # Search public catalogs
+
+Edit `.env.local` to configure your database connection:
+
+```ini
+DATABASE_URL="postgresql://user:password@127.0.0.1:5432/bibliohub"
 ```
 
-## Admin Dashboard
+## 🔗 Related Repositories
 
-Access at: `http://localhost:8080/admin`
+- [**bibliogenius**](https://github.com/bibliogenius/bibliogenius): The nodes that connect to this hub.
 
-## 🗺️ Roadmap
+## 📄 License
 
-| Version | Status | Focus |
-|---------|--------|-------|
-| **In Development** | ✅ Current | Registry + Discovery |
-| v1.0.0 | Q1 2026 | Public catalog aggregation |
-| v2.0.0 | Q2-Q3 2026 | Federation support |
-
-## Repository
-
-<https://github.com/bibliogenius/bibliogenius-hub>
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
