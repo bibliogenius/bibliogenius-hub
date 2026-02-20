@@ -1,0 +1,297 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Controller\Api;
+
+use App\Entity\RelayMailbox;
+use App\Entity\RelayMessage;
+use App\Repository\RelayMailboxRepository;
+use App\Repository\RelayMessageRepository;
+use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Attribute\Route;
+
+#[Route('/api/relay', name: 'api_relay_')]
+class RelayController extends AbstractController
+{
+    private const MAX_BLOB_SIZE = 64 * 1024; // 64 KB
+    private const MAX_MESSAGES_PER_MAILBOX = 100;
+    private const MESSAGE_TTL_DAYS = 30;
+    private const MAILBOX_TTL_DAYS = 90;
+
+    public function __construct(
+        private readonly EntityManagerInterface $entityManager,
+        private readonly RelayMailboxRepository $mailboxRepository,
+        private readonly RelayMessageRepository $messageRepository,
+    ) {
+    }
+
+    /**
+     * POST /api/relay/mailbox — Create a new mailbox.
+     * No authentication required.
+     */
+    #[Route('/mailbox', name: 'create_mailbox', methods: ['POST'])]
+    public function createMailbox(): JsonResponse
+    {
+        $uuid = self::generateUuidV4();
+        $readToken = bin2hex(random_bytes(32));
+        $writeToken = bin2hex(random_bytes(32));
+
+        $mailbox = new RelayMailbox();
+        $mailbox->setUuid($uuid);
+        $mailbox->setReadToken($readToken);
+        $mailbox->setWriteToken($writeToken);
+
+        try {
+            $this->entityManager->persist($mailbox);
+            $this->entityManager->flush();
+        } catch (\Throwable $e) {
+            return $this->json(['error' => 'Failed to create mailbox'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        return $this->json([
+            'uuid' => $uuid,
+            'read_token' => $readToken,
+            'write_token' => $writeToken,
+        ], Response::HTTP_CREATED);
+    }
+
+    /**
+     * POST /api/relay/mailbox/{uuid}/messages — Deposit an encrypted blob.
+     * Requires: Authorization: Bearer {write_token}
+     */
+    #[Route('/mailbox/{uuid}/messages', name: 'deposit_message', methods: ['POST'])]
+    public function depositMessage(string $uuid, Request $request): JsonResponse
+    {
+        if (!self::isValidUuid($uuid)) {
+            return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        // 1. Extract bearer token
+        $token = $this->extractBearerToken($request);
+        if ($token === null) {
+            return $this->json(['error' => 'Missing Authorization header'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        // 2. Early reject oversized bodies (before reading into memory)
+        $contentLength = $request->headers->get('Content-Length');
+        if ($contentLength !== null && (int) $contentLength > self::MAX_BLOB_SIZE) {
+            return $this->json(
+                ['error' => sprintf('Blob exceeds maximum size of %d bytes', self::MAX_BLOB_SIZE)],
+                Response::HTTP_REQUEST_ENTITY_TOO_LARGE,
+            );
+        }
+
+        // 3. Find mailbox and verify write token
+        $mailbox = $this->mailboxRepository->findByUuid($uuid);
+        if ($mailbox === null) {
+            return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        if (!hash_equals($mailbox->getWriteToken(), $token)) {
+            return $this->json(['error' => 'Invalid write token'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        // 4. Check blob size (definitive check after reading body)
+        $blob = $request->getContent();
+        if (strlen($blob) > self::MAX_BLOB_SIZE) {
+            return $this->json(
+                ['error' => sprintf('Blob exceeds maximum size of %d bytes', self::MAX_BLOB_SIZE)],
+                Response::HTTP_REQUEST_ENTITY_TOO_LARGE,
+            );
+        }
+
+        // 5. Check message count limit
+        $count = $this->messageRepository->countByMailbox($uuid);
+        if ($count >= self::MAX_MESSAGES_PER_MAILBOX) {
+            return $this->json(
+                ['error' => sprintf('Mailbox full (%d messages max)', self::MAX_MESSAGES_PER_MAILBOX)],
+                Response::HTTP_TOO_MANY_REQUESTS,
+            );
+        }
+
+        // 6. Store blob
+        $message = new RelayMessage();
+        $message->setMailboxUuid($uuid);
+        $message->setBlob($blob);
+
+        try {
+            $this->entityManager->persist($message);
+            $this->entityManager->flush();
+        } catch (\Throwable $e) {
+            return $this->json(['error' => 'Failed to store message'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        return $this->json(['id' => $message->getId()], Response::HTTP_CREATED);
+    }
+
+    /**
+     * GET /api/relay/mailbox/{uuid}/messages — Collect pending messages.
+     * Requires: Authorization: Bearer {read_token}
+     */
+    #[Route('/mailbox/{uuid}/messages', name: 'collect_messages', methods: ['GET'])]
+    public function collectMessages(string $uuid, Request $request): JsonResponse
+    {
+        if (!self::isValidUuid($uuid)) {
+            return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        // 1. Extract bearer token
+        $token = $this->extractBearerToken($request);
+        if ($token === null) {
+            return $this->json(['error' => 'Missing Authorization header'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        // 2. Find mailbox and verify read token
+        $mailbox = $this->mailboxRepository->findByUuid($uuid);
+        if ($mailbox === null) {
+            return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        if (!hash_equals($mailbox->getReadToken(), $token)) {
+            return $this->json(['error' => 'Invalid read token'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        // 3. Update last_accessed
+        $mailbox->setLastAccessed(new \DateTimeImmutable());
+        $this->entityManager->flush();
+
+        // 4. Fetch all pending messages
+        $messages = $this->messageRepository->findByMailbox($uuid);
+
+        $items = array_map(function (RelayMessage $msg) {
+            $blob = $msg->getBlob();
+            // Doctrine may return a resource (stream) for BLOB columns
+            if (is_resource($blob)) {
+                $blob = stream_get_contents($blob);
+            }
+
+            return [
+                'id' => $msg->getId(),
+                'blob' => base64_encode($blob),
+                'created_at' => $msg->getCreatedAt()->format(\DateTimeInterface::RFC3339),
+            ];
+        }, $messages);
+
+        // 5. Probabilistic cleanup (~1% chance)
+        if (random_int(0, 99) === 0) {
+            $this->cleanup();
+        }
+
+        return $this->json(['messages' => $items]);
+    }
+
+    /**
+     * DELETE /api/relay/mailbox/{uuid}/messages/{id} — Acknowledge and delete a message.
+     * Requires: Authorization: Bearer {read_token}
+     */
+    #[Route('/mailbox/{uuid}/messages/{id}', name: 'ack_message', methods: ['DELETE'])]
+    public function ackMessage(string $uuid, int $id, Request $request): JsonResponse
+    {
+        if (!self::isValidUuid($uuid)) {
+            return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        // 1. Extract bearer token
+        $token = $this->extractBearerToken($request);
+        if ($token === null) {
+            return $this->json(['error' => 'Missing Authorization header'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        // 2. Find mailbox and verify read token
+        $mailbox = $this->mailboxRepository->findByUuid($uuid);
+        if ($mailbox === null) {
+            return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        if (!hash_equals($mailbox->getReadToken(), $token)) {
+            return $this->json(['error' => 'Invalid read token'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        // 3. Find message (must belong to this mailbox)
+        $message = $this->messageRepository->findOneBy([
+            'id' => $id,
+            'mailboxUuid' => $uuid,
+        ]);
+
+        if ($message === null) {
+            return $this->json(['error' => 'Message not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        try {
+            $this->entityManager->remove($message);
+            $this->entityManager->flush();
+        } catch (\Throwable $e) {
+            return $this->json(['error' => 'Failed to delete message'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        return $this->json(['message' => 'Deleted']);
+    }
+
+    /**
+     * Extract bearer token from Authorization header.
+     */
+    private function extractBearerToken(Request $request): ?string
+    {
+        $header = $request->headers->get('Authorization');
+        if ($header === null) {
+            return null;
+        }
+
+        if (!str_starts_with($header, 'Bearer ')) {
+            return null;
+        }
+
+        return substr($header, 7);
+    }
+
+    /**
+     * TTL cleanup: delete old messages and inactive mailboxes.
+     */
+    private function cleanup(): void
+    {
+        $conn = $this->entityManager->getConnection();
+
+        try {
+            // Constants only (no user input) — safe to interpolate, and required
+            // because SQLite datetime() modifiers don't work with bound parameters.
+            $conn->executeStatement(
+                sprintf("DELETE FROM relay_messages WHERE created_at < datetime('now', '-%d days')", self::MESSAGE_TTL_DAYS),
+            );
+
+            $conn->executeStatement(
+                sprintf("DELETE FROM relay_mailboxes WHERE last_accessed IS NOT NULL AND last_accessed < datetime('now', '-%d days')", self::MAILBOX_TTL_DAYS),
+            );
+
+            $conn->executeStatement(
+                sprintf("DELETE FROM relay_mailboxes WHERE last_accessed IS NULL AND created_at < datetime('now', '-%d days')", self::MAILBOX_TTL_DAYS),
+            );
+        } catch (\Throwable) {
+            // Cleanup is best-effort
+        }
+    }
+
+    /**
+     * Validate UUID v4 format (avoids useless DB queries on garbage input).
+     */
+    private static function isValidUuid(string $uuid): bool
+    {
+        return (bool) preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $uuid);
+    }
+
+    /**
+     * Generate a UUID v4 from random bytes (no external dependency).
+     */
+    private static function generateUuidV4(): string
+    {
+        $bytes = random_bytes(16);
+        $bytes[6] = chr(ord($bytes[6]) & 0x0f | 0x40); // version 4
+        $bytes[8] = chr(ord($bytes[8]) & 0x3f | 0x80); // variant RFC 4122
+
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
+    }
+}

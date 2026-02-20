@@ -9,6 +9,7 @@ REGISTRY := rg.fr-par.scw.cloud/bibliogenius-hub
 IMAGE_NAME := hub
 CONTAINER_ID := 5e740f84-f17f-4535-b9a2-9a6ee1c7bec3
 PLATFORM := linux/amd64
+HUB_URL := https://hub.bibliogenius.org
 
 # Default target
 .PHONY: help
@@ -22,6 +23,8 @@ help:
 	@echo "  make login        - Login to Scaleway registry"
 	@echo "  make status       - Check container status"
 	@echo "  make test         - Test deployed endpoints"
+	@echo "  make test-relay   - Test relay endpoints (E2EE mailbox)"
+	@echo "  make test-all     - Run all tests"
 	@echo ""
 
 # Login to Scaleway registry
@@ -66,12 +69,48 @@ status:
 test:
 	@echo "Testing endpoints..."
 	@echo "\n📍 Root:"
-	@curl -s https://bibliogeniushubb2ozqvrz-hub.functions.fnc.fr-par.scw.cloud/ | jq .name
+	@curl -s $(HUB_URL)/ | jq .name
 	@echo "\n📍 Health:"
-	@curl -s https://bibliogeniushubb2ozqvrz-hub.functions.fnc.fr-par.scw.cloud/api/feedback/health
+	@curl -s $(HUB_URL)/api/feedback/health
 	@echo "\n📍 Peers:"
-	@curl -s https://bibliogeniushubb2ozqvrz-hub.functions.fnc.fr-par.scw.cloud/api/peers
+	@curl -s $(HUB_URL)/api/peers
 	@echo "\n✅ All endpoints tested"
+
+# Test relay endpoints (E2EE blind mailbox)
+.PHONY: test-relay
+test-relay:
+	@echo "Testing relay endpoints on $(HUB_URL)..."
+	@echo "\n📬 1. Create mailbox:"
+	@RELAY=$$(curl -sf -X POST $(HUB_URL)/api/relay/mailbox) && \
+		echo "$$RELAY" | jq . && \
+		UUID=$$(echo "$$RELAY" | jq -r .uuid) && \
+		RT=$$(echo "$$RELAY" | jq -r .read_token) && \
+		WT=$$(echo "$$RELAY" | jq -r .write_token) && \
+		echo "\n📨 2. Deposit blob (write_token):" && \
+		curl -sf -X POST $(HUB_URL)/api/relay/mailbox/$$UUID/messages \
+			-H "Authorization: Bearer $$WT" \
+			-H "Content-Type: application/octet-stream" \
+			-d '{"test":"e2ee relay"}' | jq . && \
+		echo "\n📥 3. Collect messages (read_token):" && \
+		curl -sf $(HUB_URL)/api/relay/mailbox/$$UUID/messages \
+			-H "Authorization: Bearer $$RT" | jq . && \
+		echo "\n🔒 4. Reject bad token:" && \
+		HTTP_CODE=$$(curl -s -o /dev/null -w "%{http_code}" \
+			$(HUB_URL)/api/relay/mailbox/$$UUID/messages \
+			-H "Authorization: Bearer bad_token") && \
+		if [ "$$HTTP_CODE" = "401" ]; then echo "  401 Unauthorized ✅"; else echo "  Expected 401, got $$HTTP_CODE ❌"; exit 1; fi && \
+		echo "\n🗑️  5. Ack (delete) message:" && \
+		curl -sf -X DELETE $(HUB_URL)/api/relay/mailbox/$$UUID/messages/1 \
+			-H "Authorization: Bearer $$RT" | jq . && \
+		echo "\n📭 6. Verify empty after ack:" && \
+		MSGS=$$(curl -sf $(HUB_URL)/api/relay/mailbox/$$UUID/messages \
+			-H "Authorization: Bearer $$RT" | jq '.messages | length') && \
+		if [ "$$MSGS" = "0" ]; then echo "  0 messages ✅"; else echo "  Expected 0, got $$MSGS ❌"; exit 1; fi && \
+		echo "\n✅ All relay tests passed!"
+
+# Run all tests
+.PHONY: test-all
+test-all: test test-relay
 
 # Local development
 .PHONY: dev
