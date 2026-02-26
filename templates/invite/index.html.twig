@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if library_name %}{{ library_name }} - {% endif %}Invitation BiblioGenius</title>
+    <meta name="description" content="Rejoignez une bibliotheque partagee sur BiblioGenius.">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Invitation BiblioGenius">
+    <meta property="og:description" content="{% if library_name %}{{ library_name }} souhaite partager sa bibliotheque avec vous.{% else %}Quelqu'un souhaite partager sa bibliotheque avec vous.{% endif %}">
+    <meta property="og:locale" content="fr_FR">
+
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --text: #1f2937;
+            --text-muted: #6b7280;
+            --bg: #f9fafb;
+            --card-bg: #ffffff;
+            --border: #e5e7eb;
+            --success: #16a34a;
+            --error: #dc2626;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .card {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+            padding: 2.5rem 2rem;
+            max-width: 440px;
+            width: 100%;
+            text-align: center;
+        }
+        .icon { font-size: 3.5rem; margin-bottom: 1rem; }
+        .label { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.25rem; }
+        .name { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; word-break: break-word; }
+        .desc { font-size: 1rem; color: var(--text); margin-bottom: 2rem; line-height: 1.5; }
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+            background: var(--primary); color: #fff;
+            padding: 0.875rem 2rem; border-radius: 0.5rem;
+            font-size: 1.05rem; font-weight: 600;
+            text-decoration: none; border: none; cursor: pointer;
+            width: 100%; transition: background 0.2s;
+        }
+        .btn:hover { background: var(--primary-hover); }
+        .fallback {
+            display: none; margin-top: 1.5rem; padding-top: 1.5rem;
+            border-top: 1px solid var(--border);
+        }
+        .fallback.visible { display: block; }
+        .fallback p { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.5; }
+        .copy-btn {
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            background: transparent; border: 1px solid var(--border); border-radius: 0.5rem;
+            padding: 0.5rem 1rem; font-size: 0.85rem; color: var(--text);
+            cursor: pointer; transition: border-color 0.2s;
+        }
+        .copy-btn:hover { border-color: var(--primary); }
+        .copy-btn.copied { border-color: var(--success); color: var(--success); }
+        .error { color: var(--error); font-size: 0.9rem; margin-top: 1rem; }
+    </style>
+</head>
+<body>
+    <main class="card" role="region" aria-label="Invitation de connexion">
+        {% if library_name %}
+            <div class="icon" aria-hidden="true">&#128218;</div>
+            <p class="label">Invitation de</p>
+            <p class="name">{{ library_name }}</p>
+            <p class="desc">souhaite se connecter avec vous sur BiblioGenius pour partager des livres.</p>
+
+            <button class="btn" id="open-btn" aria-label="Ouvrir dans l'application">
+                &#128279; Ouvrir dans l'application
+            </button>
+
+            <div class="fallback" id="fallback">
+                <p>L'application ne s'est pas ouverte ? Installez BiblioGenius, puis revenez sur ce lien.</p>
+                <button class="copy-btn" id="copy-btn" aria-label="Copier le lien">
+                    &#128203; Copier le lien
+                </button>
+            </div>
+        {% elseif data == '' %}
+            <div class="icon" aria-hidden="true">&#128218;</div>
+            <p class="error">Ce lien d'invitation est invalide ou incomplet.</p>
+        {% else %}
+            <div class="icon" aria-hidden="true">&#128218;</div>
+            <p class="error">Impossible de lire les donnees d'invitation.</p>
+        {% endif %}
+    </main>
+
+    {% if library_name %}
+    <script>
+    (function() {
+        'use strict';
+        var data = {{ data|json_encode|raw }};
+        var deepLink = 'bibliogenius://invite?d=' + encodeURIComponent(data);
+
+        document.getElementById('open-btn').addEventListener('click', function() {
+            window.location.href = deepLink;
+            setTimeout(function() {
+                document.getElementById('fallback').classList.add('visible');
+            }, 2000);
+        });
+
+        document.getElementById('copy-btn').addEventListener('click', function() {
+            var btn = this;
+            var link = window.location.href;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(link).then(function() {
+                    btn.classList.add('copied');
+                    btn.innerHTML = '&#10003; Lien copie !';
+                    setTimeout(function() {
+                        btn.classList.remove('copied');
+                        btn.innerHTML = '&#128203; Copier le lien';
+                    }, 3000);
+                });
+            }
+        });
+    })();
+    </script>
+    {% endif %}
+</body>
+</html>
