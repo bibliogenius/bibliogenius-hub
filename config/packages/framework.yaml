@@ -4,6 +4,13 @@ framework:
     http_method_override: false
     handle_all_throwables: true
 
+    # Trust the reverse proxy (Scaleway/Caddy) so that X-Forwarded-Proto,
+    # X-Forwarded-For, etc. are respected. REMOTE_ADDR means "trust whatever
+    # IP is directly connecting" which is safe in a containerized environment
+    # where only the platform load balancer can reach the container.
+    trusted_proxies: 'REMOTE_ADDR'
+    trusted_headers: ['x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-port']
+
     #session:
     #    handler_id: null
     #    cookie_secure: auto

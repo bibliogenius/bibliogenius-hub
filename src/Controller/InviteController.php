@@ -77,7 +77,9 @@ class InviteController extends AbstractController
             $this->cleanup();
         }
 
-        // Build the short URL using the current request's scheme and host
+        // Build the short URL using Symfony's trusted proxy mechanism.
+        // framework.yaml configures REMOTE_ADDR as trusted proxy so that
+        // X-Forwarded-Proto from the reverse proxy (Scaleway/Caddy) is respected.
         $baseUrl = $request->getSchemeAndHttpHost();
         $url = "$baseUrl/i/$token";
 
