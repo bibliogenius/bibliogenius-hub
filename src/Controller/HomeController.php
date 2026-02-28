@@ -19,8 +19,9 @@ class HomeController extends AbstractController
                 'GET /api/peers' => 'List registered peers',
                 'GET /api/peers/search' => 'Search peers by tags',
                 'POST /api/peers/connect' => 'Connect to a peer',
-                'GET /api/feedback/health' => 'Health check',
-                'GET /health' => 'Simple health check',
+                'GET /api/health' => 'Liveness check (public)',
+                'GET /api/health/detailed' => 'Full metrics (requires HEALTH_TOKEN)',
+                'GET /api/feedback/health' => 'Feedback system health check',
             ],
             'documentation' => 'https://github.com/bibliogenius/bibliogenius-hub',
         ]);
