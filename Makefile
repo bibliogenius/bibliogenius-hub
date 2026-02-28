@@ -10,6 +10,7 @@ IMAGE_NAME := hub
 CONTAINER_ID := 5e740f84-f17f-4535-b9a2-9a6ee1c7bec3
 PLATFORM := linux/amd64
 HUB_URL := https://hub.bibliogenius.org
+VERSION := $(shell git describe --tags --always 2>/dev/null || echo "dev")
 
 # Default target
 .PHONY: help
@@ -37,7 +38,7 @@ login:
 .PHONY: build
 build:
 	@echo "Building image for $(PLATFORM)..."
-	docker build --platform=$(PLATFORM) -t $(REGISTRY)/$(IMAGE_NAME):latest .
+	docker build --platform=$(PLATFORM) --build-arg APP_VERSION=$(VERSION) -t $(REGISTRY)/$(IMAGE_NAME):latest .
 
 # Push to registry
 .PHONY: push

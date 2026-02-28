@@ -55,7 +55,7 @@ class HealthController extends AbstractController
 
         return $this->json([
             'status' => $status,
-            'version' => 'v0.5.0-alpha',
+            'version' => $_ENV['APP_VERSION'] ?? 'dev',
             'timestamp' => (new \DateTimeImmutable())->format(\DateTimeInterface::RFC3339),
         ], $httpCode);
     }
@@ -123,7 +123,7 @@ class HealthController extends AbstractController
 
         return $this->json([
             'status' => 'ok',
-            'version' => 'v0.5.0-alpha',
+            'version' => $_ENV['APP_VERSION'] ?? 'dev',
             'timestamp' => (new \DateTimeImmutable())->format(\DateTimeInterface::RFC3339),
             'relay' => [
                 'mailboxes_total' => $mailboxCount,

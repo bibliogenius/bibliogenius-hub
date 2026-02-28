@@ -31,6 +31,10 @@ COPY Caddyfile.container /etc/caddy/Caddyfile
 ENV APP_ENV=prod
 ENV APP_DEBUG=0
 
+# App version (injected from git tag at build time)
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION}
+
 # Install dependencies
 RUN composer install --no-interaction --optimize-autoloader --no-dev
 
