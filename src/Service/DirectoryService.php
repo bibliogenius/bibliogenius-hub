@@ -1,0 +1,307 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Service;
+
+use App\Entity\CachedCatalog;
+use App\Entity\Follow;
+use App\Entity\LibraryProfile;
+use App\Repository\FollowRepository;
+use App\Repository\LibraryProfileRepository;
+use Doctrine\ORM\EntityManagerInterface;
+
+/**
+ * Business logic for the public library directory.
+ *
+ * Responsibilities:
+ *   - Profile registration and updates
+ *   - Catalog cache push and retrieval
+ *   - Follow request lifecycle (create, approve, reject, block, unfollow)
+ *   - Directory listing
+ *
+ * The controller delegates entirely to this service. No HTTP concerns here.
+ */
+class DirectoryService
+{
+    /** Probabilistic cleanup: 1 in N writes triggers expired catalog pruning. */
+    private const CLEANUP_PROBABILITY = 50;
+
+    private const VALID_ACCEPT_FROM = ['everyone', 'individuals_only', 'institutions_only'];
+
+    public function __construct(
+        private readonly EntityManagerInterface $entityManager,
+        private readonly LibraryProfileRepository $profileRepository,
+        private readonly FollowRepository $followRepository,
+    ) {}
+
+    // -------------------------------------------------------------------------
+    // Profile
+    // -------------------------------------------------------------------------
+
+    /**
+     * Registers a new library profile or updates an existing one.
+     *
+     * On first registration: generates and returns a write_token.
+     * On update: requires a valid write_token via $authenticatedProfile.
+     *
+     * @return array{profile: LibraryProfile, write_token: string|null}
+     */
+    public function upsertProfile(array $data, ?LibraryProfile $authenticatedProfile): array
+    {
+        $nodeId = $data['node_id'] ?? null;
+
+        $existing = $this->profileRepository->findByNodeId($nodeId);
+
+        if ($existing === null) {
+            // New registration
+            $writeToken = $this->generateToken();
+            $profile = new LibraryProfile(
+                $nodeId,
+                $writeToken,
+                $this->sanitizeString($data['display_name'] ?? '', 255)
+            );
+            $this->applyProfileData($profile, $data);
+            $this->entityManager->persist($profile);
+            $this->entityManager->flush();
+
+            return ['profile' => $profile, 'write_token' => $writeToken];
+        }
+
+        // Update - caller must be authenticated as this profile
+        if ($authenticatedProfile?->getNodeId() !== $existing->getNodeId()) {
+            throw new \LogicException('Authenticated profile does not match node_id.');
+        }
+
+        $this->applyProfileData($existing, $data);
+        $existing->touchLastSeen();
+        $this->entityManager->flush();
+
+        return ['profile' => $existing, 'write_token' => null];
+    }
+
+    private function applyProfileData(LibraryProfile $profile, array $data): void
+    {
+        if (isset($data['display_name'])) {
+            $profile->setDisplayName($this->sanitizeString($data['display_name'], 255));
+        }
+        if (array_key_exists('description', $data)) {
+            $profile->setDescription(
+                $data['description'] !== null
+                    ? $this->sanitizeString($data['description'], 2000)
+                    : null
+            );
+        }
+        if (isset($data['book_count'])) {
+            $profile->setBookCount(max(0, (int) $data['book_count']));
+        }
+        if (array_key_exists('location_country', $data)) {
+            $profile->setLocationCountry(
+                $data['location_country'] !== null
+                    ? substr(preg_replace('/[^A-Z]/', '', strtoupper($data['location_country'])), 0, 5)
+                    : null
+            );
+        }
+        if (isset($data['requires_approval'])) {
+            $profile->setRequiresApproval((bool) $data['requires_approval']);
+        }
+        if (isset($data['accept_from']) && in_array($data['accept_from'], self::VALID_ACCEPT_FROM, true)) {
+            $profile->setAcceptFrom($data['accept_from']);
+        }
+        if (isset($data['is_listed'])) {
+            $profile->setIsListed((bool) $data['is_listed']);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Catalog cache
+    // -------------------------------------------------------------------------
+
+    /**
+     * Pushes or refreshes the ISBN cache for a library.
+     * Only available to open libraries (requires_approval=false).
+     */
+    public function pushCatalog(LibraryProfile $profile, string $isbnPayload): CachedCatalog
+    {
+        $this->probabilisticCleanup();
+
+        $catalog = $this->entityManager->find(CachedCatalog::class, $profile->getNodeId());
+
+        if ($catalog === null) {
+            $catalog = new CachedCatalog($profile, $isbnPayload);
+            $this->entityManager->persist($catalog);
+        } else {
+            $catalog->refresh($isbnPayload);
+        }
+
+        $profile->touchLastSeen();
+        $this->entityManager->flush();
+
+        return $catalog;
+    }
+
+    /**
+     * Returns the cached catalog for a library if the requester is allowed to see it.
+     *
+     * Access rules:
+     *   - requires_approval=false: public, no auth required (requesterProfile may be null)
+     *   - requires_approval=true:  requester must have an active follow relationship
+     */
+    public function getCatalog(LibraryProfile $profile, ?LibraryProfile $requesterProfile): ?CachedCatalog
+    {
+        if (!$profile->isRequiresApproval()) {
+            return $this->entityManager->find(CachedCatalog::class, $profile->getNodeId());
+        }
+
+        if ($requesterProfile === null) {
+            return null;
+        }
+
+        if (!$this->followRepository->isActiveFollower($requesterProfile->getNodeId(), $profile->getNodeId())) {
+            return null;
+        }
+
+        return $this->entityManager->find(CachedCatalog::class, $profile->getNodeId());
+    }
+
+    // -------------------------------------------------------------------------
+    // Follow lifecycle
+    // -------------------------------------------------------------------------
+
+    /**
+     * Sends a follow request from follower to followed.
+     *
+     * If followed.requires_approval=false: auto-approved.
+     * If followed.accept_from restricts requester type: returns null (rejected silently).
+     *
+     * Returns null if the request is silently rejected (accept_from mismatch or already blocked).
+     */
+    public function follow(LibraryProfile $follower, LibraryProfile $followed): ?Follow
+    {
+        // Prevent self-follow
+        if ($follower->getNodeId() === $followed->getNodeId()) {
+            throw new \InvalidArgumentException('A library cannot follow itself.');
+        }
+
+        $existing = $this->followRepository->findExisting(
+            $follower->getNodeId(),
+            $followed->getNodeId()
+        );
+
+        // Already blocked: silent rejection
+        if ($existing?->getStatus() === Follow::STATUS_BLOCKED) {
+            return null;
+        }
+
+        // Already active or pending: return as-is
+        if ($existing !== null && in_array($existing->getStatus(), [Follow::STATUS_ACTIVE, Follow::STATUS_PENDING], true)) {
+            return $existing;
+        }
+
+        $follow = $existing ?? new Follow($follower->getNodeId(), $followed->getNodeId());
+
+        if (!$followed->isRequiresApproval()) {
+            $follow->approve();
+        }
+
+        if ($existing === null) {
+            $this->entityManager->persist($follow);
+        }
+
+        $this->entityManager->flush();
+
+        return $follow;
+    }
+
+    /**
+     * Approves or rejects a pending follow request.
+     * Only the followed library (authenticated) can resolve requests.
+     */
+    public function resolveFollow(int $followId, string $resolution, LibraryProfile $authenticated): Follow
+    {
+        $follow = $this->followRepository->find($followId);
+
+        if ($follow === null) {
+            throw new \InvalidArgumentException('Follow request not found.');
+        }
+
+        if ($follow->getFollowedNodeId() !== $authenticated->getNodeId()) {
+            throw new \LogicException('Not authorized to resolve this follow request.');
+        }
+
+        if (!$follow->isPending()) {
+            throw new \LogicException('Follow request is not pending.');
+        }
+
+        match ($resolution) {
+            'approve' => $follow->approve(),
+            'reject'  => $follow->reject(),
+            'block'   => $follow->block(),
+            default   => throw new \InvalidArgumentException('Invalid resolution. Use: approve, reject, block.'),
+        };
+
+        $this->entityManager->flush();
+
+        return $follow;
+    }
+
+    /**
+     * Removes an active follow. Only the follower can unfollow.
+     */
+    public function unfollow(string $followedNodeId, LibraryProfile $follower): bool
+    {
+        $follow = $this->followRepository->findExisting($follower->getNodeId(), $followedNodeId);
+
+        if ($follow === null) {
+            return false;
+        }
+
+        $this->entityManager->remove($follow);
+        $this->entityManager->flush();
+
+        return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // Directory listing
+    // -------------------------------------------------------------------------
+
+    /** @return LibraryProfile[] */
+    public function listDirectory(int $limit, int $offset, ?string $country): array
+    {
+        $limit = min(100, max(1, $limit));
+
+        return $this->profileRepository->findListed($limit, $offset, $country);
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    /** Resolves a LibraryProfile from an Authorization: Bearer header value. Returns null if invalid. */
+    public function authenticate(string $token): ?LibraryProfile
+    {
+        if ($token === '') {
+            return null;
+        }
+
+        return $this->profileRepository->findByWriteToken($token);
+    }
+
+    private function generateToken(): string
+    {
+        return bin2hex(random_bytes(32));
+    }
+
+    private function sanitizeString(string $value, int $maxLength): string
+    {
+        return substr(trim(strip_tags($value)), 0, $maxLength);
+    }
+
+    private function probabilisticCleanup(): void
+    {
+        if (random_int(1, self::CLEANUP_PROBABILITY) === 1) {
+            $this->profileRepository->pruneExpiredCatalogs(new \DateTimeImmutable());
+        }
+    }
+}

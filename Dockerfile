@@ -4,15 +4,14 @@ FROM dunglas/frankenphp:latest-php8.3
 RUN apt-get update && apt-get install -y \
     git \
     unzip \
-    sqlite3 \
-    libsqlite3-dev \
+    postgresql-client \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install PHP extensions
 RUN install-php-extensions \
     pdo \
-    pdo_sqlite \
-    sqlite3 \
+    pdo_pgsql \
+    pgsql \
     opcache
 
 # Install Composer

@@ -2,11 +2,18 @@
 set -e
 
 # Ensure var directory exists with proper permissions
-mkdir -p /app/var/cache /app/var/log /app/var/data
+mkdir -p /app/var/cache /app/var/log
 chmod -R 777 /app/var
 
-# Create database and run migrations if needed
-php /app/bin/console doctrine:database:create --if-not-exists --env=prod --no-interaction 2>/dev/null || true
+# Wait for PostgreSQL to be ready (max 30s)
+echo "Waiting for database..."
+for i in $(seq 1 30); do
+    php /app/bin/console dbal:run-sql "SELECT 1" --env=prod --no-interaction > /dev/null 2>&1 && break
+    echo "  attempt $i/30..."
+    sleep 1
+done
+
+# Apply schema (creates or updates tables from entity definitions)
 php /app/bin/console doctrine:schema:update --force --env=prod --no-interaction 2>/dev/null || true
 
 # Clear cache for production

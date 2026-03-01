@@ -125,7 +125,7 @@ env-prod:
 	scw container container update $(CONTAINER_ID) \
 		environment-variables.APP_ENV=prod \
 		environment-variables.APP_DEBUG=0 \
-		environment-variables.DATABASE_URL="sqlite:////app/var/data.db" \
+		environment-variables.DATABASE_URL="$${DATABASE_URL}" \
 		environment-variables.CORS_ALLOW_ORIGIN='^https?://(.*\.)?bibliogenius\.(org|app|fr)(:[0-9]+)?$$' \
 		environment-variables.DEFAULT_URI="https://hub.bibliogenius.org" \
 		environment-variables.JIRA_BASE_URL="$${JIRA_BASE_URL}" \
@@ -134,4 +134,4 @@ env-prod:
 		environment-variables.JIRA_API_TOKEN="$${JIRA_API_TOKEN}" \
 		environment-variables.APP_SECRET="$${APP_SECRET}"
 	@echo "Environment updated. Run 'make deploy' to apply changes."
-	@echo "⚠️  Make sure JIRA_API_TOKEN and APP_SECRET are set in your shell!"
+	@echo "⚠️  Make sure DATABASE_URL, JIRA_API_TOKEN and APP_SECRET are set in your shell!"
