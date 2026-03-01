@@ -13,12 +13,14 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
-# Apply schema (creates or updates tables from entity definitions)
-php /app/bin/console doctrine:schema:update --force --env=prod --no-interaction 2>/dev/null || true
+# Clear cache before schema update so Doctrine sees fresh entity metadata
+php /app/bin/console cache:clear --env=prod --no-debug || true
 
-# Clear cache for production
-php /app/bin/console cache:clear --env=prod --no-debug 2>/dev/null || true
-php /app/bin/console cache:warmup --env=prod 2>/dev/null || true
+# Apply schema (generates platform-specific SQL from entity definitions)
+php /app/bin/console doctrine:schema:update --force --env=prod --no-interaction
+
+# Warm up cache
+php /app/bin/console cache:warmup --env=prod || true
 
 # Start FrankenPHP
 exec frankenphp run --config /etc/caddy/Caddyfile

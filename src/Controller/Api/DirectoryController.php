@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller\Api;
 
+use App\Repository\FollowRepository;
 use App\Repository\LibraryProfileRepository;
 use App\Service\DirectoryService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -36,6 +37,7 @@ class DirectoryController extends AbstractController
     public function __construct(
         private readonly DirectoryService $directoryService,
         private readonly LibraryProfileRepository $profileRepository,
+        private readonly FollowRepository $followRepository,
     ) {}
 
     // -------------------------------------------------------------------------
