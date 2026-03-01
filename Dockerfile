@@ -34,8 +34,9 @@ ENV APP_DEBUG=0
 ARG APP_VERSION=dev
 ENV APP_VERSION=${APP_VERSION}
 
-# Install dependencies
-RUN composer install --no-interaction --optimize-autoloader --no-dev
+# Install dependencies (--no-scripts skips cache:clear which needs a live DB;
+# the entrypoint handles cache:clear and cache:warmup at runtime)
+RUN composer install --no-interaction --optimize-autoloader --no-dev --no-scripts
 
 # Create necessary directories and set permissions
 RUN mkdir -p var/cache var/log var/data && \

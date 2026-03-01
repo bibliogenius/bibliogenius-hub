@@ -132,6 +132,7 @@ env-prod:
 		environment-variables.JIRA_PROJECT_KEY="$${JIRA_PROJECT_KEY}" \
 		environment-variables.JIRA_EMAIL="$${JIRA_EMAIL}" \
 		environment-variables.JIRA_API_TOKEN="$${JIRA_API_TOKEN}" \
-		environment-variables.APP_SECRET="$${APP_SECRET}"
+		environment-variables.APP_SECRET="$${APP_SECRET}" \
+		environment-variables.HEALTH_TOKEN="$${HEALTH_TOKEN}"
 	@echo "Environment updated. Run 'make deploy' to apply changes."
-	@echo "⚠️  Make sure DATABASE_URL, JIRA_API_TOKEN and APP_SECRET are set in your shell!"
+	@echo "⚠️  Make sure DATABASE_URL, APP_SECRET, HEALTH_TOKEN and JIRA_API_TOKEN are set in your shell!"
