@@ -20,12 +20,18 @@ class CachedCatalog
     private LibraryProfile $libraryProfile;
 
     /**
-     * JSON-encoded ISBN array.
-     * Plaintext for open libraries (requires_approval=false).
-     * AES-GCM encrypted payload for approval-required libraries.
+     * JSON-encoded ISBN array (legacy format: ["isbn1", "isbn2"]).
+     * Kept for backward compatibility.
      */
     #[ORM\Column(type: 'text')]
     private string $isbnPayload;
+
+    /**
+     * JSON-encoded enriched catalog: [{"isbn":"...", "title":"...", "author":"..."}, ...].
+     * Null for libraries that have not yet pushed enriched data.
+     */
+    #[ORM\Column(type: 'text', nullable: true)]
+    private ?string $catalogPayload = null;
 
     #[ORM\Column]
     private \DateTimeImmutable $updatedAt;
@@ -36,10 +42,11 @@ class CachedCatalog
 
     private const TTL_DAYS = 7;
 
-    public function __construct(LibraryProfile $libraryProfile, string $isbnPayload)
+    public function __construct(LibraryProfile $libraryProfile, string $isbnPayload, ?string $catalogPayload = null)
     {
         $this->libraryProfile = $libraryProfile;
         $this->isbnPayload = $isbnPayload;
+        $this->catalogPayload = $catalogPayload;
         $this->updatedAt = new \DateTimeImmutable();
         $this->expiresAt = new \DateTimeImmutable(sprintf('+%d days', self::TTL_DAYS));
     }
@@ -59,15 +66,21 @@ class CachedCatalog
         return $this->isbnPayload;
     }
 
+    public function getCatalogPayload(): ?string
+    {
+        return $this->catalogPayload;
+    }
+
     public function isExpired(): bool
     {
         return $this->expiresAt < new \DateTimeImmutable();
     }
 
     /** Replaces the payload and resets the TTL. */
-    public function refresh(string $isbnPayload): static
+    public function refresh(string $isbnPayload, ?string $catalogPayload = null): static
     {
         $this->isbnPayload = $isbnPayload;
+        $this->catalogPayload = $catalogPayload;
         $this->updatedAt = new \DateTimeImmutable();
         $this->expiresAt = new \DateTimeImmutable(sprintf('+%d days', self::TTL_DAYS));
         return $this;

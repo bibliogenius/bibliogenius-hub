@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller\Api;
 
+use App\Entity\Follow;
 use App\Repository\FollowRepository;
 use App\Repository\LibraryProfileRepository;
 use App\Service\DirectoryService;
@@ -106,12 +107,22 @@ class DirectoryController extends AbstractController
             return $this->error('isbn_payload (string) is required.', Response::HTTP_BAD_REQUEST);
         }
 
-        // Basic sanity check on payload size (max 512 KB)
+        // Basic sanity check on payload size (max 512 KB for isbn_payload)
         if (strlen($data['isbn_payload']) > 524288) {
             return $this->error('isbn_payload exceeds maximum allowed size.', Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
         }
 
-        $catalog = $this->directoryService->pushCatalog($profile, $data['isbn_payload']);
+        // Optional enriched catalog: [{isbn, title, author}, ...]
+        $catalogPayload = null;
+        if (isset($data['catalog_payload']) && is_string($data['catalog_payload'])) {
+            $catalogPayload = $data['catalog_payload'];
+        }
+
+        try {
+            $catalog = $this->directoryService->pushCatalog($profile, $data['isbn_payload'], $catalogPayload);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+        }
 
         return $this->json([
             'updated_at' => $catalog->getUpdatedAt()->format(\DateTimeInterface::ATOM),
@@ -146,12 +157,18 @@ class DirectoryController extends AbstractController
             );
         }
 
-        return $this->json([
+        $response = [
             'node_id'      => $profile->getNodeId(),
             'isbn_payload' => $catalog->getIsbnPayload(),
             'updated_at'   => $catalog->getUpdatedAt()->format(\DateTimeInterface::ATOM),
             'expires_at'   => $catalog->getExpiresAt()->format(\DateTimeInterface::ATOM),
-        ]);
+        ];
+
+        if ($catalog->getCatalogPayload() !== null) {
+            $response['catalog_payload'] = $catalog->getCatalogPayload();
+        }
+
+        return $this->json($response);
     }
 
     // -------------------------------------------------------------------------
@@ -238,8 +255,16 @@ class DirectoryController extends AbstractController
 
         $pending = $this->followRepository->findPendingFor($profile->getNodeId());
 
+        // Enrich each follow with the follower's display name from their profile.
+        $items = array_map(function (Follow $f) {
+            $data = $f->toArray();
+            $followerProfile = $this->profileRepository->findByNodeId($f->getFollowerNodeId());
+            $data['follower_display_name'] = $followerProfile?->getDisplayName();
+            return $data;
+        }, $pending);
+
         return $this->json([
-            'items' => array_map(fn ($f) => $f->toArray(), $pending),
+            'items' => $items,
         ]);
     }
 
@@ -269,7 +294,7 @@ class DirectoryController extends AbstractController
         return $this->json($follow->toArray());
     }
 
-    #[Route('/follows', name: 'follows_list', methods: ['GET'])]
+    #[Route('/follows', name: 'follows_list', methods: ['GET'], priority: 1)]
     public function listFollows(Request $request): JsonResponse
     {
         $profile = $this->requireAuth($request);

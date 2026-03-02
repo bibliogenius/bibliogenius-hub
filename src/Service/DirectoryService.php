@@ -118,20 +118,27 @@ class DirectoryService
     // -------------------------------------------------------------------------
 
     /**
-     * Pushes or refreshes the ISBN cache for a library.
-     * Only available to open libraries (requires_approval=false).
+     * Pushes or refreshes the catalog cache for a library.
+     *
+     * @param string      $isbnPayload    JSON array of ISBNs (legacy format)
+     * @param string|null $catalogPayload JSON array of {isbn, title, author} objects (enriched format)
      */
-    public function pushCatalog(LibraryProfile $profile, string $isbnPayload): CachedCatalog
+    public function pushCatalog(LibraryProfile $profile, string $isbnPayload, ?string $catalogPayload = null): CachedCatalog
     {
         $this->probabilisticCleanup();
+
+        // Validate catalog_payload size if provided (max 2 MB for enriched data)
+        if ($catalogPayload !== null && strlen($catalogPayload) > 2097152) {
+            throw new \InvalidArgumentException('catalog_payload exceeds maximum allowed size.');
+        }
 
         $catalog = $this->entityManager->find(CachedCatalog::class, $profile->getNodeId());
 
         if ($catalog === null) {
-            $catalog = new CachedCatalog($profile, $isbnPayload);
+            $catalog = new CachedCatalog($profile, $isbnPayload, $catalogPayload);
             $this->entityManager->persist($catalog);
         } else {
-            $catalog->refresh($isbnPayload);
+            $catalog->refresh($isbnPayload, $catalogPayload);
         }
 
         $profile->touchLastSeen();

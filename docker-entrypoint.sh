@@ -26,6 +26,13 @@ php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_cached_catalog
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_follows_followed_status ON follows (followed_node_id, status)" --env=prod --no-interaction || true
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_follows_follower_status ON follows (follower_node_id, status)" --env=prod --no-interaction || true
 
+# invite_tokens (Version20260226170000 - short invite links)
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS invite_tokens (token VARCHAR(12) NOT NULL PRIMARY KEY, encrypted_payload TEXT NOT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP)" --env=prod --no-interaction || echo "WARNING: invite_tokens creation failed"
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_invite_tokens_created ON invite_tokens (created_at)" --env=prod --no-interaction || true
+
+# catalog_payload enriched column (Version20260302000000)
+php /app/bin/console dbal:run-sql "ALTER TABLE cached_catalogs ADD COLUMN IF NOT EXISTS catalog_payload TEXT DEFAULT NULL" --env=prod --no-interaction || true
+
 # Clear and warm up cache
 php /app/bin/console cache:clear --env=prod --no-debug || true
 php /app/bin/console cache:warmup --env=prod || true
