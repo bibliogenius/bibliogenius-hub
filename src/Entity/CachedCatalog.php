@@ -12,12 +12,9 @@ use Doctrine\ORM\Mapping as ORM;
 class CachedCatalog
 {
     /**
-     * Same as the owning LibraryProfile node_id (1:1 relationship, string PK).
+     * Shared primary key with LibraryProfile (1:1, FK = PK).
      */
     #[ORM\Id]
-    #[ORM\Column(type: 'string', length: 128)]
-    private string $nodeId;
-
     #[ORM\OneToOne(targetEntity: LibraryProfile::class)]
     #[ORM\JoinColumn(name: 'node_id', referencedColumnName: 'node_id', onDelete: 'CASCADE')]
     private LibraryProfile $libraryProfile;
@@ -41,7 +38,6 @@ class CachedCatalog
 
     public function __construct(LibraryProfile $libraryProfile, string $isbnPayload)
     {
-        $this->nodeId = $libraryProfile->getNodeId();
         $this->libraryProfile = $libraryProfile;
         $this->isbnPayload = $isbnPayload;
         $this->updatedAt = new \DateTimeImmutable();
@@ -50,7 +46,7 @@ class CachedCatalog
 
     public function getNodeId(): string
     {
-        return $this->nodeId;
+        return $this->libraryProfile->getNodeId();
     }
 
     public function getLibraryProfile(): LibraryProfile
