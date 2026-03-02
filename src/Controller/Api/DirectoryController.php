@@ -74,6 +74,8 @@ class DirectoryController extends AbstractController
             $result = $this->directoryService->upsertProfile($data, $authenticated);
         } catch (\LogicException $e) {
             return $this->error($e->getMessage(), Response::HTTP_FORBIDDEN);
+        } catch (\Throwable $e) {
+            return $this->error('upsertProfile failed: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
         $response = $result['profile']->toPublicArray();
@@ -163,7 +165,11 @@ class DirectoryController extends AbstractController
         $offset  = max(0, (int) $request->query->get('offset', 0));
         $country = $request->query->get('country');
 
-        $profiles = $this->directoryService->listDirectory($limit, $offset, $country ?: null);
+        try {
+            $profiles = $this->directoryService->listDirectory($limit, $offset, $country ?: null);
+        } catch (\Throwable $e) {
+            return $this->error('listDirectory failed: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
 
         return $this->json([
             'items'  => array_map(fn ($p) => $p->toPublicArray(), $profiles),
