@@ -8,6 +8,7 @@ use App\Entity\Follow;
 use App\Repository\FollowRepository;
 use App\Repository\LibraryProfileRepository;
 use App\Service\DirectoryService;
+use Doctrine\DBAL\Connection;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -36,10 +37,13 @@ use Symfony\Component\Routing\Attribute\Route;
 #[Route('/api/directory', name: 'api_directory_')]
 class DirectoryController extends AbstractController
 {
+    private const VIEW_COOLDOWN_SECONDS = 900; // 15 minutes
+
     public function __construct(
         private readonly DirectoryService $directoryService,
         private readonly LibraryProfileRepository $profileRepository,
         private readonly FollowRepository $followRepository,
+        private readonly Connection $connection,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -161,6 +165,11 @@ class DirectoryController extends AbstractController
         $requester = $token !== null ? $this->directoryService->authenticate($token) : null;
 
         $catalog = $this->directoryService->getCatalog($profile, $requester);
+
+        if ($catalog !== null) {
+            $visitorId = $requester?->getNodeId() ?? $request->getClientIp() ?? 'unknown';
+            $this->recordView($profile, $visitorId);
+        }
 
         if ($catalog === null) {
             return $this->error(
@@ -401,5 +410,56 @@ class DirectoryController extends AbstractController
     private function error(string $message, int $status): JsonResponse
     {
         return $this->json(['error' => $message], $status);
+    }
+
+    /**
+     * Records a catalog view with a 15-minute cooldown per visitor.
+     * Uses UPSERT to atomically check and update the cooldown timestamp.
+     */
+    private function recordView(\App\Entity\LibraryProfile $profile, string $visitorId): void
+    {
+        try {
+            $nodeId = $profile->getNodeId();
+            $now = new \DateTimeImmutable();
+            $cutoff = $now->modify('-' . self::VIEW_COOLDOWN_SECONDS . ' seconds');
+
+            // Check if this visitor has a recent cooldown entry
+            $lastCounted = $this->connection->fetchOne(
+                'SELECT last_counted_at FROM library_view_cooldowns WHERE profile_node_id = :node AND visitor_id = :visitor',
+                ['node' => $nodeId, 'visitor' => substr($visitorId, 0, 128)]
+            );
+
+            if ($lastCounted !== false && new \DateTimeImmutable($lastCounted) > $cutoff) {
+                return; // Still in cooldown
+            }
+
+            // Upsert cooldown entry
+            $this->connection->executeStatement(
+                'INSERT INTO library_view_cooldowns (profile_node_id, visitor_id, last_counted_at) '
+                . 'VALUES (:node, :visitor, :now) '
+                . 'ON CONFLICT (profile_node_id, visitor_id) DO UPDATE SET last_counted_at = :now',
+                [
+                    'node' => $nodeId,
+                    'visitor' => substr($visitorId, 0, 128),
+                    'now' => $now->format('Y-m-d H:i:s'),
+                ]
+            );
+
+            // Increment view count atomically
+            $this->connection->executeStatement(
+                'UPDATE library_profiles SET view_count = view_count + 1 WHERE node_id = :node',
+                ['node' => $nodeId]
+            );
+
+            // Probabilistic cleanup: ~1% chance to purge old cooldown entries (> 1 hour)
+            if (random_int(1, 100) === 1) {
+                $this->connection->executeStatement(
+                    'DELETE FROM library_view_cooldowns WHERE last_counted_at < :cutoff',
+                    ['cutoff' => $now->modify('-1 hour')->format('Y-m-d H:i:s')]
+                );
+            }
+        } catch (\Throwable) {
+            // View counting is best-effort, never fail the main request
+        }
     }
 }

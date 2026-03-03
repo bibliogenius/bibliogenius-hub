@@ -41,6 +41,10 @@ php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_invite_tokens_
 # catalog_payload enriched column (Version20260302000000)
 php /app/bin/console dbal:run-sql "ALTER TABLE cached_catalogs ADD COLUMN IF NOT EXISTS catalog_payload TEXT DEFAULT NULL" --env=prod --no-interaction || true
 
+# view_count + cooldowns (Version20260303100000 - library view counter)
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS library_view_cooldowns (profile_node_id VARCHAR(128) NOT NULL, visitor_id VARCHAR(128) NOT NULL, last_counted_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, PRIMARY KEY (profile_node_id, visitor_id))" --env=prod --no-interaction || echo "WARNING: library_view_cooldowns creation failed"
+
 # Clear and warm up cache
 php /app/bin/console cache:clear --env=prod --no-debug || true
 php /app/bin/console cache:warmup --env=prod || true

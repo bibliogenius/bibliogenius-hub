@@ -58,6 +58,10 @@ class LibraryProfile
     #[ORM\Column(nullable: true)]
     private ?\DateTimeImmutable $lastSeenAt = null;
 
+    /** Total number of catalog views (incremented with 15-min cooldown per visitor). */
+    #[ORM\Column(type: 'integer')]
+    private int $viewCount = 0;
+
     public function __construct(string $nodeId, string $writeToken, string $displayName)
     {
         $this->nodeId = $nodeId;
@@ -169,6 +173,17 @@ class LibraryProfile
         return $this;
     }
 
+    public function getViewCount(): int
+    {
+        return $this->viewCount;
+    }
+
+    public function incrementViewCount(): static
+    {
+        $this->viewCount++;
+        return $this;
+    }
+
     public function toPublicArray(): array
     {
         return [
@@ -179,6 +194,7 @@ class LibraryProfile
             'location_country'  => $this->locationCountry,
             'requires_approval' => $this->requiresApproval,
             'last_seen_at'      => $this->lastSeenAt?->format(\DateTimeInterface::ATOM),
+            'view_count'        => $this->viewCount,
         ];
     }
 }
