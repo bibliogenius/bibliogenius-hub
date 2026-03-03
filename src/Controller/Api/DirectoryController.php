@@ -31,6 +31,7 @@ use Symfony\Component\Routing\Attribute\Route;
  *   PATCH  /api/directory/follows/{id}         - Approve, reject, or block a follow request
  *   GET    /api/directory/follows              - List active follows (following + followers)
  *   DELETE /api/directory/follows/{nodeId}     - Unfollow a library
+ *   DELETE /api/directory/profile              - Delete own library profile (and all follows)
  */
 #[Route('/api/directory', name: 'api_directory_')]
 class DirectoryController extends AbstractController
@@ -88,6 +89,19 @@ class DirectoryController extends AbstractController
         $status = $existing === null ? Response::HTTP_CREATED : Response::HTTP_OK;
 
         return $this->json($response, $status);
+    }
+
+    #[Route('/profile', name: 'profile_delete', methods: ['DELETE'])]
+    public function deleteProfile(Request $request): JsonResponse
+    {
+        $profile = $this->requireAuth($request);
+        if ($profile instanceof JsonResponse) {
+            return $profile;
+        }
+
+        $this->directoryService->deleteProfile($profile);
+
+        return $this->json(null, Response::HTTP_NO_CONTENT);
     }
 
     // -------------------------------------------------------------------------

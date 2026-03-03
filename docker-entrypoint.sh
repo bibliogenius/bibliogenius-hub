@@ -26,6 +26,14 @@ php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_cached_catalog
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_follows_followed_status ON follows (followed_node_id, status)" --env=prod --no-interaction || true
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_follows_follower_status ON follows (follower_node_id, status)" --env=prod --no-interaction || true
 
+# relay_mailboxes and relay_messages (Version20260220170000 - E2EE relay)
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS relay_mailboxes (uuid VARCHAR(36) NOT NULL PRIMARY KEY, read_token VARCHAR(64) NOT NULL, write_token VARCHAR(64) NOT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, last_accessed TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL)" --env=prod --no-interaction || echo "WARNING: relay_mailboxes creation failed"
+
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS relay_messages (id SERIAL NOT NULL PRIMARY KEY, mailbox_uuid VARCHAR(36) NOT NULL, blob BYTEA NOT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT fk_relay_messages_mailbox FOREIGN KEY (mailbox_uuid) REFERENCES relay_mailboxes(uuid) ON DELETE CASCADE)" --env=prod --no-interaction || echo "WARNING: relay_messages creation failed"
+
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_relay_messages_mailbox ON relay_messages (mailbox_uuid)" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_relay_messages_created ON relay_messages (created_at)" --env=prod --no-interaction || true
+
 # invite_tokens (Version20260226170000 - short invite links)
 php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS invite_tokens (token VARCHAR(12) NOT NULL PRIMARY KEY, encrypted_payload TEXT NOT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP)" --env=prod --no-interaction || echo "WARNING: invite_tokens creation failed"
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_invite_tokens_created ON invite_tokens (created_at)" --env=prod --no-interaction || true

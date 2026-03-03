@@ -253,6 +253,27 @@ class DirectoryService
     }
 
     /**
+     * Completely removes a library profile and all associated data.
+     * Deletes: the profile, all follows (as follower or followed), and cached catalogs (cascade).
+     */
+    public function deleteProfile(LibraryProfile $profile): void
+    {
+        $nodeId = $profile->getNodeId();
+
+        // Delete all follows where this library is follower or followed
+        $conn = $this->entityManager->getConnection();
+        $conn->executeStatement(
+            'DELETE FROM follows WHERE follower_node_id = :nid OR followed_node_id = :nid',
+            ['nid' => $nodeId]
+        );
+
+        // cached_catalogs has onDelete CASCADE on the FK to library_profiles,
+        // so removing the profile entity will cascade.
+        $this->entityManager->remove($profile);
+        $this->entityManager->flush();
+    }
+
+    /**
      * Removes an active follow. Only the follower can unfollow.
      */
     public function unfollow(string $followedNodeId, LibraryProfile $follower): bool
