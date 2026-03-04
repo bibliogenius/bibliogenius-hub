@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Service;
 
+use App\Entity\BorrowRequest;
 use App\Entity\CachedCatalog;
 use App\Entity\Follow;
 use App\Entity\LibraryProfile;
+use App\Repository\BorrowRequestRepository;
 use App\Repository\FollowRepository;
 use App\Repository\LibraryProfileRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -18,6 +20,7 @@ use Doctrine\ORM\EntityManagerInterface;
  *   - Profile registration and updates
  *   - Catalog cache push and retrieval
  *   - Follow request lifecycle (create, approve, reject, block, unfollow)
+ *   - Borrow request lifecycle (create, resolve, cancel)
  *   - Directory listing
  *
  * The controller delegates entirely to this service. No HTTP concerns here.
@@ -33,6 +36,7 @@ class DirectoryService
         private readonly EntityManagerInterface $entityManager,
         private readonly LibraryProfileRepository $profileRepository,
         private readonly FollowRepository $followRepository,
+        private readonly BorrowRequestRepository $borrowRequestRepository,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -288,6 +292,150 @@ class DirectoryService
         $this->entityManager->flush();
 
         return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // Borrow requests (ADR-018)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Creates a borrow request from requester to lender.
+     *
+     * Validates: lender exists, active follow relationship, no pending duplicate.
+     * Triggers probabilistic cleanup of expired requests (1 in 50 writes).
+     */
+    public function createBorrowRequest(
+        LibraryProfile $requester,
+        string $lenderNodeId,
+        string $isbn,
+        string $bookTitle,
+    ): BorrowRequest {
+        // Validate lender exists
+        $lender = $this->profileRepository->findByNodeId($lenderNodeId);
+        if ($lender === null) {
+            throw new \InvalidArgumentException('Lender library not found.');
+        }
+
+        // Validate active follow relationship
+        if (!$this->followRepository->isActiveFollower($requester->getNodeId(), $lenderNodeId)) {
+            throw new \LogicException('You must follow this library before requesting a loan.');
+        }
+
+        // Check for duplicate pending request
+        $existing = $this->borrowRequestRepository->findPendingDuplicate(
+            $requester->getNodeId(),
+            $lenderNodeId,
+            $isbn
+        );
+        if ($existing !== null) {
+            throw new \LogicException('A pending request already exists for this book.');
+        }
+
+        $request = new BorrowRequest(
+            $requester->getNodeId(),
+            $lenderNodeId,
+            substr(trim($isbn), 0, 20),
+            substr(trim(strip_tags($bookTitle)), 0, 500),
+        );
+
+        $this->entityManager->persist($request);
+        $this->entityManager->flush();
+
+        // Probabilistic cleanup of expired requests
+        if (random_int(1, self::CLEANUP_PROBABILITY) === 1) {
+            $this->borrowRequestRepository->pruneExpired();
+        }
+
+        return $request;
+    }
+
+    /**
+     * Returns pending borrow requests for a lender, enriched with requester display names.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getIncomingBorrowRequests(LibraryProfile $lender): array
+    {
+        $requests = $this->borrowRequestRepository->findPendingForLender($lender->getNodeId());
+
+        return array_map(function (BorrowRequest $r) {
+            $data = $r->toArray();
+            $requesterProfile = $this->profileRepository->findByNodeId($r->getRequesterNodeId());
+            $data['requester_display_name'] = $requesterProfile?->getDisplayName();
+            return $data;
+        }, $requests);
+    }
+
+    /**
+     * Returns all borrow requests sent by a requester, enriched with lender display names.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getOutgoingBorrowRequests(LibraryProfile $requester): array
+    {
+        $requests = $this->borrowRequestRepository->findByRequester($requester->getNodeId());
+
+        return array_map(function (BorrowRequest $r) {
+            $data = $r->toArray();
+            $lenderProfile = $this->profileRepository->findByNodeId($r->getLenderNodeId());
+            $data['lender_display_name'] = $lenderProfile?->getDisplayName();
+            return $data;
+        }, $requests);
+    }
+
+    /**
+     * Resolves a borrow request (accept or reject). Only the lender can resolve.
+     */
+    public function resolveBorrowRequest(int $requestId, string $resolution, LibraryProfile $lender): BorrowRequest
+    {
+        $request = $this->borrowRequestRepository->find($requestId);
+
+        if ($request === null) {
+            throw new \InvalidArgumentException('Borrow request not found.');
+        }
+
+        if ($request->getLenderNodeId() !== $lender->getNodeId()) {
+            throw new \LogicException('Not authorized to resolve this borrow request.');
+        }
+
+        if (!$request->isPending()) {
+            throw new \LogicException('Borrow request is not pending.');
+        }
+
+        match ($resolution) {
+            'accept' => $request->accept(),
+            'reject' => $request->reject(),
+            default  => throw new \InvalidArgumentException('Invalid resolution. Use: accept, reject.'),
+        };
+
+        $this->entityManager->flush();
+
+        return $request;
+    }
+
+    /**
+     * Cancels a borrow request. Only the requester can cancel.
+     */
+    public function cancelBorrowRequest(int $requestId, LibraryProfile $requester): BorrowRequest
+    {
+        $request = $this->borrowRequestRepository->find($requestId);
+
+        if ($request === null) {
+            throw new \InvalidArgumentException('Borrow request not found.');
+        }
+
+        if ($request->getRequesterNodeId() !== $requester->getNodeId()) {
+            throw new \LogicException('Not authorized to cancel this borrow request.');
+        }
+
+        if (!$request->isPending()) {
+            throw new \LogicException('Borrow request is not pending.');
+        }
+
+        $request->cancel();
+        $this->entityManager->flush();
+
+        return $request;
     }
 
     // -------------------------------------------------------------------------

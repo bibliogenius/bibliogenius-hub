@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller\Api;
 
-use App\Entity\Follow;
+use App\Repository\BorrowRequestRepository;
 use App\Repository\FollowRepository;
 use App\Repository\LibraryProfileRepository;
 use App\Service\DirectoryService;
@@ -33,6 +33,11 @@ use Symfony\Component\Routing\Attribute\Route;
  *   GET    /api/directory/follows              - List active follows (following + followers)
  *   DELETE /api/directory/follows/{nodeId}     - Unfollow a library
  *   DELETE /api/directory/profile              - Delete own library profile (and all follows)
+ *   POST   /api/directory/borrow              - Create a borrow request (ADR-018)
+ *   GET    /api/directory/borrow/incoming      - List incoming pending borrow requests
+ *   GET    /api/directory/borrow/outgoing      - List outgoing borrow requests
+ *   PATCH  /api/directory/borrow/{id}         - Accept or reject a borrow request
+ *   DELETE /api/directory/borrow/{id}         - Cancel a borrow request (requester only)
  */
 #[Route('/api/directory', name: 'api_directory_')]
 class DirectoryController extends AbstractController
@@ -355,6 +360,132 @@ class DirectoryController extends AbstractController
         }
 
         $this->directoryService->unfollow($nodeId, $follower);
+
+        return $this->json(null, Response::HTTP_NO_CONTENT);
+    }
+
+    // -------------------------------------------------------------------------
+    // Borrow requests (ADR-018)
+    // -------------------------------------------------------------------------
+
+    #[Route('/borrow', name: 'borrow_create', methods: ['POST'], priority: 2)]
+    public function createBorrowRequest(Request $request): JsonResponse
+    {
+        $profile = $this->requireAuth($request);
+        if ($profile instanceof JsonResponse) {
+            return $profile;
+        }
+
+        $data = $this->parseJson($request);
+        if ($data === null) {
+            return $this->error('Invalid JSON body.', Response::HTTP_BAD_REQUEST);
+        }
+
+        $lenderNodeId = $data['lender_node_id'] ?? null;
+        if (!$this->isValidNodeId($lenderNodeId)) {
+            return $this->error('lender_node_id is required (max 128 chars).', Response::HTTP_BAD_REQUEST);
+        }
+
+        $isbn = $data['isbn'] ?? null;
+        if (!is_string($isbn) || $isbn === '' || strlen($isbn) > 20) {
+            return $this->error('isbn is required (max 20 chars).', Response::HTTP_BAD_REQUEST);
+        }
+
+        $bookTitle = $data['book_title'] ?? '';
+
+        try {
+            $borrowRequest = $this->directoryService->createBorrowRequest(
+                $profile,
+                $lenderNodeId,
+                $isbn,
+                is_string($bookTitle) ? $bookTitle : '',
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), Response::HTTP_NOT_FOUND);
+        } catch (\LogicException $e) {
+            return $this->error($e->getMessage(), Response::HTTP_FORBIDDEN);
+        } catch (\Throwable $e) {
+            return $this->error('createBorrowRequest failed: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        return $this->json($borrowRequest->toArray(), Response::HTTP_CREATED);
+    }
+
+    #[Route('/borrow/incoming', name: 'borrow_incoming', methods: ['GET'], priority: 2)]
+    public function incomingBorrowRequests(Request $request): JsonResponse
+    {
+        $profile = $this->requireAuth($request);
+        if ($profile instanceof JsonResponse) {
+            return $profile;
+        }
+
+        try {
+            $items = $this->directoryService->getIncomingBorrowRequests($profile);
+        } catch (\Throwable $e) {
+            return $this->error('getIncomingBorrowRequests failed: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        return $this->json(['items' => $items]);
+    }
+
+    #[Route('/borrow/outgoing', name: 'borrow_outgoing', methods: ['GET'], priority: 2)]
+    public function outgoingBorrowRequests(Request $request): JsonResponse
+    {
+        $profile = $this->requireAuth($request);
+        if ($profile instanceof JsonResponse) {
+            return $profile;
+        }
+
+        try {
+            $items = $this->directoryService->getOutgoingBorrowRequests($profile);
+        } catch (\Throwable $e) {
+            return $this->error('getOutgoingBorrowRequests failed: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        return $this->json(['items' => $items]);
+    }
+
+    #[Route('/borrow/{id}', name: 'borrow_resolve', methods: ['PATCH'], priority: 2)]
+    public function resolveBorrowRequest(int $id, Request $request): JsonResponse
+    {
+        $profile = $this->requireAuth($request);
+        if ($profile instanceof JsonResponse) {
+            return $profile;
+        }
+
+        $data = $this->parseJson($request);
+        $resolution = $data['resolution'] ?? null;
+
+        if (!in_array($resolution, ['accept', 'reject'], true)) {
+            return $this->error('resolution must be one of: accept, reject.', Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            $borrowRequest = $this->directoryService->resolveBorrowRequest($id, $resolution, $profile);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), Response::HTTP_NOT_FOUND);
+        } catch (\LogicException $e) {
+            return $this->error($e->getMessage(), Response::HTTP_FORBIDDEN);
+        }
+
+        return $this->json($borrowRequest->toArray());
+    }
+
+    #[Route('/borrow/{id}', name: 'borrow_cancel', methods: ['DELETE'], priority: 2)]
+    public function cancelBorrowRequest(int $id, Request $request): JsonResponse
+    {
+        $profile = $this->requireAuth($request);
+        if ($profile instanceof JsonResponse) {
+            return $profile;
+        }
+
+        try {
+            $this->directoryService->cancelBorrowRequest($id, $profile);
+        } catch (\InvalidArgumentException $e) {
+            return $this->error($e->getMessage(), Response::HTTP_NOT_FOUND);
+        } catch (\LogicException $e) {
+            return $this->error($e->getMessage(), Response::HTTP_FORBIDDEN);
+        }
 
         return $this->json(null, Response::HTTP_NO_CONTENT);
     }
