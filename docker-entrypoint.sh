@@ -45,6 +45,12 @@ php /app/bin/console dbal:run-sql "ALTER TABLE cached_catalogs ADD COLUMN IF NOT
 php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0" --env=prod --no-interaction || true
 php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS library_view_cooldowns (profile_node_id VARCHAR(128) NOT NULL, visitor_id VARCHAR(128) NOT NULL, last_counted_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, PRIMARY KEY (profile_node_id, visitor_id))" --env=prod --no-interaction || echo "WARNING: library_view_cooldowns creation failed"
 
+# borrow_requests (ADR-018 - borrowing via hub)
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS borrow_requests (id SERIAL NOT NULL PRIMARY KEY, requester_node_id VARCHAR(128) NOT NULL, lender_node_id VARCHAR(128) NOT NULL, isbn VARCHAR(20) NOT NULL, book_title VARCHAR(500) NOT NULL DEFAULT '', status VARCHAR(20) NOT NULL DEFAULT 'pending', created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, resolved_at TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL, expires_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL)" --env=prod --no-interaction || echo "WARNING: borrow_requests creation failed"
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_borrow_req_lender ON borrow_requests (lender_node_id, status)" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_borrow_req_requester ON borrow_requests (requester_node_id, status)" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_borrow_req_expires ON borrow_requests (expires_at)" --env=prod --no-interaction || true
+
 # allow_borrowing toggle (Version20260304130000)
 php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS allow_borrowing BOOLEAN NOT NULL DEFAULT TRUE" --env=prod --no-interaction || true
 
