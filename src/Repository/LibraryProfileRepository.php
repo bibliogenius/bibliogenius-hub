@@ -34,7 +34,7 @@ class LibraryProfileRepository extends ServiceEntityRepository
      *
      * @return LibraryProfile[]
      */
-    public function findListed(int $limit = 50, int $offset = 0, ?string $country = null): array
+    public function findListed(int $limit = 50, int $offset = 0, ?string $country = null, ?string $search = null): array
     {
         $qb = $this->createQueryBuilder('p')
             ->where('p.isListed = :listed')
@@ -46,6 +46,11 @@ class LibraryProfileRepository extends ServiceEntityRepository
         if ($country !== null) {
             $qb->andWhere('p.locationCountry = :country')
                ->setParameter('country', $country);
+        }
+
+        if ($search !== null && $search !== '') {
+            $qb->andWhere('LOWER(p.displayName) LIKE LOWER(:search)')
+               ->setParameter('search', '%' . $search . '%');
         }
 
         return $qb->getQuery()->getResult();

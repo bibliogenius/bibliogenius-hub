@@ -210,9 +210,10 @@ class DirectoryController extends AbstractController
         $limit   = (int) ($request->query->get('limit', 50));
         $offset  = max(0, (int) $request->query->get('offset', 0));
         $country = $request->query->get('country');
+        $search  = $request->query->get('search');
 
         try {
-            $profiles = $this->directoryService->listDirectory($limit, $offset, $country ?: null);
+            $profiles = $this->directoryService->listDirectory($limit, $offset, $country ?: null, $search ?: null);
         } catch (\Throwable $e) {
             return $this->error('listDirectory failed: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
         }
