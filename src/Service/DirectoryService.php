@@ -118,6 +118,20 @@ class DirectoryService
         if (isset($data['is_listed'])) {
             $profile->setIsListed((bool) $data['is_listed']);
         }
+        if (isset($data['x25519_public_key'])) {
+            $key = $data['x25519_public_key'];
+            // Validate hex-encoded 32-byte key (64 hex chars)
+            if (is_string($key) && preg_match('/^[0-9a-f]{64}$/i', $key)) {
+                $profile->setX25519PublicKey(strtolower($key));
+            }
+        }
+        if (array_key_exists('website', $data)) {
+            $profile->setWebsite(
+                $data['website'] !== null
+                    ? $this->sanitizeUrl($data['website'], 255)
+                    : null
+            );
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -231,7 +245,7 @@ class DirectoryService
      * Approves or rejects a pending follow request.
      * Only the followed library (authenticated) can resolve requests.
      */
-    public function resolveFollow(int $followId, string $resolution, LibraryProfile $authenticated): Follow
+    public function resolveFollow(int $followId, string $resolution, LibraryProfile $authenticated, ?string $encryptedContact = null): Follow
     {
         $follow = $this->followRepository->find($followId);
 
@@ -253,6 +267,11 @@ class DirectoryService
             'block'   => $follow->block(),
             default   => throw new \InvalidArgumentException('Invalid resolution. Use: approve, reject, block.'),
         };
+
+        // Attach encrypted contact blob when approving (E2EE, opaque to hub)
+        if ($resolution === 'approve' && $encryptedContact !== null) {
+            $follow->setEncryptedContact($encryptedContact);
+        }
 
         $this->entityManager->flush();
 
@@ -295,6 +314,48 @@ class DirectoryService
         $this->entityManager->flush();
 
         return true;
+    }
+
+    /**
+     * Batch-updates encrypted contact blobs for active followers.
+     *
+     * Called when the library owner changes their contact info and needs to
+     * re-encrypt for every approved follower.
+     *
+     * @param array<array{follow_id: int, encrypted_contact: string}> $contacts
+     */
+    public function syncFollowContacts(LibraryProfile $authenticated, array $contacts): int
+    {
+        $updated = 0;
+        foreach ($contacts as $entry) {
+            $followId = (int) ($entry['follow_id'] ?? 0);
+            $blob = $entry['encrypted_contact'] ?? null;
+
+            if ($followId <= 0 || !is_string($blob) || strlen($blob) > 8192) {
+                continue;
+            }
+
+            $follow = $this->followRepository->find($followId);
+            if ($follow === null) {
+                continue;
+            }
+            // Only the followed library can update contact on their followers
+            if ($follow->getFollowedNodeId() !== $authenticated->getNodeId()) {
+                continue;
+            }
+            if (!$follow->isActive()) {
+                continue;
+            }
+
+            $follow->setEncryptedContact($blob);
+            $updated++;
+        }
+
+        if ($updated > 0) {
+            $this->entityManager->flush();
+        }
+
+        return $updated;
     }
 
     // -------------------------------------------------------------------------
@@ -480,6 +541,16 @@ class DirectoryService
     private function sanitizeString(string $value, int $maxLength): string
     {
         return substr(trim(strip_tags($value)), 0, $maxLength);
+    }
+
+    private function sanitizeUrl(string $url, int $maxLength): string
+    {
+        $url = trim($url);
+        // Basic URL sanity: must start with http:// or https://
+        if ($url !== '' && !preg_match('#^https?://#i', $url)) {
+            $url = 'https://' . $url;
+        }
+        return substr($url, 0, $maxLength);
     }
 
     private function probabilisticCleanup(): void

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller\Api;
 
+use App\Entity\Follow;
 use App\Repository\BorrowRequestRepository;
 use App\Repository\FollowRepository;
 use App\Repository\LibraryProfileRepository;
@@ -283,11 +284,12 @@ class DirectoryController extends AbstractController
 
         $pending = $this->followRepository->findPendingFor($profile->getNodeId());
 
-        // Enrich each follow with the follower's display name from their profile.
+        // Enrich each follow with the follower's profile data.
         $items = array_map(function (Follow $f) {
             $data = $f->toArray();
             $followerProfile = $this->profileRepository->findByNodeId($f->getFollowerNodeId());
             $data['follower_display_name'] = $followerProfile?->getDisplayName();
+            $data['follower_x25519_public_key'] = $followerProfile?->getX25519PublicKey();
             return $data;
         }, $pending);
 
@@ -311,8 +313,17 @@ class DirectoryController extends AbstractController
             return $this->error('resolution must be one of: approve, reject, block.', Response::HTTP_BAD_REQUEST);
         }
 
+        // Optional E2EE contact blob (base64, max 8 KB) - attached when approving
+        $encryptedContact = null;
+        if (isset($data['encrypted_contact']) && is_string($data['encrypted_contact'])) {
+            if (strlen($data['encrypted_contact']) > 8192) {
+                return $this->error('encrypted_contact exceeds maximum size (8 KB).', Response::HTTP_BAD_REQUEST);
+            }
+            $encryptedContact = $data['encrypted_contact'];
+        }
+
         try {
-            $follow = $this->directoryService->resolveFollow($id, $resolution, $profile);
+            $follow = $this->directoryService->resolveFollow($id, $resolution, $profile, $encryptedContact);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), Response::HTTP_NOT_FOUND);
         } catch (\LogicException $e) {
@@ -342,8 +353,20 @@ class DirectoryController extends AbstractController
             return $this->error('direction must be: following or followers.', Response::HTTP_BAD_REQUEST);
         }
 
+        // Enrich with x25519 keys for E2EE contact exchange
+        $items = array_map(function (Follow $f) use ($direction) {
+            $data = $f->toArray();
+            if ($direction === 'followers') {
+                // Owner needs follower's key to encrypt contact for them
+                $followerProfile = $this->profileRepository->findByNodeId($f->getFollowerNodeId());
+                $data['follower_x25519_public_key'] = $followerProfile?->getX25519PublicKey();
+                $data['follower_display_name'] = $followerProfile?->getDisplayName();
+            }
+            return $data;
+        }, $follows);
+
         return $this->json([
-            'items' => array_map(fn ($f) => $f->toArray(), $follows),
+            'items' => $items,
         ]);
     }
 
@@ -362,6 +385,44 @@ class DirectoryController extends AbstractController
         $this->directoryService->unfollow($nodeId, $follower);
 
         return $this->json(null, Response::HTTP_NO_CONTENT);
+    }
+
+    // -------------------------------------------------------------------------
+    // E2EE contact sync
+    // -------------------------------------------------------------------------
+
+    /**
+     * Batch-updates encrypted contact blobs for all active followers.
+     * Called when the library owner changes their contact info.
+     *
+     * Body: { "contacts": [ { "follow_id": 42, "encrypted_contact": "base64..." }, ... ] }
+     */
+    #[Route('/contacts/sync', name: 'contacts_sync', methods: ['POST'], priority: 2)]
+    public function syncContacts(Request $request): JsonResponse
+    {
+        $profile = $this->requireAuth($request);
+        if ($profile instanceof JsonResponse) {
+            return $profile;
+        }
+
+        $data = $this->parseJson($request);
+        $contacts = $data['contacts'] ?? null;
+
+        if (!is_array($contacts)) {
+            return $this->error('contacts array is required.', Response::HTTP_BAD_REQUEST);
+        }
+
+        if (count($contacts) > 500) {
+            return $this->error('Too many contacts (max 500).', Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            $updated = $this->directoryService->syncFollowContacts($profile, $contacts);
+        } catch (\Throwable $e) {
+            return $this->error('syncContacts failed: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        return $this->json(['updated' => $updated]);
     }
 
     // -------------------------------------------------------------------------

@@ -46,6 +46,10 @@ class Follow
     #[ORM\Column(nullable: true)]
     private ?\DateTimeImmutable $resolvedAt = null;
 
+    /** E2EE sealed blob: followed library's contact info, encrypted for this specific follower. */
+    #[ORM\Column(type: 'text', nullable: true)]
+    private ?string $encryptedContact = null;
+
     public function __construct(string $followerNodeId, string $followedNodeId)
     {
         $this->followerNodeId = $followerNodeId;
@@ -115,15 +119,27 @@ class Follow
         return $this->resolvedAt;
     }
 
+    public function getEncryptedContact(): ?string
+    {
+        return $this->encryptedContact;
+    }
+
+    public function setEncryptedContact(?string $encryptedContact): static
+    {
+        $this->encryptedContact = $encryptedContact;
+        return $this;
+    }
+
     public function toArray(): array
     {
         return [
-            'id'               => $this->id,
-            'follower_node_id' => $this->followerNodeId,
-            'followed_node_id' => $this->followedNodeId,
-            'status'           => $this->status,
-            'created_at'       => $this->createdAt->format(\DateTimeInterface::ATOM),
-            'resolved_at'      => $this->resolvedAt?->format(\DateTimeInterface::ATOM),
+            'id'                => $this->id,
+            'follower_node_id'  => $this->followerNodeId,
+            'followed_node_id'  => $this->followedNodeId,
+            'status'            => $this->status,
+            'created_at'        => $this->createdAt->format(\DateTimeInterface::ATOM),
+            'resolved_at'       => $this->resolvedAt?->format(\DateTimeInterface::ATOM),
+            'encrypted_contact' => $this->encryptedContact,
         ];
     }
 }

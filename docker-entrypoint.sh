@@ -54,6 +54,11 @@ php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_borrow_req_exp
 # allow_borrowing toggle (Version20260304130000)
 php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS allow_borrowing BOOLEAN NOT NULL DEFAULT TRUE" --env=prod --no-interaction || true
 
+# x25519 public key + website on profiles, encrypted_contact on follows (Version20260304200000 - E2EE contact sharing)
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS x25519_public_key VARCHAR(64) DEFAULT NULL" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS website VARCHAR(255) DEFAULT NULL" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "ALTER TABLE follows ADD COLUMN IF NOT EXISTS encrypted_contact TEXT DEFAULT NULL" --env=prod --no-interaction || true
+
 # Clear and warm up cache
 php /app/bin/console cache:clear --env=prod --no-debug || true
 php /app/bin/console cache:warmup --env=prod || true

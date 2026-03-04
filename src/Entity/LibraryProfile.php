@@ -62,6 +62,14 @@ class LibraryProfile
     #[ORM\Column(nullable: true)]
     private ?\DateTimeImmutable $lastSeenAt = null;
 
+    /** X25519 public key (hex-encoded, 64 chars). Required for E2EE contact sharing. */
+    #[ORM\Column(type: 'string', length: 64, nullable: true)]
+    private ?string $x25519PublicKey = null;
+
+    /** Public website URL. Visible to all directory visitors. */
+    #[ORM\Column(type: 'string', length: 255, nullable: true)]
+    private ?string $website = null;
+
     /** Total number of catalog views (incremented with 15-min cooldown per visitor). */
     #[ORM\Column(type: 'integer')]
     private int $viewCount = 0;
@@ -199,6 +207,28 @@ class LibraryProfile
         return $this;
     }
 
+    public function getX25519PublicKey(): ?string
+    {
+        return $this->x25519PublicKey;
+    }
+
+    public function setX25519PublicKey(?string $x25519PublicKey): static
+    {
+        $this->x25519PublicKey = $x25519PublicKey;
+        return $this;
+    }
+
+    public function getWebsite(): ?string
+    {
+        return $this->website;
+    }
+
+    public function setWebsite(?string $website): static
+    {
+        $this->website = $website;
+        return $this;
+    }
+
     public function toPublicArray(): array
     {
         return [
@@ -211,6 +241,8 @@ class LibraryProfile
             'allow_borrowing'   => $this->allowBorrowing,
             'last_seen_at'      => $this->lastSeenAt?->format(\DateTimeInterface::ATOM),
             'view_count'        => $this->viewCount,
+            'x25519_public_key' => $this->x25519PublicKey,
+            'website'           => $this->website,
         ];
     }
 }
