@@ -45,6 +45,9 @@ php /app/bin/console dbal:run-sql "ALTER TABLE cached_catalogs ADD COLUMN IF NOT
 php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0" --env=prod --no-interaction || true
 php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS library_view_cooldowns (profile_node_id VARCHAR(128) NOT NULL, visitor_id VARCHAR(128) NOT NULL, last_counted_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, PRIMARY KEY (profile_node_id, visitor_id))" --env=prod --no-interaction || echo "WARNING: library_view_cooldowns creation failed"
 
+# allow_borrowing toggle (Version20260304130000)
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS allow_borrowing BOOLEAN NOT NULL DEFAULT TRUE" --env=prod --no-interaction || true
+
 # Clear and warm up cache
 php /app/bin/console cache:clear --env=prod --no-debug || true
 php /app/bin/console cache:warmup --env=prod || true
