@@ -255,6 +255,14 @@ class DirectoryController extends AbstractController
             return $this->error('Invalid node_id.', Response::HTTP_BAD_REQUEST);
         }
 
+        // Accept optional x25519 key so followers can receive encrypted contact
+        $data = $this->parseJson($request);
+        $x25519Key = $data['x25519_public_key'] ?? null;
+        if ($x25519Key !== null && \is_string($x25519Key) && preg_match('/^[0-9a-f]{64}$/i', $x25519Key)) {
+            $follower->setX25519PublicKey($x25519Key);
+            $this->profileRepository->getEntityManager()->flush();
+        }
+
         $followed = $this->profileRepository->findByNodeId($nodeId);
         if ($followed === null || !$followed->isListed()) {
             return $this->error('Library not found.', Response::HTTP_NOT_FOUND);
