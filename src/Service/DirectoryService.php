@@ -112,6 +112,9 @@ class DirectoryService
         if (isset($data['accept_from']) && in_array($data['accept_from'], self::VALID_ACCEPT_FROM, true)) {
             $profile->setAcceptFrom($data['accept_from']);
         }
+        if (isset($data['allow_borrowing'])) {
+            $profile->setAllowBorrowing((bool) $data['allow_borrowing']);
+        }
         if (isset($data['is_listed'])) {
             $profile->setIsListed((bool) $data['is_listed']);
         }
@@ -314,6 +317,11 @@ class DirectoryService
         $lender = $this->profileRepository->findByNodeId($lenderNodeId);
         if ($lender === null) {
             throw new \InvalidArgumentException('Lender library not found.');
+        }
+
+        // Check if lender accepts borrow requests
+        if (!$lender->isAllowBorrowing()) {
+            throw new \LogicException('Borrowing is disabled for this library.');
         }
 
         // Validate active follow relationship

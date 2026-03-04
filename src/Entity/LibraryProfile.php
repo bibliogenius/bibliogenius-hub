@@ -48,6 +48,10 @@ class LibraryProfile
     #[ORM\Column(type: 'string', length: 20)]
     private string $acceptFrom = 'everyone';
 
+    /** Whether this library accepts borrow requests from followers via the hub. */
+    #[ORM\Column(type: 'boolean')]
+    private bool $allowBorrowing = true;
+
     /** Whether this library appears in the public directory. */
     #[ORM\Column(type: 'boolean')]
     private bool $isListed = false;
@@ -146,6 +150,17 @@ class LibraryProfile
         return $this;
     }
 
+    public function isAllowBorrowing(): bool
+    {
+        return $this->allowBorrowing;
+    }
+
+    public function setAllowBorrowing(bool $allowBorrowing): static
+    {
+        $this->allowBorrowing = $allowBorrowing;
+        return $this;
+    }
+
     public function isListed(): bool
     {
         return $this->isListed;
@@ -193,6 +208,7 @@ class LibraryProfile
             'book_count'        => $this->bookCount,
             'location_country'  => $this->locationCountry,
             'requires_approval' => $this->requiresApproval,
+            'allow_borrowing'   => $this->allowBorrowing,
             'last_seen_at'      => $this->lastSeenAt?->format(\DateTimeInterface::ATOM),
             'view_count'        => $this->viewCount,
         ];
