@@ -172,12 +172,14 @@ class DirectoryService
      * Returns the cached catalog for a library if the requester is allowed to see it.
      *
      * Access rules:
-     *   - requires_approval=false: public, no auth required (requesterProfile may be null)
-     *   - requires_approval=true:  requester must have an active follow relationship
+     *   - requires_approval=false OR is_listed=false: accessible to any authenticated user
+     *     (non-listed libraries use nodeId knowledge as implicit authorization)
+     *   - requires_approval=true AND is_listed=true: requester must have an active follow
      */
     public function getCatalog(LibraryProfile $profile, ?LibraryProfile $requesterProfile): ?CachedCatalog
     {
-        if (!$profile->isRequiresApproval()) {
+        // Non-listed libraries: nodeId knowledge is sufficient (not discoverable in directory)
+        if (!$profile->isRequiresApproval() || !$profile->isListed()) {
             return $this->entityManager->find(CachedCatalog::class, $profile->getNodeId());
         }
 

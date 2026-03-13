@@ -162,13 +162,18 @@ class DirectoryController extends AbstractController
         }
 
         $profile = $this->profileRepository->findByNodeId($nodeId);
-        if ($profile === null || !$profile->isListed()) {
+        if ($profile === null) {
             return $this->error('Library not found.', Response::HTTP_NOT_FOUND);
         }
 
-        // Optional auth - required only for approval-required libraries
+        // Auth: always attempt (required for non-listed or approval-required libraries)
         $token = $this->extractBearerToken($request);
         $requester = $token !== null ? $this->directoryService->authenticate($token) : null;
+
+        // Non-listed libraries are hidden from unauthenticated requests
+        if (!$profile->isListed() && $requester === null) {
+            return $this->error('Library not found.', Response::HTTP_NOT_FOUND);
+        }
 
         $catalog = $this->directoryService->getCatalog($profile, $requester);
 
