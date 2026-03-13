@@ -231,15 +231,24 @@ class DirectoryController extends AbstractController
     }
 
     #[Route('/{nodeId}', name: 'profile_get', methods: ['GET'])]
-    public function getProfile(string $nodeId): JsonResponse
+    public function getProfile(string $nodeId, Request $request): JsonResponse
     {
         if (!$this->isValidNodeId($nodeId)) {
             return $this->error('Invalid node_id.', Response::HTTP_BAD_REQUEST);
         }
 
         $profile = $this->profileRepository->findByNodeId($nodeId);
-        if ($profile === null || !$profile->isListed()) {
+        if ($profile === null) {
             return $this->error('Library not found.', Response::HTTP_NOT_FOUND);
+        }
+
+        // Non-listed profiles require authentication (same pattern as catalog)
+        if (!$profile->isListed()) {
+            $token = $this->extractBearerToken($request);
+            $requester = $token !== null ? $this->directoryService->authenticate($token) : null;
+            if ($requester === null) {
+                return $this->error('Library not found.', Response::HTTP_NOT_FOUND);
+            }
         }
 
         return $this->json($profile->toPublicArray());
