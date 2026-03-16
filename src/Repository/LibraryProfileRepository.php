@@ -57,6 +57,51 @@ class LibraryProfileRepository extends ServiceEntityRepository
     }
 
     /**
+     * Deletes stale profiles: book_count = 0 AND last_seen_at IS NULL.
+     * Also cleans up associated follows and cached catalogs.
+     *
+     * @return int Number of profiles deleted
+     */
+    public function purgeStaleProfiles(): int
+    {
+        $conn = $this->getEntityManager()->getConnection();
+
+        // Find stale node IDs
+        $staleIds = $conn->fetchFirstColumn(
+            'SELECT node_id FROM library_profiles WHERE book_count = 0 AND last_seen_at IS NULL'
+        );
+
+        if (empty($staleIds)) {
+            return 0;
+        }
+
+        // Build safe placeholder list
+        $placeholders = implode(',', array_fill(0, count($staleIds), '?'));
+
+        // Clean up related data first (follows, catalogs, borrow_requests)
+        $conn->executeStatement(
+            "DELETE FROM follows WHERE follower_node_id IN ($placeholders) OR followed_node_id IN ($placeholders)",
+            array_merge($staleIds, $staleIds)
+        );
+        $conn->executeStatement(
+            "DELETE FROM cached_catalogs WHERE node_id IN ($placeholders)",
+            $staleIds
+        );
+        $conn->executeStatement(
+            "DELETE FROM borrow_requests WHERE requester_node_id IN ($placeholders) OR lender_node_id IN ($placeholders)",
+            array_merge($staleIds, $staleIds)
+        );
+
+        // Delete the profiles
+        $deleted = $conn->executeStatement(
+            "DELETE FROM library_profiles WHERE node_id IN ($placeholders)",
+            $staleIds
+        );
+
+        return $deleted;
+    }
+
+    /**
      * Prunes expired cached_catalogs rows. Called probabilistically on writes
      * to avoid a dedicated cron dependency on the hub.
      */

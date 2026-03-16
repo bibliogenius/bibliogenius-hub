@@ -82,6 +82,11 @@ class LibraryProfile
         $this->createdAt = new \DateTimeImmutable();
     }
 
+    public function __toString(): string
+    {
+        return sprintf('%s (%s)', $this->displayName, substr($this->nodeId, 0, 8));
+    }
+
     public function getNodeId(): string
     {
         return $this->nodeId;

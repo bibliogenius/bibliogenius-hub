@@ -5,13 +5,18 @@ declare(strict_types=1);
 namespace App\Controller\Admin;
 
 use App\Entity\CachedCatalog;
+use Doctrine\ORM\QueryBuilder;
+use EasyCorp\Bundle\EasyAdminBundle\Collection\FieldCollection;
+use EasyCorp\Bundle\EasyAdminBundle\Collection\FilterCollection;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Action;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Actions;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Crud;
 use EasyCorp\Bundle\EasyAdminBundle\Controller\AbstractCrudController;
+use EasyCorp\Bundle\EasyAdminBundle\Dto\EntityDto;
+use EasyCorp\Bundle\EasyAdminBundle\Dto\SearchDto;
+use EasyCorp\Bundle\EasyAdminBundle\Field\AssociationField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\DateTimeField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\TextareaField;
-use EasyCorp\Bundle\EasyAdminBundle\Field\TextField;
 
 class CachedCatalogCrudController extends AbstractCrudController
 {
@@ -31,23 +36,21 @@ class CachedCatalogCrudController extends AbstractCrudController
     public function configureActions(Actions $actions): Actions
     {
         return $actions
-            // Read-only + delete (no create/edit to avoid bypassing service logic)
-            ->disable(Action::NEW, Action::EDIT)
-            ->add(Crud::PAGE_INDEX, Action::DETAIL);
+            ->disable(Action::NEW, Action::EDIT, Action::DETAIL)
+            ->add(Crud::PAGE_INDEX, Action::DELETE);
     }
 
     public function configureFields(string $pageName): iterable
     {
-        yield TextField::new('nodeId', 'Node ID');
+        yield AssociationField::new('libraryProfile', 'Library Profile');
         yield DateTimeField::new('updatedAt', 'Updated');
         yield DateTimeField::new('expiresAt', 'Expires');
+    }
 
-        // Show payloads only on detail page (can be large)
-        if ($pageName === Crud::PAGE_DETAIL) {
-            yield TextareaField::new('isbnPayload', 'ISBN Payload')
-                ->setMaxLength(500);
-            yield TextareaField::new('catalogPayload', 'Catalog Payload')
-                ->setMaxLength(500);
-        }
+    public function createIndexQueryBuilder(SearchDto $searchDto, EntityDto $entityDto, FieldCollection $fields, FilterCollection $filters): QueryBuilder
+    {
+        return parent::createIndexQueryBuilder($searchDto, $entityDto, $fields, $filters)
+            ->leftJoin('entity.libraryProfile', 'lp')
+            ->addSelect('lp');
     }
 }

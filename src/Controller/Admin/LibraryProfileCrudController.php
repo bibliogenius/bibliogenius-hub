@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller\Admin;
 
 use App\Entity\LibraryProfile;
+use App\Repository\LibraryProfileRepository;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Action;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Actions;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Crud;
@@ -14,9 +15,15 @@ use EasyCorp\Bundle\EasyAdminBundle\Field\BooleanField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\DateTimeField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\IntegerField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\TextField;
+use EasyCorp\Bundle\EasyAdminBundle\Router\AdminUrlGenerator;
+use Symfony\Component\HttpFoundation\Response;
 
 class LibraryProfileCrudController extends AbstractCrudController
 {
+    public function __construct(
+        private readonly LibraryProfileRepository $profileRepository,
+    ) {}
+
     public static function getEntityFqcn(): string
     {
         return LibraryProfile::class;
@@ -34,9 +41,33 @@ class LibraryProfileCrudController extends AbstractCrudController
 
     public function configureActions(Actions $actions): Actions
     {
+        $purgeStale = Action::new('purgeStale', 'Purge Stale Profiles')
+            ->setIcon('fa fa-trash')
+            ->setCssClass('btn btn-danger')
+            ->linkToCrudAction('purgeStale')
+            ->createAsGlobalAction();
+
         return $actions
             ->disable(Action::NEW, Action::EDIT)
-            ->add(Crud::PAGE_INDEX, Action::DETAIL);
+            ->add(Crud::PAGE_INDEX, Action::DETAIL)
+            ->add(Crud::PAGE_INDEX, $purgeStale);
+    }
+
+    public function purgeStale(AdminUrlGenerator $adminUrlGenerator): Response
+    {
+        $deleted = $this->profileRepository->purgeStaleProfiles();
+
+        $this->addFlash('success', sprintf(
+            'Purged %d stale profile(s) (0 books, never seen).',
+            $deleted
+        ));
+
+        $url = $adminUrlGenerator
+            ->setController(self::class)
+            ->setAction(Action::INDEX)
+            ->generateUrl();
+
+        return $this->redirect($url);
     }
 
     public function configureFields(string $pageName): iterable
