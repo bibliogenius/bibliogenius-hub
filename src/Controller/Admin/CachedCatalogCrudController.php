@@ -36,8 +36,7 @@ class CachedCatalogCrudController extends AbstractCrudController
     public function configureActions(Actions $actions): Actions
     {
         return $actions
-            ->disable(Action::NEW, Action::EDIT, Action::DETAIL)
-            ->add(Crud::PAGE_INDEX, Action::DELETE);
+            ->disable(Action::NEW, Action::EDIT, Action::DETAIL);
     }
 
     public function configureFields(string $pageName): iterable
