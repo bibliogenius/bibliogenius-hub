@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+ENV=${APP_ENV:-prod}
+
 # Ensure var directory exists with proper permissions
 mkdir -p /app/var/cache /app/var/log
 chmod -R 777 /app/var
@@ -8,60 +10,70 @@ chmod -R 777 /app/var
 # Wait for PostgreSQL to be ready (max 30s)
 echo "Waiting for database..."
 for i in $(seq 1 30); do
-    php /app/bin/console dbal:run-sql "SELECT 1" --env=prod --no-interaction > /dev/null 2>&1 && break
+    php /app/bin/console dbal:run-sql "SELECT 1" --env=$ENV --no-interaction > /dev/null 2>&1 && break
     echo "  attempt $i/30..."
     sleep 1
 done
 
 # Create missing tables (idempotent - doctrine:schema:update removed in ORM 3.0)
-php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS library_profiles (node_id VARCHAR(128) NOT NULL, write_token VARCHAR(64) NOT NULL, display_name VARCHAR(255) NOT NULL, description TEXT DEFAULT NULL, book_count INTEGER NOT NULL DEFAULT 0, location_country VARCHAR(5) DEFAULT NULL, requires_approval BOOLEAN NOT NULL DEFAULT TRUE, accept_from VARCHAR(20) NOT NULL DEFAULT 'everyone', is_listed BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, last_seen_at TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL, PRIMARY KEY (node_id))" --env=prod --no-interaction || echo "WARNING: library_profiles creation failed"
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS library_profiles (node_id VARCHAR(128) NOT NULL, write_token VARCHAR(64) NOT NULL, display_name VARCHAR(255) NOT NULL, description TEXT DEFAULT NULL, book_count INTEGER NOT NULL DEFAULT 0, location_country VARCHAR(5) DEFAULT NULL, requires_approval BOOLEAN NOT NULL DEFAULT TRUE, accept_from VARCHAR(20) NOT NULL DEFAULT 'everyone', is_listed BOOLEAN NOT NULL DEFAULT FALSE, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, last_seen_at TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL, PRIMARY KEY (node_id))" --env=$ENV --no-interaction || echo "WARNING: library_profiles creation failed"
 
-php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS cached_catalogs (node_id VARCHAR(128) NOT NULL, isbn_payload TEXT NOT NULL, updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, expires_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, PRIMARY KEY (node_id), CONSTRAINT fk_cached_catalogs_profile FOREIGN KEY (node_id) REFERENCES library_profiles(node_id) ON DELETE CASCADE)" --env=prod --no-interaction || echo "WARNING: cached_catalogs creation failed"
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS cached_catalogs (node_id VARCHAR(128) NOT NULL, isbn_payload TEXT NOT NULL, updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, expires_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, PRIMARY KEY (node_id), CONSTRAINT fk_cached_catalogs_profile FOREIGN KEY (node_id) REFERENCES library_profiles(node_id) ON DELETE CASCADE)" --env=$ENV --no-interaction || echo "WARNING: cached_catalogs creation failed"
 
-php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS follows (id SERIAL NOT NULL, follower_node_id VARCHAR(128) NOT NULL, followed_node_id VARCHAR(128) NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'pending', created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, resolved_at TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL, PRIMARY KEY (id), CONSTRAINT unique_follow UNIQUE (follower_node_id, followed_node_id))" --env=prod --no-interaction || echo "WARNING: follows creation failed"
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS follows (id SERIAL NOT NULL, follower_node_id VARCHAR(128) NOT NULL, followed_node_id VARCHAR(128) NOT NULL, status VARCHAR(20) NOT NULL DEFAULT 'pending', created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, resolved_at TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL, PRIMARY KEY (id), CONSTRAINT unique_follow UNIQUE (follower_node_id, followed_node_id))" --env=$ENV --no-interaction || echo "WARNING: follows creation failed"
 
-php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_library_profiles_listed ON library_profiles (is_listed)" --env=prod --no-interaction || true
-php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_library_profiles_last_seen ON library_profiles (last_seen_at)" --env=prod --no-interaction || true
-php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_cached_catalogs_expires ON cached_catalogs (expires_at)" --env=prod --no-interaction || true
-php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_follows_followed_status ON follows (followed_node_id, status)" --env=prod --no-interaction || true
-php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_follows_follower_status ON follows (follower_node_id, status)" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_library_profiles_listed ON library_profiles (is_listed)" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_library_profiles_last_seen ON library_profiles (last_seen_at)" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_cached_catalogs_expires ON cached_catalogs (expires_at)" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_follows_followed_status ON follows (followed_node_id, status)" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_follows_follower_status ON follows (follower_node_id, status)" --env=$ENV --no-interaction || true
 
 # relay_mailboxes and relay_messages (Version20260220170000 - E2EE relay)
-php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS relay_mailboxes (uuid VARCHAR(36) NOT NULL PRIMARY KEY, read_token VARCHAR(64) NOT NULL, write_token VARCHAR(64) NOT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, last_accessed TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL)" --env=prod --no-interaction || echo "WARNING: relay_mailboxes creation failed"
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS relay_mailboxes (uuid VARCHAR(36) NOT NULL PRIMARY KEY, read_token VARCHAR(64) NOT NULL, write_token VARCHAR(64) NOT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, last_accessed TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL)" --env=$ENV --no-interaction || echo "WARNING: relay_mailboxes creation failed"
 
-php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS relay_messages (id SERIAL NOT NULL PRIMARY KEY, mailbox_uuid VARCHAR(36) NOT NULL, blob BYTEA NOT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT fk_relay_messages_mailbox FOREIGN KEY (mailbox_uuid) REFERENCES relay_mailboxes(uuid) ON DELETE CASCADE)" --env=prod --no-interaction || echo "WARNING: relay_messages creation failed"
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS relay_messages (id SERIAL NOT NULL PRIMARY KEY, mailbox_uuid VARCHAR(36) NOT NULL, blob BYTEA NOT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT fk_relay_messages_mailbox FOREIGN KEY (mailbox_uuid) REFERENCES relay_mailboxes(uuid) ON DELETE CASCADE)" --env=$ENV --no-interaction || echo "WARNING: relay_messages creation failed"
 
-php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_relay_messages_mailbox ON relay_messages (mailbox_uuid)" --env=prod --no-interaction || true
-php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_relay_messages_created ON relay_messages (created_at)" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_relay_messages_mailbox ON relay_messages (mailbox_uuid)" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_relay_messages_created ON relay_messages (created_at)" --env=$ENV --no-interaction || true
 
 # invite_tokens (Version20260226170000 - short invite links)
-php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS invite_tokens (token VARCHAR(12) NOT NULL PRIMARY KEY, encrypted_payload TEXT NOT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP)" --env=prod --no-interaction || echo "WARNING: invite_tokens creation failed"
-php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_invite_tokens_created ON invite_tokens (created_at)" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS invite_tokens (token VARCHAR(12) NOT NULL PRIMARY KEY, encrypted_payload TEXT NOT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP)" --env=$ENV --no-interaction || echo "WARNING: invite_tokens creation failed"
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_invite_tokens_created ON invite_tokens (created_at)" --env=$ENV --no-interaction || true
 
 # catalog_payload enriched column (Version20260302000000)
-php /app/bin/console dbal:run-sql "ALTER TABLE cached_catalogs ADD COLUMN IF NOT EXISTS catalog_payload TEXT DEFAULT NULL" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "ALTER TABLE cached_catalogs ADD COLUMN IF NOT EXISTS catalog_payload TEXT DEFAULT NULL" --env=$ENV --no-interaction || true
 
 # view_count + cooldowns (Version20260303100000 - library view counter)
-php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0" --env=prod --no-interaction || true
-php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS library_view_cooldowns (profile_node_id VARCHAR(128) NOT NULL, visitor_id VARCHAR(128) NOT NULL, last_counted_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, PRIMARY KEY (profile_node_id, visitor_id))" --env=prod --no-interaction || echo "WARNING: library_view_cooldowns creation failed"
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS library_view_cooldowns (profile_node_id VARCHAR(128) NOT NULL, visitor_id VARCHAR(128) NOT NULL, last_counted_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, PRIMARY KEY (profile_node_id, visitor_id))" --env=$ENV --no-interaction || echo "WARNING: library_view_cooldowns creation failed"
 
 # borrow_requests (ADR-018 - borrowing via hub)
-php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS borrow_requests (id SERIAL NOT NULL PRIMARY KEY, requester_node_id VARCHAR(128) NOT NULL, lender_node_id VARCHAR(128) NOT NULL, isbn VARCHAR(20) NOT NULL, book_title VARCHAR(500) NOT NULL DEFAULT '', status VARCHAR(20) NOT NULL DEFAULT 'pending', created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, resolved_at TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL, expires_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL)" --env=prod --no-interaction || echo "WARNING: borrow_requests creation failed"
-php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_borrow_req_lender ON borrow_requests (lender_node_id, status)" --env=prod --no-interaction || true
-php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_borrow_req_requester ON borrow_requests (requester_node_id, status)" --env=prod --no-interaction || true
-php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_borrow_req_expires ON borrow_requests (expires_at)" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS borrow_requests (id SERIAL NOT NULL PRIMARY KEY, requester_node_id VARCHAR(128) NOT NULL, lender_node_id VARCHAR(128) NOT NULL, isbn VARCHAR(20) NOT NULL, book_title VARCHAR(500) NOT NULL DEFAULT '', status VARCHAR(20) NOT NULL DEFAULT 'pending', created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, resolved_at TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL, expires_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL)" --env=$ENV --no-interaction || echo "WARNING: borrow_requests creation failed"
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_borrow_req_lender ON borrow_requests (lender_node_id, status)" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_borrow_req_requester ON borrow_requests (requester_node_id, status)" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_borrow_req_expires ON borrow_requests (expires_at)" --env=$ENV --no-interaction || true
 
 # allow_borrowing toggle (Version20260304130000)
-php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS allow_borrowing BOOLEAN NOT NULL DEFAULT TRUE" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS allow_borrowing BOOLEAN NOT NULL DEFAULT TRUE" --env=$ENV --no-interaction || true
 
 # x25519 public key + website on profiles, encrypted_contact on follows (Version20260304200000 - E2EE contact sharing)
-php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS x25519_public_key VARCHAR(64) DEFAULT NULL" --env=prod --no-interaction || true
-php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS website VARCHAR(255) DEFAULT NULL" --env=prod --no-interaction || true
-php /app/bin/console dbal:run-sql "ALTER TABLE follows ADD COLUMN IF NOT EXISTS encrypted_contact TEXT DEFAULT NULL" --env=prod --no-interaction || true
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS x25519_public_key VARCHAR(64) DEFAULT NULL" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS website VARCHAR(255) DEFAULT NULL" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "ALTER TABLE follows ADD COLUMN IF NOT EXISTS encrypted_contact TEXT DEFAULT NULL" --env=$ENV --no-interaction || true
+
+# registration_failures (Version20260316120000 - 401 logging for admin BO)
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS registration_failures (id SERIAL NOT NULL PRIMARY KEY, node_id VARCHAR(128) NOT NULL, display_name VARCHAR(255) NOT NULL, book_count INTEGER NOT NULL DEFAULT 0, client_ip VARCHAR(45) DEFAULT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP)" --env=$ENV --no-interaction || echo "WARNING: registration_failures creation failed"
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_reg_failures_node ON registration_failures (node_id)" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_reg_failures_created ON registration_failures (created_at)" --env=$ENV --no-interaction || true
+
+# device_model + device_fingerprint on profiles (Version20260316130000 - duplicate detection)
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS device_model VARCHAR(255) DEFAULT NULL" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS device_fingerprint VARCHAR(128) DEFAULT NULL" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_library_profiles_fingerprint ON library_profiles (device_fingerprint)" --env=$ENV --no-interaction || true
 
 # Clear and warm up cache
-php /app/bin/console cache:clear --env=prod --no-debug || true
-php /app/bin/console cache:warmup --env=prod || true
+php /app/bin/console cache:clear --env=$ENV --no-debug || true
+php /app/bin/console cache:warmup --env=$ENV || true
 
 # Start FrankenPHP
 exec frankenphp run --config /etc/caddy/Caddyfile

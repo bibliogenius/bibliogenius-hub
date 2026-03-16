@@ -8,8 +8,10 @@ export
 REGISTRY := rg.fr-par.scw.cloud/bibliogenius-hub
 IMAGE_NAME := hub
 CONTAINER_ID := 5e740f84-f17f-4535-b9a2-9a6ee1c7bec3
+CONTAINER_DEV_ID := 04487027-9f53-4161-a960-d9f3b3eaa1f5
 PLATFORM := linux/amd64
 HUB_URL := https://hub.bibliogenius.org
+HUB_DEV_URL := https://hub-dev.bibliogenius.org
 VERSION := $(shell git describe --tags --always 2>/dev/null || echo "dev")
 
 # Default target
@@ -26,6 +28,11 @@ help:
 	@echo "  make test         - Test deployed endpoints"
 	@echo "  make test-relay   - Test relay endpoints (E2EE mailbox)"
 	@echo "  make test-all     - Run all tests"
+	@echo ""
+	@echo "Staging (hub-dev on Scaleway):"
+	@echo "  make deploy-dev   - Build, push, deploy to staging"
+	@echo "  make status-dev   - Check staging container status"
+	@echo "  make test-dev     - Test staging endpoints"
 	@echo ""
 
 # Login to Scaleway registry
@@ -113,7 +120,36 @@ test-relay:
 .PHONY: test-all
 test-all: test test-relay
 
+# ---------------------------------------------------------------------------
+# Staging (Scaleway hub-dev container)
+# ---------------------------------------------------------------------------
+
+# Deploy to staging (same image, different container)
+.PHONY: deploy-dev
+deploy-dev: build push
+	@echo "Deploying to staging..."
+	scw container container deploy $(CONTAINER_DEV_ID)
+	@echo "Waiting for deployment..."
+	@sleep 30
+	@$(MAKE) status-dev
+
+.PHONY: status-dev
+status-dev:
+	@scw container container get $(CONTAINER_DEV_ID) | grep -E "^Status|^DomainName|^ReadyAt"
+
+.PHONY: test-dev
+test-dev:
+	@echo "Testing staging endpoints..."
+	@echo "\n📍 Root:"
+	@curl -s $(HUB_DEV_URL)/ | jq .name
+	@echo "\n📍 Health:"
+	@curl -s $(HUB_DEV_URL)/api/feedback/health
+	@echo "\n✅ Staging OK"
+
+# ---------------------------------------------------------------------------
 # Local development
+# ---------------------------------------------------------------------------
+
 .PHONY: dev
 dev:
 	symfony server:start
