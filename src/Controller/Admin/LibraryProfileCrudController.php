@@ -58,7 +58,7 @@ class LibraryProfileCrudController extends AbstractCrudController
         $deleted = $this->profileRepository->purgeStaleProfiles();
 
         $this->addFlash('success', sprintf(
-            'Purged %d stale profile(s) (0 books, never seen).',
+            'Purged %d stale profile(s) (0 books, never seen, older than 24h, no follows).',
             $deleted
         ));
 

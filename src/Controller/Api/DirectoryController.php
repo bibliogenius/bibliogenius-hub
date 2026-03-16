@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Controller\Api;
 
 use App\Entity\Follow;
+use App\Entity\RegistrationFailure;
 use App\Repository\BorrowRequestRepository;
 use App\Repository\FollowRepository;
 use App\Repository\LibraryProfileRepository;
 use App\Service\DirectoryService;
 use Doctrine\DBAL\Connection;
+use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -50,6 +52,7 @@ class DirectoryController extends AbstractController
         private readonly LibraryProfileRepository $profileRepository,
         private readonly FollowRepository $followRepository,
         private readonly Connection $connection,
+        private readonly EntityManagerInterface $entityManager,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -79,6 +82,19 @@ class DirectoryController extends AbstractController
 
         $existing = $this->profileRepository->findByNodeId($nodeId);
         if ($existing !== null && $authenticated?->getNodeId() !== $nodeId) {
+            // Log the failed attempt so admins can unblock manually via BO
+            try {
+                $failure = new RegistrationFailure(
+                    $nodeId,
+                    substr(strip_tags($data['display_name'] ?? ''), 0, 255),
+                    max(0, (int) ($data['book_count'] ?? 0)),
+                    $request->getClientIp(),
+                );
+                $this->entityManager->persist($failure);
+                $this->entityManager->flush();
+            } catch (\Throwable) {
+                // Best-effort logging, never fail the main response
+            }
             return $this->error('Valid write_token required to update an existing profile.', Response::HTTP_UNAUTHORIZED);
         }
 

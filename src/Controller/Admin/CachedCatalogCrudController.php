@@ -14,9 +14,9 @@ use EasyCorp\Bundle\EasyAdminBundle\Config\Crud;
 use EasyCorp\Bundle\EasyAdminBundle\Controller\AbstractCrudController;
 use EasyCorp\Bundle\EasyAdminBundle\Dto\EntityDto;
 use EasyCorp\Bundle\EasyAdminBundle\Dto\SearchDto;
-use EasyCorp\Bundle\EasyAdminBundle\Field\AssociationField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\DateTimeField;
-use EasyCorp\Bundle\EasyAdminBundle\Field\TextareaField;
+use EasyCorp\Bundle\EasyAdminBundle\Field\TextField;
+use EasyCorp\Bundle\EasyAdminBundle\Orm\EntityPaginator;
 
 class CachedCatalogCrudController extends AbstractCrudController
 {
@@ -30,7 +30,8 @@ class CachedCatalogCrudController extends AbstractCrudController
         return $crud
             ->setEntityLabelInSingular('Cached Catalog')
             ->setEntityLabelInPlural('Cached Catalogs')
-            ->setDefaultSort(['updatedAt' => 'DESC']);
+            ->setDefaultSort(['updatedAt' => 'DESC'])
+            ->setPaginatorUseOutputWalkers(true);
     }
 
     public function configureActions(Actions $actions): Actions
@@ -41,7 +42,7 @@ class CachedCatalogCrudController extends AbstractCrudController
 
     public function configureFields(string $pageName): iterable
     {
-        yield AssociationField::new('libraryProfile', 'Library Profile');
+        yield TextField::new('nodeId', 'Node ID');
         yield DateTimeField::new('updatedAt', 'Updated');
         yield DateTimeField::new('expiresAt', 'Expires');
     }

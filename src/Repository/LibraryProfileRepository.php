@@ -66,9 +66,15 @@ class LibraryProfileRepository extends ServiceEntityRepository
     {
         $conn = $this->getEntityManager()->getConnection();
 
-        // Find stale node IDs
+        // Find stale node IDs: 0 books, never updated, older than 24h,
+        // AND no follow relationships (neither following nor followed by anyone).
+        // This guarantees zero user impact.
         $staleIds = $conn->fetchFirstColumn(
-            'SELECT node_id FROM library_profiles WHERE book_count = 0 AND last_seen_at IS NULL'
+            "SELECT p.node_id FROM library_profiles p
+             WHERE p.book_count = 0
+               AND p.last_seen_at IS NULL
+               AND p.created_at < NOW() - INTERVAL '24 hours'
+               AND NOT EXISTS (SELECT 1 FROM follows f WHERE f.follower_node_id = p.node_id OR f.followed_node_id = p.node_id)"
         );
 
         if (empty($staleIds)) {
