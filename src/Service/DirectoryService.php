@@ -132,6 +132,22 @@ class DirectoryService
                     : null
             );
         }
+        if (array_key_exists('device_model', $data)) {
+            $profile->setDeviceModel(
+                $data['device_model'] !== null
+                    ? $this->sanitizeString($data['device_model'], 255)
+                    : null
+            );
+        }
+        if (array_key_exists('device_fingerprint', $data)) {
+            $fp = $data['device_fingerprint'];
+            // Validate hex-only string, max 128 chars
+            if ($fp !== null && is_string($fp) && preg_match('/^[0-9a-f]{1,128}$/i', $fp)) {
+                $profile->setDeviceFingerprint(strtolower($fp));
+            } elseif ($fp === null) {
+                $profile->setDeviceFingerprint(null);
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

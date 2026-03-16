@@ -37,6 +37,11 @@ class RegistrationFailure
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
 
+    public function __toString(): string
+    {
+        return sprintf('%s (%s)', $this->displayName, substr($this->nodeId, 0, 8));
+    }
+
     public function __construct(string $nodeId, string $displayName, int $bookCount, ?string $clientIp)
     {
         $this->nodeId = $nodeId;

@@ -70,6 +70,14 @@ class LibraryProfile
     #[ORM\Column(type: 'string', length: 255, nullable: true)]
     private ?string $website = null;
 
+    /** Hardware model name (e.g. "SM-A405FN", "iPhone14,2"). Informational only. */
+    #[ORM\Column(type: 'string', length: 255, nullable: true)]
+    private ?string $deviceModel = null;
+
+    /** SHA-256 hash of a platform-specific device identifier. Helps detect duplicate profiles after reinstall. */
+    #[ORM\Column(type: 'string', length: 128, nullable: true)]
+    private ?string $deviceFingerprint = null;
+
     /** Total number of catalog views (incremented with 15-min cooldown per visitor). */
     #[ORM\Column(type: 'integer')]
     private int $viewCount = 0;
@@ -234,6 +242,28 @@ class LibraryProfile
         return $this;
     }
 
+    public function getDeviceModel(): ?string
+    {
+        return $this->deviceModel;
+    }
+
+    public function setDeviceModel(?string $deviceModel): static
+    {
+        $this->deviceModel = $deviceModel;
+        return $this;
+    }
+
+    public function getDeviceFingerprint(): ?string
+    {
+        return $this->deviceFingerprint;
+    }
+
+    public function setDeviceFingerprint(?string $deviceFingerprint): static
+    {
+        $this->deviceFingerprint = $deviceFingerprint;
+        return $this;
+    }
+
     public function toPublicArray(): array
     {
         return [
@@ -248,6 +278,8 @@ class LibraryProfile
             'view_count'        => $this->viewCount,
             'x25519_public_key' => $this->x25519PublicKey,
             'website'           => $this->website,
+            'device_model'      => $this->deviceModel,
+            'device_fingerprint' => $this->deviceFingerprint,
         ];
     }
 }
