@@ -28,20 +28,21 @@ class LibraryProfileCrudController extends AbstractCrudController
             ->setEntityLabelInSingular('Library Profile')
             ->setEntityLabelInPlural('Library Profiles')
             ->setDefaultSort(['createdAt' => 'DESC'])
-            ->setSearchFields(['nodeId', 'displayName', 'locationCountry']);
+            ->setSearchFields(['nodeId', 'displayName', 'locationCountry'])
+            ->setEntityPermission('ROLE_ADMIN');
     }
 
     public function configureActions(Actions $actions): Actions
     {
         return $actions
-            // Read-only + delete (no create/edit to avoid bypassing service logic)
             ->disable(Action::NEW, Action::EDIT)
             ->add(Crud::PAGE_INDEX, Action::DETAIL);
     }
 
     public function configureFields(string $pageName): iterable
     {
-        yield TextField::new('nodeId', 'Node ID');
+        yield TextField::new('nodeId', 'Node ID')
+            ->setFormTypeOption('disabled', true);
         yield TextField::new('displayName', 'Display Name');
         yield IntegerField::new('bookCount', 'Books');
         yield TextField::new('locationCountry', 'Country');

@@ -12,6 +12,7 @@ RUN install-php-extensions \
     pdo \
     pdo_pgsql \
     pgsql \
+    intl \
     opcache
 
 # Install Composer
