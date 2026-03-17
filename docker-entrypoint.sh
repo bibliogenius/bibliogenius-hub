@@ -66,6 +66,9 @@ php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS registration_failu
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_reg_failures_node ON registration_failures (node_id)" --env=$ENV --no-interaction || true
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_reg_failures_created ON registration_failures (created_at)" --env=$ENV --no-interaction || true
 
+# admin user table (required for /admin/login)
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS \"user\" (id SERIAL NOT NULL PRIMARY KEY, email VARCHAR(180) NOT NULL, roles JSON NOT NULL DEFAULT '[]', password VARCHAR(255) NOT NULL, CONSTRAINT UNIQ_IDENTIFIER_EMAIL UNIQUE (email))" --env=$ENV --no-interaction || echo "WARNING: user creation failed"
+
 # device_model + device_fingerprint on profiles (Version20260316130000 - duplicate detection)
 php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS device_model VARCHAR(255) DEFAULT NULL" --env=$ENV --no-interaction || true
 php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS device_fingerprint VARCHAR(128) DEFAULT NULL" --env=$ENV --no-interaction || true
