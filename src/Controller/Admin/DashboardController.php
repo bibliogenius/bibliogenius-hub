@@ -32,9 +32,6 @@ class DashboardController extends AbstractDashboardController
         yield MenuItem::linkToCrud('Follows', 'fas fa-user-friends', \App\Entity\Follow::class);
         yield MenuItem::linkToCrud('Cached Catalogs', 'fas fa-database', \App\Entity\CachedCatalog::class);
         yield MenuItem::linkToCrud('Reg. Failures', 'fas fa-exclamation-triangle', \App\Entity\RegistrationFailure::class);
-        yield MenuItem::section('Translations');
-        yield MenuItem::linkToCrud('Languages', 'fas fa-language', \App\Entity\Language::class);
-        yield MenuItem::linkToCrud('Translations', 'fas fa-list', \App\Entity\Translation::class);
         yield MenuItem::section('System');
         yield MenuItem::linkToCrud('Users', 'fas fa-users', \App\Entity\User::class);
         yield MenuItem::linkToRoute('Backup DB', 'fas fa-download', 'admin_backup');
