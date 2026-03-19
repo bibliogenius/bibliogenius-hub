@@ -148,6 +148,32 @@ class DirectoryService
                 $profile->setDeviceFingerprint(null);
             }
         }
+        // Relay credentials: allow peers to refresh stale relay info
+        if (array_key_exists('relay_url', $data)) {
+            $profile->setRelayUrl(
+                $data['relay_url'] !== null
+                    ? $this->sanitizeUrl($data['relay_url'], 255)
+                    : null
+            );
+        }
+        if (array_key_exists('relay_mailbox_id', $data)) {
+            $mid = $data['relay_mailbox_id'];
+            // Validate UUID format (36 chars with dashes)
+            if ($mid !== null && is_string($mid) && preg_match('/^[0-9a-f\-]{36}$/i', $mid)) {
+                $profile->setRelayMailboxId(strtolower($mid));
+            } elseif ($mid === null) {
+                $profile->setRelayMailboxId(null);
+            }
+        }
+        if (array_key_exists('relay_write_token', $data)) {
+            $wt = $data['relay_write_token'];
+            // Validate hex-only string, max 128 chars
+            if ($wt !== null && is_string($wt) && preg_match('/^[0-9a-f]{1,128}$/i', $wt)) {
+                $profile->setRelayWriteToken(strtolower($wt));
+            } elseif ($wt === null) {
+                $profile->setRelayWriteToken(null);
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

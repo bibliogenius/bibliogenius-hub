@@ -78,6 +78,18 @@ class LibraryProfile
     #[ORM\Column(type: 'string', length: 128, nullable: true)]
     private ?string $deviceFingerprint = null;
 
+    /** Relay hub URL (e.g. "https://hub.bibliogenius.org"). Enables credential refresh for relay-only peers. */
+    #[ORM\Column(type: 'string', length: 255, nullable: true)]
+    private ?string $relayUrl = null;
+
+    /** Relay mailbox UUID. Peers deposit encrypted messages here. */
+    #[ORM\Column(type: 'string', length: 128, nullable: true)]
+    private ?string $relayMailboxId = null;
+
+    /** Relay mailbox write token. Allows peers to deposit messages (NOT to read them). */
+    #[ORM\Column(type: 'string', length: 128, nullable: true)]
+    private ?string $relayWriteToken = null;
+
     /** Total number of catalog views (incremented with 15-min cooldown per visitor). */
     #[ORM\Column(type: 'integer')]
     private int $viewCount = 0;
@@ -264,6 +276,40 @@ class LibraryProfile
         return $this;
     }
 
+    public function getRelayUrl(): ?string
+    {
+        return $this->relayUrl;
+    }
+
+    public function setRelayUrl(?string $relayUrl): static
+    {
+        $this->relayUrl = $relayUrl;
+        return $this;
+    }
+
+    public function getRelayMailboxId(): ?string
+    {
+        return $this->relayMailboxId;
+    }
+
+    public function setRelayMailboxId(?string $relayMailboxId): static
+    {
+        $this->relayMailboxId = $relayMailboxId;
+        return $this;
+    }
+
+    public function getRelayWriteToken(): ?string
+    {
+        return $this->relayWriteToken;
+    }
+
+    public function setRelayWriteToken(?string $relayWriteToken): static
+    {
+        $this->relayWriteToken = $relayWriteToken;
+        return $this;
+    }
+
+    /** Public profile data. Relay credentials are intentionally excluded (OWASP A01). */
     public function toPublicArray(): array
     {
         return [

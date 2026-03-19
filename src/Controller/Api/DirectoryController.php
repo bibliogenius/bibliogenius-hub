@@ -267,7 +267,19 @@ class DirectoryController extends AbstractController
             }
         }
 
-        return $this->json($profile->toPublicArray());
+        $data = $profile->toPublicArray();
+
+        // Relay credentials are only returned to authenticated requesters
+        // to limit mailbox spam surface (OWASP A01).
+        $token = $this->extractBearerToken($request);
+        $requester = $token !== null ? $this->directoryService->authenticate($token) : null;
+        if ($requester !== null) {
+            $data['relay_url'] = $profile->getRelayUrl();
+            $data['relay_mailbox_id'] = $profile->getRelayMailboxId();
+            $data['relay_write_token'] = $profile->getRelayWriteToken();
+        }
+
+        return $this->json($data);
     }
 
     // -------------------------------------------------------------------------
