@@ -12,6 +12,7 @@ use App\Repository\LibraryProfileRepository;
 use App\Service\DirectoryService;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
+use App\Service\HubEventLogger;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -53,6 +54,7 @@ class DirectoryController extends AbstractController
         private readonly FollowRepository $followRepository,
         private readonly Connection $connection,
         private readonly EntityManagerInterface $entityManager,
+        private readonly HubEventLogger $eventLogger,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -95,14 +97,20 @@ class DirectoryController extends AbstractController
             } catch (\Throwable) {
                 // Best-effort logging, never fail the main response
             }
+            $this->eventLogger->warning('directory', 'registration rejected (missing write_token)', [
+                'node_id' => substr($nodeId, 0, 12),
+                'name' => substr(strip_tags($data['display_name'] ?? ''), 0, 50),
+            ]);
             return $this->error('Valid write_token required to update an existing profile.', Response::HTTP_UNAUTHORIZED);
         }
 
         try {
             $result = $this->directoryService->upsertProfile($data, $authenticated);
         } catch (\LogicException $e) {
+            $this->eventLogger->warning('directory', 'upsert forbidden', ['error' => $e->getMessage()]);
             return $this->error($e->getMessage(), Response::HTTP_FORBIDDEN);
         } catch (\Throwable $e) {
+            $this->eventLogger->error('directory', 'upsert failed', ['error' => $e->getMessage()]);
             return $this->error('upsertProfile failed: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 

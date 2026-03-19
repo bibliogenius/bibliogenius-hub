@@ -1,0 +1,7 @@
+{% if field.value == 'error' %}
+    <span class="badge badge-danger">{{ field.value }}</span>
+{% elseif field.value == 'warning' %}
+    <span class="badge badge-warning">{{ field.value }}</span>
+{% else %}
+    <span class="badge badge-info">{{ field.value }}</span>
+{% endif %}

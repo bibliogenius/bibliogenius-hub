@@ -28,6 +28,12 @@ class LibraryProfileRepository extends ServiceEntityRepository
         return $this->findOneBy(['writeToken' => $writeToken]);
     }
 
+    /** @return LibraryProfile[] */
+    public function findByDeviceFingerprint(string $fingerprint): array
+    {
+        return $this->findBy(['deviceFingerprint' => $fingerprint]);
+    }
+
     /**
      * Returns listed libraries, ordered by last_seen_at descending.
      * Supports optional country filter and pagination.

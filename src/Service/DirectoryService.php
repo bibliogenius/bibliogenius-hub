@@ -58,6 +58,18 @@ class DirectoryService
         $existing = $this->profileRepository->findByNodeId($nodeId);
 
         if ($existing === null) {
+            // Deduplicate by device_fingerprint: if another profile from the
+            // same physical device exists (different node_id after UUID
+            // regeneration or reinstall), remove it to prevent ghost profiles.
+            $fp = $data['device_fingerprint'] ?? null;
+            if ($fp !== null && is_string($fp) && preg_match('/^[0-9a-f]{1,128}$/i', $fp)) {
+                foreach ($this->profileRepository->findByDeviceFingerprint(strtolower($fp)) as $old) {
+                    if ($old->getNodeId() !== $nodeId) {
+                        $this->deleteProfile($old);
+                    }
+                }
+            }
+
             // New registration
             $writeToken = $this->generateToken();
             $profile = new LibraryProfile(
@@ -334,6 +346,12 @@ class DirectoryService
         $conn = $this->entityManager->getConnection();
         $conn->executeStatement(
             'DELETE FROM follows WHERE follower_node_id = :nid OR followed_node_id = :nid',
+            ['nid' => $nodeId]
+        );
+
+        // Delete orphan borrow requests (no FK constraint on this table)
+        $conn->executeStatement(
+            'DELETE FROM borrow_requests WHERE requester_node_id = :nid OR lender_node_id = :nid',
             ['nid' => $nodeId]
         );
 

@@ -13,6 +13,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use App\Service\HubEventLogger;
 use Symfony\Component\Routing\Attribute\Route;
 
 #[Route('/api/relay', name: 'api_relay_')]
@@ -27,6 +28,7 @@ class RelayController extends AbstractController
         private readonly EntityManagerInterface $entityManager,
         private readonly RelayMailboxRepository $mailboxRepository,
         private readonly RelayMessageRepository $messageRepository,
+        private readonly HubEventLogger $eventLogger,
     ) {
     }
 
@@ -50,8 +52,11 @@ class RelayController extends AbstractController
             $this->entityManager->persist($mailbox);
             $this->entityManager->flush();
         } catch (\Throwable $e) {
+            $this->eventLogger->error('relay', 'mailbox creation failed', ['error' => $e->getMessage()]);
             return $this->json(['error' => 'Failed to create mailbox'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
+
+        $this->eventLogger->info('relay', 'mailbox created', ['uuid' => $uuid]);
 
         return $this->json([
             'uuid' => $uuid,
@@ -89,10 +94,12 @@ class RelayController extends AbstractController
         // 3. Find mailbox and verify write token
         $mailbox = $this->mailboxRepository->findByUuid($uuid);
         if ($mailbox === null) {
+            $this->eventLogger->warning('relay', 'deposit to non-existent mailbox', ['uuid' => $uuid]);
             return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
         }
 
         if (!hash_equals($mailbox->getWriteToken(), $token)) {
+            $this->eventLogger->warning('relay', 'invalid write token', ['uuid' => $uuid]);
             return $this->json(['error' => 'Invalid write token'], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -123,8 +130,15 @@ class RelayController extends AbstractController
             $this->entityManager->persist($message);
             $this->entityManager->flush();
         } catch (\Throwable $e) {
+            $this->eventLogger->error('relay', 'deposit failed', ['uuid' => $uuid, 'error' => $e->getMessage()]);
             return $this->json(['error' => 'Failed to store message'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
+
+        $this->eventLogger->info('relay', 'message deposited', [
+            'mailbox' => $uuid,
+            'size' => strlen($blob),
+            'msg_id' => $message->getId(),
+        ]);
 
         return $this->json(['id' => $message->getId()], Response::HTTP_CREATED);
     }
