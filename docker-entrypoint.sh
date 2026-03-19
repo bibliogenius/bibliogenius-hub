@@ -74,6 +74,16 @@ php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NO
 php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS device_fingerprint VARCHAR(128) DEFAULT NULL" --env=$ENV --no-interaction || true
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_library_profiles_fingerprint ON library_profiles (device_fingerprint)" --env=$ENV --no-interaction || true
 
+# relay credentials on profiles (Version20260319120000 - relay-only peer recovery)
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS relay_url VARCHAR(255) DEFAULT NULL" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS relay_mailbox_id VARCHAR(128) DEFAULT NULL" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS relay_write_token VARCHAR(128) DEFAULT NULL" --env=$ENV --no-interaction || true
+
+# hub_events for BO monitoring (Version20260319130000)
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS hub_events (id SERIAL PRIMARY KEY, level VARCHAR(10) NOT NULL, channel VARCHAR(30) NOT NULL, message VARCHAR(500) NOT NULL, context TEXT DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT NOW())" --env=$ENV --no-interaction || echo "WARNING: hub_events creation failed"
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_hub_events_created ON hub_events (created_at DESC)" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_hub_events_channel ON hub_events (channel)" --env=$ENV --no-interaction || true
+
 # Clear and warm up cache
 php /app/bin/console cache:clear --env=$ENV --no-debug || true
 php /app/bin/console cache:warmup --env=$ENV || true
