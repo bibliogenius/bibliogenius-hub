@@ -58,7 +58,7 @@ class LibraryProfileCrudController extends AbstractCrudController
         $deleted = $this->profileRepository->purgeStaleProfiles();
 
         $this->addFlash('success', sprintf(
-            'Purged %d stale profile(s) (0 books, never seen, older than 24h, no follows).',
+            'Purged %d stale profile(s) (0 books, not seen in 24h, older than 24h, no follows).',
             $deleted
         ));
 
@@ -103,6 +103,7 @@ class LibraryProfileCrudController extends AbstractCrudController
     public function configureFilters(Filters $filters): Filters
     {
         return $filters
+            ->add('displayName')
             ->add('isListed')
             ->add('requiresApproval')
             ->add('allowBorrowing')
