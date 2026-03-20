@@ -216,6 +216,12 @@ class DirectoryService
             $catalog->refresh($isbnPayload, $catalogPayload);
         }
 
+        // Update book_count from the ISBN list so it stays in sync
+        $isbns = json_decode($isbnPayload, true);
+        if (is_array($isbns)) {
+            $profile->setBookCount(count($isbns));
+        }
+
         $profile->touchLastSeen();
         $this->entityManager->flush();
 
