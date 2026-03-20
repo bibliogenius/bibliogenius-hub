@@ -90,6 +90,13 @@ class LibraryProfileRepository extends ServiceEntityRepository
         // Build safe placeholder list
         $placeholders = implode(',', array_fill(0, count($staleIds), '?'));
 
+        // Collect relay mailbox UUIDs before deleting profiles
+        $mailboxIds = $conn->fetchFirstColumn(
+            "SELECT relay_mailbox_id FROM library_profiles
+             WHERE node_id IN ($placeholders) AND relay_mailbox_id IS NOT NULL",
+            $staleIds
+        );
+
         // Clean up related data first (follows, catalogs, borrow_requests)
         $conn->executeStatement(
             "DELETE FROM follows WHERE follower_node_id IN ($placeholders) OR followed_node_id IN ($placeholders)",
@@ -103,6 +110,19 @@ class LibraryProfileRepository extends ServiceEntityRepository
             "DELETE FROM borrow_requests WHERE requester_node_id IN ($placeholders) OR lender_node_id IN ($placeholders)",
             array_merge($staleIds, $staleIds)
         );
+
+        // Clean up relay mailboxes and their messages
+        if (!empty($mailboxIds)) {
+            $mbPlaceholders = implode(',', array_fill(0, count($mailboxIds), '?'));
+            $conn->executeStatement(
+                "DELETE FROM relay_messages WHERE mailbox_uuid IN ($mbPlaceholders)",
+                $mailboxIds
+            );
+            $conn->executeStatement(
+                "DELETE FROM relay_mailboxes WHERE uuid IN ($mbPlaceholders)",
+                $mailboxIds
+            );
+        }
 
         // Delete the profiles
         $deleted = $conn->executeStatement(

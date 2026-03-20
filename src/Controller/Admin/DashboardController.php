@@ -32,6 +32,8 @@ class DashboardController extends AbstractDashboardController
         yield MenuItem::linkToCrud('Follows', 'fas fa-user-friends', \App\Entity\Follow::class);
         yield MenuItem::linkToCrud('Cached Catalogs', 'fas fa-database', \App\Entity\CachedCatalog::class);
         yield MenuItem::linkToCrud('Reg. Failures', 'fas fa-exclamation-triangle', \App\Entity\RegistrationFailure::class);
+        yield MenuItem::section('Relay');
+        yield MenuItem::linkToCrud('Mailboxes', 'fas fa-envelope', \App\Entity\RelayMailbox::class);
         yield MenuItem::section('Monitoring');
         yield MenuItem::linkToCrud('Hub Events', 'fas fa-clipboard-list', \App\Entity\HubEvent::class);
         yield MenuItem::section('System');

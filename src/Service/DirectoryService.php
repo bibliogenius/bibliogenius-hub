@@ -11,6 +11,7 @@ use App\Entity\LibraryProfile;
 use App\Repository\BorrowRequestRepository;
 use App\Repository\FollowRepository;
 use App\Repository\LibraryProfileRepository;
+use App\Repository\RelayMailboxRepository;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
@@ -37,6 +38,7 @@ class DirectoryService
         private readonly LibraryProfileRepository $profileRepository,
         private readonly FollowRepository $followRepository,
         private readonly BorrowRequestRepository $borrowRequestRepository,
+        private readonly RelayMailboxRepository $relayMailboxRepository,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -347,7 +349,7 @@ class DirectoryService
 
     /**
      * Completely removes a library profile and all associated data.
-     * Deletes: the profile, all follows (as follower or followed), and cached catalogs (cascade).
+     * Deletes: the profile, all follows, borrow requests, relay mailbox+messages, and cached catalogs (cascade).
      */
     public function deleteProfile(LibraryProfile $profile): void
     {
@@ -365,6 +367,12 @@ class DirectoryService
             'DELETE FROM borrow_requests WHERE requester_node_id = :nid OR lender_node_id = :nid',
             ['nid' => $nodeId]
         );
+
+        // Delete relay mailbox and its messages if the profile had one
+        $mailboxId = $profile->getRelayMailboxId();
+        if ($mailboxId !== null) {
+            $this->relayMailboxRepository->deleteWithMessages($mailboxId);
+        }
 
         // cached_catalogs has onDelete CASCADE on the FK to library_profiles,
         // so removing the profile entity will cascade.
