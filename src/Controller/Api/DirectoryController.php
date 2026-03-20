@@ -166,8 +166,12 @@ class DirectoryController extends AbstractController
             $catalogPayload = $data['catalog_payload'];
         }
 
+        $bookCount = isset($data['book_count']) && is_numeric($data['book_count'])
+            ? max(0, (int) $data['book_count'])
+            : null;
+
         try {
-            $catalog = $this->directoryService->pushCatalog($profile, $data['isbn_payload'], $catalogPayload);
+            $catalog = $this->directoryService->pushCatalog($profile, $data['isbn_payload'], $catalogPayload, $bookCount);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
         }

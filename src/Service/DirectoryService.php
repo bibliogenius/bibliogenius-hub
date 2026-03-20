@@ -198,7 +198,7 @@ class DirectoryService
      * @param string      $isbnPayload    JSON array of ISBNs (legacy format)
      * @param string|null $catalogPayload JSON array of {isbn, title, author} objects (enriched format)
      */
-    public function pushCatalog(LibraryProfile $profile, string $isbnPayload, ?string $catalogPayload = null): CachedCatalog
+    public function pushCatalog(LibraryProfile $profile, string $isbnPayload, ?string $catalogPayload = null, ?int $bookCount = null): CachedCatalog
     {
         $this->probabilisticCleanup();
 
@@ -216,10 +216,15 @@ class DirectoryService
             $catalog->refresh($isbnPayload, $catalogPayload);
         }
 
-        // Update book_count from the ISBN list so it stays in sync
-        $isbns = json_decode($isbnPayload, true);
-        if (is_array($isbns)) {
-            $profile->setBookCount(count($isbns));
+        // Update book_count: prefer the total count sent by the client
+        // (includes books without ISBNs), fall back to ISBN count.
+        if ($bookCount !== null) {
+            $profile->setBookCount($bookCount);
+        } else {
+            $isbns = json_decode($isbnPayload, true);
+            if (is_array($isbns)) {
+                $profile->setBookCount(count($isbns));
+            }
         }
 
         $profile->touchLastSeen();
