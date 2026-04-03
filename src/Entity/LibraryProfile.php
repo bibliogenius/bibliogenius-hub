@@ -90,6 +90,10 @@ class LibraryProfile
     #[ORM\Column(type: 'string', length: 128, nullable: true)]
     private ?string $relayWriteToken = null;
 
+    /** JSON avatar configuration (DiceBear style + seed + customisation). Opaque to hub. */
+    #[ORM\Column(type: 'text', nullable: true)]
+    private ?string $avatarConfig = null;
+
     /** Total number of catalog views (incremented with 15-min cooldown per visitor). */
     #[ORM\Column(type: 'integer')]
     private int $viewCount = 0;
@@ -309,6 +313,17 @@ class LibraryProfile
         return $this;
     }
 
+    public function getAvatarConfig(): ?string
+    {
+        return $this->avatarConfig;
+    }
+
+    public function setAvatarConfig(?string $avatarConfig): static
+    {
+        $this->avatarConfig = $avatarConfig;
+        return $this;
+    }
+
     /** Public profile data. Relay credentials are intentionally excluded (OWASP A01). */
     public function toPublicArray(): array
     {
@@ -326,6 +341,7 @@ class LibraryProfile
             'website'           => $this->website,
             'device_model'      => $this->deviceModel,
             'device_fingerprint' => $this->deviceFingerprint,
+            'avatar_config'     => $this->avatarConfig,
         ];
     }
 }

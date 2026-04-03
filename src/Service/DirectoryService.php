@@ -188,6 +188,24 @@ class DirectoryService
                 $profile->setRelayWriteToken(null);
             }
         }
+        // Avatar config: stored as opaque JSON string (max 2 KB).
+        // Hub does not interpret it — just passes it through to peers.
+        if (array_key_exists('avatar_config', $data)) {
+            $ac = $data['avatar_config'];
+            if ($ac === null) {
+                $profile->setAvatarConfig(null);
+            } elseif (is_array($ac) || is_object($ac)) {
+                $json = json_encode($ac);
+                if ($json !== false && strlen($json) <= 2048) {
+                    $profile->setAvatarConfig($json);
+                }
+            } elseif (is_string($ac) && strlen($ac) <= 2048) {
+                // Validate it's valid JSON before storing
+                if (json_decode($ac) !== null) {
+                    $profile->setAvatarConfig($ac);
+                }
+            }
+        }
     }
 
     // -------------------------------------------------------------------------
