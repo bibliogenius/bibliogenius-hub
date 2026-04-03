@@ -11,6 +11,7 @@ use App\Repository\FollowRepository;
 use App\Repository\LibraryProfileRepository;
 use App\Service\DirectoryService;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use App\Service\HubEventLogger;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -109,7 +110,16 @@ class DirectoryController extends AbstractController
         } catch (\LogicException $e) {
             $this->eventLogger->warning('directory', 'upsert forbidden', ['error' => $e->getMessage()]);
             return $this->error($e->getMessage(), Response::HTTP_FORBIDDEN);
+        } catch (UniqueConstraintViolationException $e) {
+            // Concurrent insert for the same node_id won the race.
+            // Return 409 so the client retries; next attempt will find
+            // the existing profile and authenticate normally.
+            return $this->error('Concurrent registration. Please retry.', Response::HTTP_CONFLICT);
         } catch (\Throwable $e) {
+            // Doctrine may wrap the DBAL exception in an ORMException.
+            if ($e->getPrevious() instanceof UniqueConstraintViolationException) {
+                return $this->error('Concurrent registration. Please retry.', Response::HTTP_CONFLICT);
+            }
             $this->eventLogger->error('directory', 'upsert failed', ['error' => $e->getMessage()]);
             return $this->error('upsertProfile failed: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
         }
