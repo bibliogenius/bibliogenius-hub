@@ -94,12 +94,21 @@ class RelayController extends AbstractController
         // 3. Find mailbox and verify write token
         $mailbox = $this->mailboxRepository->findByUuid($uuid);
         if ($mailbox === null) {
-            $this->eventLogger->warning('relay', 'deposit to non-existent mailbox', ['uuid' => $uuid]);
+            $clientIp = $request->getClientIp() ?? 'unknown';
+            $this->eventLogger->warning('relay', 'deposit to non-existent mailbox', [
+                'uuid' => $uuid,
+                'client_ip' => $clientIp,
+                'content_length' => $contentLength ?? 0,
+            ]);
             return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
         }
 
         if (!hash_equals($mailbox->getWriteToken(), $token)) {
-            $this->eventLogger->warning('relay', 'invalid write token', ['uuid' => $uuid]);
+            $clientIp = $request->getClientIp() ?? 'unknown';
+            $this->eventLogger->warning('relay', 'invalid write token', [
+                'uuid' => $uuid,
+                'client_ip' => $clientIp,
+            ]);
             return $this->json(['error' => 'Invalid write token'], Response::HTTP_UNAUTHORIZED);
         }
 
@@ -163,6 +172,11 @@ class RelayController extends AbstractController
         // 2. Find mailbox and verify read token
         $mailbox = $this->mailboxRepository->findByUuid($uuid);
         if ($mailbox === null) {
+            $clientIp = $request->getClientIp() ?? 'unknown';
+            $this->eventLogger->warning('relay', 'collect from non-existent mailbox', [
+                'uuid' => $uuid,
+                'client_ip' => $clientIp,
+            ]);
             return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
         }
 
