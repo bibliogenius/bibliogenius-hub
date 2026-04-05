@@ -33,6 +33,10 @@ class DirectoryService
 
     private const VALID_ACCEPT_FROM = ['everyone', 'individuals_only', 'institutions_only'];
 
+    /** Alphabet for recovery codes: uppercase alphanumeric, no ambiguous chars (0/O, 1/I/L). */
+    private const RECOVERY_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    private const RECOVERY_CODE_LENGTH = 12;
+
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly LibraryProfileRepository $profileRepository,
@@ -48,10 +52,10 @@ class DirectoryService
     /**
      * Registers a new library profile or updates an existing one.
      *
-     * On first registration: generates and returns a write_token.
+     * On first registration: generates and returns a write_token + recovery_code.
      * On update: requires a valid write_token via $authenticatedProfile.
      *
-     * @return array{profile: LibraryProfile, write_token: string|null}
+     * @return array{profile: LibraryProfile, write_token: string|null, recovery_code: string|null}
      */
     public function upsertProfile(array $data, ?LibraryProfile $authenticatedProfile): array
     {
@@ -74,16 +78,18 @@ class DirectoryService
 
             // New registration
             $writeToken = $this->generateToken();
+            $recoveryCode = $this->generateRecoveryCode();
             $profile = new LibraryProfile(
                 $nodeId,
                 $writeToken,
                 $this->sanitizeString($data['display_name'] ?? '', 255)
             );
+            $profile->setRecoveryCodeHash(hash('sha256', $recoveryCode));
             $this->applyProfileData($profile, $data);
             $this->entityManager->persist($profile);
             $this->entityManager->flush();
 
-            return ['profile' => $profile, 'write_token' => $writeToken];
+            return ['profile' => $profile, 'write_token' => $writeToken, 'recovery_code' => $recoveryCode];
         }
 
         // Update - caller must be authenticated as this profile
@@ -95,7 +101,7 @@ class DirectoryService
         $existing->touchLastSeen();
         $this->entityManager->flush();
 
-        return ['profile' => $existing, 'write_token' => null];
+        return ['profile' => $existing, 'write_token' => null, 'recovery_code' => null];
     }
 
     private function applyProfileData(LibraryProfile $profile, array $data): void
@@ -206,6 +212,39 @@ class DirectoryService
                 }
             }
         }
+    }
+
+    /**
+     * Recovers a profile using a one-time recovery code.
+     *
+     * On success: regenerates write_token + recovery_code, returns both.
+     * On failure: returns null (invalid code or no profile).
+     *
+     * @return array{profile: LibraryProfile, write_token: string, recovery_code: string}|null
+     */
+    public function recoverProfile(string $nodeId, string $recoveryCode): ?array
+    {
+        $profile = $this->profileRepository->findByNodeId($nodeId);
+        if ($profile === null) {
+            return null;
+        }
+
+        if (!$profile->verifyRecoveryCode($recoveryCode)) {
+            return null;
+        }
+
+        // Recovery succeeded: rotate both write_token and recovery_code.
+        $newWriteToken = $profile->resetWriteToken();
+        $newRecoveryCode = $this->generateRecoveryCode();
+        $profile->setRecoveryCodeHash(hash('sha256', $newRecoveryCode));
+        $profile->touchLastSeen();
+        $this->entityManager->flush();
+
+        return [
+            'profile' => $profile,
+            'write_token' => $newWriteToken,
+            'recovery_code' => $newRecoveryCode,
+        ];
     }
 
     // -------------------------------------------------------------------------
@@ -635,6 +674,19 @@ class DirectoryService
     private function generateToken(): string
     {
         return bin2hex(random_bytes(32));
+    }
+
+    /** Generates a human-readable recovery code (e.g. ABCD-EFGH-JKLM). */
+    private function generateRecoveryCode(): string
+    {
+        $alphabet = self::RECOVERY_ALPHABET;
+        $len = self::RECOVERY_CODE_LENGTH;
+        $max = strlen($alphabet) - 1;
+        $code = '';
+        for ($i = 0; $i < $len; $i++) {
+            $code .= $alphabet[random_int(0, $max)];
+        }
+        return $code;
     }
 
     private function sanitizeString(string $value, int $maxLength): string

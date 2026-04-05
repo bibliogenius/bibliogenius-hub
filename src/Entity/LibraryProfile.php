@@ -94,6 +94,10 @@ class LibraryProfile
     #[ORM\Column(type: 'text', nullable: true)]
     private ?string $avatarConfig = null;
 
+    /** SHA-256 hash of the one-time recovery code. Never exposed via API. */
+    #[ORM\Column(type: 'string', length: 64, nullable: true)]
+    private ?string $recoveryCodeHash = null;
+
     /** Total number of catalog views (incremented with 15-min cooldown per visitor). */
     #[ORM\Column(type: 'integer')]
     private int $viewCount = 0;
@@ -324,7 +328,34 @@ class LibraryProfile
         return $this;
     }
 
-    /** Public profile data. Relay credentials are intentionally excluded (OWASP A01). */
+    public function getRecoveryCodeHash(): ?string
+    {
+        return $this->recoveryCodeHash;
+    }
+
+    public function setRecoveryCodeHash(?string $hash): static
+    {
+        $this->recoveryCodeHash = $hash;
+        return $this;
+    }
+
+    /** Regenerates the write_token. Returns the new raw token. */
+    public function resetWriteToken(): string
+    {
+        $this->writeToken = bin2hex(random_bytes(32));
+        return $this->writeToken;
+    }
+
+    /** Verifies a plaintext recovery code against the stored hash. */
+    public function verifyRecoveryCode(string $code): bool
+    {
+        if ($this->recoveryCodeHash === null) {
+            return false;
+        }
+        return hash_equals($this->recoveryCodeHash, hash('sha256', $code));
+    }
+
+    /** Public profile data. Relay credentials and recovery hash are intentionally excluded (OWASP A01). */
     public function toPublicArray(): array
     {
         return [

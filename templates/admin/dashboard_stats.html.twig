@@ -1,0 +1,178 @@
+{% extends '@EasyAdmin/page/content.html.twig' %}
+
+{% block page_title %}Hub Dashboard{% endblock %}
+
+{% block content_header %}{% endblock %}
+
+{% block main %}
+<style>
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .stat-card {
+        background: var(--white, #fff);
+        border: 1px solid var(--border-color, #dee2e6);
+        border-radius: 8px;
+        padding: 16px;
+        text-align: center;
+    }
+    .stat-card .label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-muted, #495057);
+        margin-bottom: 4px;
+    }
+    .stat-card .value {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--text-color, #212529);
+    }
+    .stat-card.alert .value { color: #dc3545; }
+    .stat-card.warn .value { color: #fd7e14; }
+    .stat-card.ok .value { color: #198754; }
+
+    .section-title {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 24px 0 12px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid var(--border-color, #dee2e6);
+    }
+
+    .events-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+    .events-table th, .events-table td {
+        padding: 8px 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color, #dee2e6);
+    }
+    .events-table th {
+        font-weight: 600;
+        background: var(--table-header-bg, #f8f9fa);
+    }
+    .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+    .badge-warning { background: #fff3cd; color: #856404; }
+    .badge-error { background: #f8d7da; color: #842029; }
+    .badge-info { background: #cff4fc; color: #055160; }
+    .badge-relay { background: #e2e3e5; color: #41464b; }
+    .badge-directory { background: #d1e7dd; color: #0f5132; }
+
+    .context-cell {
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: monospace;
+        font-size: 13px;
+    }
+</style>
+
+{# ── Stats Grid ── #}
+<div class="dashboard-grid">
+    <div class="stat-card ok" title="Total registered library profiles on this hub">
+        <div class="label">Profiles</div>
+        <div class="value">{{ total_profiles }}</div>
+    </div>
+    <div class="stat-card {{ active_profiles > 0 ? 'ok' : '' }}" title="{{ active_profiles == 0 ? 'No profiles seen in 24h - check if clients are reaching the hub' : 'Profiles that contacted the hub in the last 24 hours' }}">
+        <div class="label">Active (24h)</div>
+        <div class="value">{{ active_profiles }}</div>
+    </div>
+    <div class="stat-card" title="Profiles with relay mailbox configured for offline messaging">
+        <div class="label">With Relay</div>
+        <div class="value">{{ profiles_with_relay }}</div>
+    </div>
+    <div class="stat-card" title="Total relay mailboxes created on this hub">
+        <div class="label">Mailboxes</div>
+        <div class="value">{{ total_mailboxes }}</div>
+    </div>
+    <div class="stat-card {{ active_mailboxes > 0 ? 'ok' : '' }}" title="{{ active_mailboxes == 0 ? 'No mailbox activity in 24h - relay may be unused or unreachable' : 'Mailboxes accessed in the last 24 hours' }}">
+        <div class="label">Active Mailboxes</div>
+        <div class="value">{{ active_mailboxes }}</div>
+    </div>
+    <div class="stat-card {{ pending_messages > 10 ? 'warn' : '' }}" title="{{ pending_messages > 10 ? 'High pending count - messages may be stuck. Check if recipient peers are polling.' : 'Messages waiting to be collected by peers' }}">
+        <div class="label">Pending Msgs</div>
+        <div class="value">{{ pending_messages }}</div>
+    </div>
+    <div class="stat-card {{ deposit_404s > 0 ? 'alert' : 'ok' }}" title="{{ deposit_404s > 0 ? 'Peers tried to deposit into deleted mailboxes. They need fresh invitations.' : 'No failed deposits - all mailbox references are up to date' }}">
+        <div class="label">Deposit 404s (24h)</div>
+        <div class="value">{{ deposit_404s }}</div>
+    </div>
+    <div class="stat-card {{ recent_warnings > 5 ? 'warn' : '' }}" title="{{ recent_warnings > 5 ? 'High warning rate - review Hub Events for recurring issues' : 'Warning-level events in the last 24 hours' }}">
+        <div class="label">Warnings (24h)</div>
+        <div class="value">{{ recent_warnings }}</div>
+    </div>
+    <div class="stat-card {{ recent_errors > 0 ? 'alert' : 'ok' }}" title="{{ recent_errors > 0 ? 'Errors detected - check Hub Events immediately for details' : 'No errors - system healthy' }}">
+        <div class="label">Errors (24h)</div>
+        <div class="value">{{ recent_errors }}</div>
+    </div>
+</div>
+
+{# ── Busy Mailboxes ── #}
+{% if busy_mailboxes is not empty %}
+<div class="section-title">Mailboxes with Pending Messages</div>
+<table class="events-table">
+    <thead>
+        <tr>
+            <th>Mailbox UUID</th>
+            <th>Pending</th>
+            <th>Oldest Message</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for mb in busy_mailboxes %}
+        <tr>
+            <td><code>{{ mb.mailbox_uuid[:8] }}...</code></td>
+            <td>{{ mb.msg_count }}</td>
+            <td>{{ mb.oldest_msg }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+{# ── Recent Events ── #}
+<div class="section-title">Recent Hub Events</div>
+{% if recent_events is empty %}
+    <p style="color: var(--text-muted, #6c757d); padding: 16px;">No events recorded yet.</p>
+{% else %}
+<table class="events-table">
+    <thead>
+        <tr>
+            <th>When</th>
+            <th>Level</th>
+            <th>Channel</th>
+            <th>Message</th>
+            <th>Context</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for evt in recent_events %}
+        <tr>
+            <td style="white-space: nowrap;">{{ evt.created_at|date('H:i:s') }}</td>
+            <td>
+                <span class="badge badge-{{ evt.level }}">{{ evt.level }}</span>
+            </td>
+            <td>
+                <span class="badge badge-{{ evt.channel }}">{{ evt.channel }}</span>
+            </td>
+            <td>{{ evt.message }}</td>
+            <td class="context-cell" title="{{ evt.context }}">{{ evt.context }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}

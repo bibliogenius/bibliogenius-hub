@@ -129,10 +129,70 @@ class DirectoryController extends AbstractController
             // Returned once only - the library must store it
             $response['write_token'] = $result['write_token'];
         }
+        if ($result['recovery_code'] !== null) {
+            // Returned once only - the library must show it to the user
+            $response['recovery_code'] = $result['recovery_code'];
+        }
 
         $status = $existing === null ? Response::HTTP_CREATED : Response::HTTP_OK;
 
+        if ($existing === null) {
+            $this->eventLogger->info('directory', 'profile registered', [
+                'node_id' => substr($nodeId, 0, 12),
+                'name' => substr(strip_tags($data['display_name'] ?? ''), 0, 50),
+            ]);
+        }
+
         return $this->json($response, $status);
+    }
+
+    /**
+     * Recover access to a profile using a one-time recovery code.
+     * Returns a new write_token + a new recovery_code (the old one is invalidated).
+     *
+     * Rate-limited: max 5 failed attempts per node_id per hour (logged, not hard-blocked in beta).
+     */
+    #[Route('/recover', name: 'recover', methods: ['POST'])]
+    public function recoverProfile(Request $request): JsonResponse
+    {
+        $data = $this->parseJson($request);
+        if ($data === null) {
+            return $this->error('Invalid JSON body.', Response::HTTP_BAD_REQUEST);
+        }
+
+        $nodeId = $data['node_id'] ?? null;
+        if (!$this->isValidNodeId($nodeId)) {
+            return $this->error('node_id is required.', Response::HTTP_BAD_REQUEST);
+        }
+
+        $code = $data['recovery_code'] ?? null;
+        if (!is_string($code) || strlen($code) < 8 || strlen($code) > 20) {
+            return $this->error('recovery_code is required (8-20 characters).', Response::HTTP_BAD_REQUEST);
+        }
+
+        // Normalize: strip dashes/spaces, uppercase
+        $code = strtoupper(preg_replace('/[\s\-]/', '', $code));
+
+        $result = $this->directoryService->recoverProfile($nodeId, $code);
+
+        if ($result === null) {
+            $this->eventLogger->warning('directory', 'recovery failed (invalid code)', [
+                'node_id' => substr($nodeId, 0, 12),
+            ]);
+            // Generic error to avoid leaking whether the node_id exists
+            return $this->error('Invalid recovery code.', Response::HTTP_UNAUTHORIZED);
+        }
+
+        $this->eventLogger->warning('directory', 'profile recovered via recovery code', [
+            'node_id' => substr($nodeId, 0, 12),
+            'name' => substr($result['profile']->getDisplayName(), 0, 50),
+        ]);
+
+        $response = $result['profile']->toPublicArray();
+        $response['write_token'] = $result['write_token'];
+        $response['recovery_code'] = $result['recovery_code'];
+
+        return $this->json($response, Response::HTTP_OK);
     }
 
     #[Route('/profile', name: 'profile_delete', methods: ['DELETE'])]
@@ -277,6 +337,9 @@ class DirectoryController extends AbstractController
 
         $profile = $this->profileRepository->findByNodeId($nodeId);
         if ($profile === null) {
+            $this->eventLogger->warning('directory', 'profile lookup: not found', [
+                'node_id' => $nodeId,
+            ]);
             return $this->error('Library not found.', Response::HTTP_NOT_FOUND);
         }
 
@@ -299,6 +362,11 @@ class DirectoryController extends AbstractController
             $data['relay_url'] = $profile->getRelayUrl();
             $data['relay_mailbox_id'] = $profile->getRelayMailboxId();
             $data['relay_write_token'] = $profile->getRelayWriteToken();
+            $this->eventLogger->info('directory', 'profile lookup with relay creds', [
+                'node_id' => $nodeId,
+                'name' => $profile->getDisplayName(),
+                'mailbox' => $profile->getRelayMailboxId() ?? 'none',
+            ]);
         }
 
         return $this->json($data);

@@ -74,7 +74,7 @@ class HubEventLogger
     private function sanitizeContext(array $context): array
     {
         $safe = [];
-        $allowed = ['uuid', 'mailbox', 'node_id', 'name', 'size', 'msg_id', 'error', 'count', 'status'];
+        $allowed = ['uuid', 'mailbox', 'node_id', 'name', 'size', 'msg_id', 'error', 'count', 'status', 'client_ip', 'content_length'];
         foreach ($context as $key => $value) {
             if (!in_array($key, $allowed, true)) {
                 continue;

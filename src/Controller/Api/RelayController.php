@@ -210,6 +210,13 @@ class RelayController extends AbstractController
             $this->cleanup();
         }
 
+        if (count($items) > 0) {
+            $this->eventLogger->info('relay', 'messages collected', [
+                'mailbox' => $uuid,
+                'count' => count($items),
+            ]);
+        }
+
         return $this->json(['messages' => $items]);
     }
 
@@ -258,6 +265,44 @@ class RelayController extends AbstractController
         }
 
         return $this->json(['message' => 'Deleted']);
+    }
+
+    /**
+     * DELETE /api/relay/mailbox/{uuid} - Delete a mailbox and all its messages.
+     * Requires: Authorization: Bearer {read_token}
+     * Only the mailbox owner (who knows the read_token) can delete it.
+     */
+    #[Route('/mailbox/{uuid}', name: 'delete_mailbox', methods: ['DELETE'])]
+    public function deleteMailbox(string $uuid, Request $request): JsonResponse
+    {
+        if (!self::isValidUuid($uuid)) {
+            return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $token = $this->extractBearerToken($request);
+        if ($token === null) {
+            return $this->json(['error' => 'Missing Authorization header'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        $mailbox = $this->mailboxRepository->findByUuid($uuid);
+        if ($mailbox === null) {
+            return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        if (!hash_equals($mailbox->getReadToken(), $token)) {
+            return $this->json(['error' => 'Invalid read token'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        try {
+            $this->mailboxRepository->deleteByUuid($uuid);
+            $this->eventLogger->info('relay', 'mailbox deleted by owner', [
+                'uuid' => $uuid,
+            ]);
+        } catch (\Throwable $e) {
+            return $this->json(['error' => 'Failed to delete mailbox'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        return $this->json(['message' => 'Mailbox deleted']);
     }
 
     /**

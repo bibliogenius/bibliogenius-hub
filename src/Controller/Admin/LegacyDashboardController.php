@@ -18,7 +18,7 @@ class LegacyDashboardController extends AbstractController
     ) {
     }
 
-    #[Route('', name: 'dashboard', methods: ['GET'])]
+    #[Route('/legacy', name: 'dashboard_legacy', methods: ['GET'])]
     public function index(): Response
     {
         $libraries = $this->entityManager
