@@ -108,7 +108,7 @@ class DirectoryController extends AbstractController
         try {
             $result = $this->directoryService->upsertProfile($data, $authenticated);
         } catch (\LogicException $e) {
-            $this->eventLogger->warning('directory', 'upsert forbidden', ['error' => $e->getMessage()]);
+            $this->eventLogger->warning('directory', 'upsert forbidden', []);
             return $this->error($e->getMessage(), Response::HTTP_FORBIDDEN);
         } catch (UniqueConstraintViolationException $e) {
             // Concurrent insert for the same node_id won the race.
@@ -120,8 +120,8 @@ class DirectoryController extends AbstractController
             if ($e->getPrevious() instanceof UniqueConstraintViolationException) {
                 return $this->error('Concurrent registration. Please retry.', Response::HTTP_CONFLICT);
             }
-            $this->eventLogger->error('directory', 'upsert failed', ['error' => $e->getMessage()]);
-            return $this->error('upsertProfile failed: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
+            $this->eventLogger->error('directory', 'upsert failed', []);
+            return $this->error('upsertProfile failed', Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
         $response = $result['profile']->toPublicArray();

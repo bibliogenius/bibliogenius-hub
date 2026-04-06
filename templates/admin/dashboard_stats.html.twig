@@ -134,7 +134,7 @@
     <tbody>
         {% for mb in busy_mailboxes %}
         <tr>
-            <td><code>{{ mb.mailbox_uuid[:8] }}...</code></td>
+            <td><code>{{ mb.mailbox_uuid[:4] }}...</code></td>
             <td>{{ mb.msg_count }}</td>
             <td>{{ mb.oldest_msg }}</td>
         </tr>
@@ -169,7 +169,7 @@
                 <span class="badge badge-{{ evt.channel }}">{{ evt.channel }}</span>
             </td>
             <td>{{ evt.message }}</td>
-            <td class="context-cell" title="{{ evt.context }}">{{ evt.context }}</td>
+            <td class="context-cell">{{ evt.context }}</td>
         </tr>
         {% endfor %}
     </tbody>

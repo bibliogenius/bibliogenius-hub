@@ -11,8 +11,8 @@ use Psr\Log\LoggerInterface;
  * Lightweight event logger that stores critical events in the hub_events
  * table for BO review, in addition to the standard Monolog stderr output.
  *
- * Security: NEVER log tokens, keys, passwords, or full IPs.
- * Allowed context: truncated node_ids, display names, error messages,
+ * Security: NEVER log tokens, keys, passwords, IPs, or error messages.
+ * Allowed context: truncated node_ids, display names,
  * counts, sizes, mailbox UUIDs.
  *
  * Auto-purges entries older than 30 days (probabilistic, ~2% of writes).
@@ -74,7 +74,7 @@ class HubEventLogger
     private function sanitizeContext(array $context): array
     {
         $safe = [];
-        $allowed = ['uuid', 'mailbox', 'node_id', 'name', 'size', 'msg_id', 'error', 'count', 'status', 'client_ip', 'content_length'];
+        $allowed = ['uuid', 'mailbox', 'node_id', 'name', 'size', 'msg_id', 'count', 'status'];
         foreach ($context as $key => $value) {
             if (!in_array($key, $allowed, true)) {
                 continue;

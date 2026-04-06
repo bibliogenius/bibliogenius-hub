@@ -52,7 +52,7 @@ class RelayController extends AbstractController
             $this->entityManager->persist($mailbox);
             $this->entityManager->flush();
         } catch (\Throwable $e) {
-            $this->eventLogger->error('relay', 'mailbox creation failed', ['error' => $e->getMessage()]);
+            $this->eventLogger->error('relay', 'mailbox creation failed', []);
             return $this->json(['error' => 'Failed to create mailbox'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
@@ -94,20 +94,15 @@ class RelayController extends AbstractController
         // 3. Find mailbox and verify write token
         $mailbox = $this->mailboxRepository->findByUuid($uuid);
         if ($mailbox === null) {
-            $clientIp = $request->getClientIp() ?? 'unknown';
             $this->eventLogger->warning('relay', 'deposit to non-existent mailbox', [
                 'uuid' => $uuid,
-                'client_ip' => $clientIp,
-                'content_length' => $contentLength ?? 0,
             ]);
             return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
         }
 
         if (!hash_equals($mailbox->getWriteToken(), $token)) {
-            $clientIp = $request->getClientIp() ?? 'unknown';
             $this->eventLogger->warning('relay', 'invalid write token', [
                 'uuid' => $uuid,
-                'client_ip' => $clientIp,
             ]);
             return $this->json(['error' => 'Invalid write token'], Response::HTTP_UNAUTHORIZED);
         }
@@ -139,7 +134,7 @@ class RelayController extends AbstractController
             $this->entityManager->persist($message);
             $this->entityManager->flush();
         } catch (\Throwable $e) {
-            $this->eventLogger->error('relay', 'deposit failed', ['uuid' => $uuid, 'error' => $e->getMessage()]);
+            $this->eventLogger->error('relay', 'deposit failed', ['uuid' => $uuid]);
             return $this->json(['error' => 'Failed to store message'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
@@ -172,10 +167,8 @@ class RelayController extends AbstractController
         // 2. Find mailbox and verify read token
         $mailbox = $this->mailboxRepository->findByUuid($uuid);
         if ($mailbox === null) {
-            $clientIp = $request->getClientIp() ?? 'unknown';
             $this->eventLogger->warning('relay', 'collect from non-existent mailbox', [
                 'uuid' => $uuid,
-                'client_ip' => $clientIp,
             ]);
             return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
         }
