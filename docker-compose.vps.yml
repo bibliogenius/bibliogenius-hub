@@ -1,0 +1,52 @@
+# Docker Compose for Scaleway VPS deployment
+# Both prod and staging run on the same VPS behind a host-level Caddy reverse proxy.
+# TLS is handled by the host Caddy (Caddyfile.vps), NOT by these containers.
+#
+# Secrets are injected via scripts/vps-deploy.sh which fetches them from
+# Scaleway Secret Manager and generates a temporary .env.{ENV} file.
+# The .env.{ENV}.config files contain non-secret configuration only.
+
+services:
+  hub-prod:
+    image: rg.fr-par.scw.cloud/bibliogenius-hub/hub:vps
+    container_name: hub-prod
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env.prod.config
+      - .env.prod
+    volumes:
+      - hub_prod_var:/app/var
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  hub-staging:
+    image: rg.fr-par.scw.cloud/bibliogenius-hub/hub:vps
+    container_name: hub-staging
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env.staging.config
+      - .env.staging
+    volumes:
+      - hub_staging_var:/app/var
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  hub_prod_var:
+  hub_staging_var:

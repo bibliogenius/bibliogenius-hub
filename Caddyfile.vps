@@ -1,0 +1,13 @@
+# Caddy reverse proxy for Scaleway VPS
+# Installed on the host at /etc/caddy/Caddyfile
+# Handles TLS termination via Let's Encrypt
+# Proxies to FrankenPHP containers on localhost
+
+# Production - uncomment when DNS points to this VPS
+# hub.bibliogenius.org {
+#     reverse_proxy localhost:8080
+# }
+
+hub-dev.bibliogenius.org {
+    reverse_proxy localhost:8081
+}

@@ -34,6 +34,16 @@ help:
 	@echo "  make status-dev   - Check staging container status"
 	@echo "  make test-dev     - Test staging endpoints"
 	@echo ""
+	@echo "VPS Deployment (Scaleway DEV1-S + Secret Manager):"
+	@echo "  make vps-setup        - Upload config files to VPS (run once)"
+	@echo "  make vps-init-secrets - Provision secrets in Secret Manager (run once)"
+	@echo "  make deploy-vps       - Build, push, deploy prod to VPS"
+	@echo "  make deploy-vps-dev   - Build, push, deploy staging to VPS"
+	@echo "  make vps-logs         - Tail production logs"
+	@echo "  make vps-logs-dev     - Tail staging logs"
+	@echo "  make vps-status       - Show container status and resource usage"
+	@echo "  make vps-ssh          - SSH into VPS"
+	@echo ""
 
 # Login to Scaleway registry
 .PHONY: login
@@ -153,6 +163,71 @@ test-dev:
 .PHONY: dev
 dev:
 	symfony server:start
+
+# ---------------------------------------------------------------------------
+# VPS Deployment (Scaleway DEV1-S)
+# ---------------------------------------------------------------------------
+
+VPS_SSH  := ssh -F ~/.ssh/config/bibliogenius.config hub-vps
+VPS_SCP  := scp -F ~/.ssh/config/bibliogenius.config
+VPS_HOST := hub-vps
+VPS_DIR  := /opt/hub
+
+.PHONY: deploy-vps
+deploy-vps: build push
+	@echo "Deploying production to VPS (secrets from Scaleway Secret Manager)..."
+	$(VPS_SSH) "bash $(VPS_DIR)/scripts/vps-deploy.sh prod"
+	@$(MAKE) test
+
+.PHONY: deploy-vps-dev
+deploy-vps-dev: build push
+	@echo "Deploying staging to VPS (secrets from Scaleway Secret Manager)..."
+	$(VPS_SSH) "bash $(VPS_DIR)/scripts/vps-deploy.sh staging"
+	@$(MAKE) test-dev
+
+# Provision secrets in Scaleway Secret Manager (run once)
+.PHONY: vps-init-secrets
+vps-init-secrets:
+	@echo "Provisioning secrets in Scaleway Secret Manager..."
+	bash scripts/vps-init-secrets.sh $(ENV)
+
+# Upload deployment files to VPS (run once after VPS setup)
+.PHONY: vps-setup
+vps-setup:
+	@echo "Uploading deployment files to VPS..."
+	$(VPS_SSH) "mkdir -p $(VPS_DIR)/scripts"
+	$(VPS_SCP) docker-compose.vps.yml $(VPS_HOST):$(VPS_DIR)/docker-compose.yml
+	$(VPS_SCP) Caddyfile.vps $(VPS_HOST):/etc/caddy/Caddyfile
+	$(VPS_SCP) Caddyfile.container.vps $(VPS_HOST):$(VPS_DIR)/Caddyfile.container.vps
+	$(VPS_SCP) .env.prod.template $(VPS_HOST):$(VPS_DIR)/.env.prod.config
+	$(VPS_SCP) .env.staging.template $(VPS_HOST):$(VPS_DIR)/.env.staging.config
+	$(VPS_SCP) scripts/vps-deploy.sh $(VPS_HOST):$(VPS_DIR)/scripts/vps-deploy.sh
+	$(VPS_SSH) "chmod +x $(VPS_DIR)/scripts/vps-deploy.sh"
+	@echo "Files uploaded. Next: make vps-init-secrets ENV=prod"
+
+.PHONY: vps-logs
+vps-logs:
+	$(VPS_SSH) "cd $(VPS_DIR) && docker compose logs -f hub-prod --tail 100"
+
+.PHONY: vps-logs-dev
+vps-logs-dev:
+	$(VPS_SSH) "cd $(VPS_DIR) && docker compose logs -f hub-staging --tail 100"
+
+.PHONY: vps-status
+vps-status:
+	@echo "VPS container status:"
+	@$(VPS_SSH) "cd $(VPS_DIR) && docker compose ps"
+	@echo ""
+	@echo "VPS resource usage:"
+	@$(VPS_SSH) "docker stats --no-stream"
+
+.PHONY: vps-ssh
+vps-ssh:
+	$(VPS_SSH)
+
+# ---------------------------------------------------------------------------
+# Scaleway Serverless (legacy, keep for rollback during VPS migration)
+# ---------------------------------------------------------------------------
 
 # Update environment variables for production
 .PHONY: env-prod

@@ -1,0 +1,17 @@
+# FrankenPHP Caddyfile for VPS containers (host network mode)
+# Port is set via SERVER_NAME env var (e.g. :8080 or :8081)
+{
+    frankenphp
+    order php_server before file_server
+}
+
+{$SERVER_NAME::80} {
+    root * /app/public
+    encode zstd gzip
+
+    # Health check endpoint
+    respond /health "OK" 200
+
+    # PHP handling via FrankenPHP
+    php_server
+}
