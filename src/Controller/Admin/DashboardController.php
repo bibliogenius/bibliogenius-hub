@@ -2,6 +2,8 @@
 
 namespace App\Controller\Admin;
 
+use App\Repository\RelayMailboxRepository;
+use App\Service\HubEventLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminDashboard;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Action;
@@ -9,13 +11,17 @@ use EasyCorp\Bundle\EasyAdminBundle\Config\Dashboard;
 use EasyCorp\Bundle\EasyAdminBundle\Config\MenuItem;
 use EasyCorp\Bundle\EasyAdminBundle\Controller\AbstractDashboardController;
 use EasyCorp\Bundle\EasyAdminBundle\Router\AdminUrlGenerator;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Attribute\Route;
 
 #[AdminDashboard(routePath: '/admin', routeName: 'admin')]
 class DashboardController extends AbstractDashboardController
 {
     public function __construct(
         private readonly EntityManagerInterface $em,
+        private readonly RelayMailboxRepository $mailboxRepository,
+        private readonly HubEventLogger $eventLogger,
     ) {
     }
 
@@ -89,6 +95,27 @@ class DashboardController extends AbstractDashboardController
             'busy_mailboxes' => $busyMailboxes,
             'recent_events' => $recentEvents,
         ]);
+    }
+
+    #[Route('/admin/mailbox/{uuid}/delete', name: 'admin_mailbox_delete', methods: ['POST'])]
+    public function deleteMailbox(string $uuid, Request $request): Response
+    {
+        if (!$this->isCsrfTokenValid('delete-mailbox-' . $uuid, $request->request->get('_token'))) {
+            $this->addFlash('danger', 'Invalid CSRF token.');
+            return $this->redirectToRoute('admin');
+        }
+
+        $mailbox = $this->mailboxRepository->findByUuid($uuid);
+        if ($mailbox === null) {
+            $this->addFlash('warning', 'Mailbox not found (already deleted?).');
+            return $this->redirectToRoute('admin');
+        }
+
+        $this->mailboxRepository->deleteWithMessages($uuid);
+        $this->eventLogger->warning('relay', 'mailbox purged from dashboard (inactive)', ['uuid' => $uuid]);
+        $this->addFlash('success', sprintf('Mailbox %s... and its messages deleted.', substr($uuid, 0, 8)));
+
+        return $this->redirectToRoute('admin');
     }
 
     public function configureDashboard(): Dashboard

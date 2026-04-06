@@ -120,7 +120,7 @@ class DirectoryController extends AbstractController
             if ($e->getPrevious() instanceof UniqueConstraintViolationException) {
                 return $this->error('Concurrent registration. Please retry.', Response::HTTP_CONFLICT);
             }
-            $this->eventLogger->error('directory', 'upsert failed', []);
+            $this->eventLogger->error('directory', 'upsert failed', ['reason' => $e->getMessage()]);
             return $this->error('upsertProfile failed', Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 

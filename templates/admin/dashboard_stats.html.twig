@@ -56,6 +56,7 @@
     .events-table th {
         font-weight: 600;
         background: var(--table-header-bg, #f8f9fa);
+        color: #212529;
     }
     .badge {
         display: inline-block;
@@ -77,6 +78,68 @@
         white-space: nowrap;
         font-family: monospace;
         font-size: 13px;
+    }
+
+    .section-legend {
+        font-size: 13px;
+        color: var(--text-muted, #6c757d);
+        margin: -4px 0 12px;
+        line-height: 1.5;
+    }
+    .section-legend strong {
+        color: var(--text-color, #212529);
+    }
+
+    .btn-delete-sm {
+        display: inline-block;
+        padding: 2px 8px;
+        border: 1px solid #dc3545;
+        border-radius: 4px;
+        background: #fff;
+        color: #dc3545;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+    }
+    .btn-delete-sm:hover {
+        background: #dc3545;
+        color: #fff;
+    }
+
+    .evt-date {
+        font-size: 11px;
+        color: var(--text-muted, #6c757d);
+    }
+
+    [data-tooltip] {
+        position: relative;
+        cursor: help;
+    }
+    [data-tooltip]::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: 125%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #1a1a2e;
+        color: #fff;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 400;
+        white-space: normal;
+        width: max-content;
+        max-width: 280px;
+        line-height: 1.4;
+        z-index: 10;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    [data-tooltip]:hover::after {
+        opacity: 1;
     }
 </style>
 
@@ -123,20 +186,50 @@
 {# ── Busy Mailboxes ── #}
 {% if busy_mailboxes is not empty %}
 <div class="section-title">Mailboxes with Pending Messages</div>
+<p class="section-legend">
+    Encrypted messages waiting to be collected by the recipient peer.
+    Having pending messages is normal -- the peer has not polled its mailbox yet.
+    <strong>Watch for:</strong> oldest message over 48h (peer likely offline)
+    or high message count (peer inactive or using a stale invitation).
+</p>
 <table class="events-table">
     <thead>
         <tr>
             <th>Mailbox UUID</th>
             <th>Pending</th>
             <th>Oldest Message</th>
+            <th>Status</th>
+            <th>Action</th>
         </tr>
     </thead>
     <tbody>
         {% for mb in busy_mailboxes %}
+        {% set age_hours = (("now"|date("U")) - (mb.oldest_msg|date("U"))) / 3600 %}
         <tr>
             <td><code>{{ mb.mailbox_uuid[:4] }}...</code></td>
             <td>{{ mb.msg_count }}</td>
-            <td>{{ mb.oldest_msg }}</td>
+            <td>
+                <div>{{ mb.oldest_msg|date('H:i:s') }}</div>
+                <div class="evt-date">{{ mb.oldest_msg|date('d/m/Y') }}</div>
+            </td>
+            <td>
+                {% if age_hours > 168 %}
+                    <span class="badge badge-error" data-tooltip="No collection in over 7 days. Peer is likely inactive. Consider deleting the mailbox.">Inactive</span>
+                {% elseif age_hours > 48 %}
+                    <span class="badge badge-warning" data-tooltip="No collection in over 48h. Peer may be offline. No immediate action needed, but keep an eye on it.">Late</span>
+                {% else %}
+                    <span class="badge badge-directory" data-tooltip="Messages pending for less than 48h. Normal operation.">OK</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if age_hours > 168 %}
+                    <form method="post" action="{{ path('admin_mailbox_delete', {uuid: mb.mailbox_uuid}) }}"
+                          onsubmit="return confirm('Delete mailbox {{ mb.mailbox_uuid[:8] }}... and its {{ mb.msg_count }} pending message(s)?')">
+                        <input type="hidden" name="_token" value="{{ csrf_token('delete-mailbox-' ~ mb.mailbox_uuid) }}">
+                        <button type="submit" class="btn-delete-sm" data-tooltip="Permanently deletes the mailbox and all its pending messages.">Delete</button>
+                    </form>
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
     </tbody>
@@ -161,15 +254,56 @@
     <tbody>
         {% for evt in recent_events %}
         <tr>
-            <td style="white-space: nowrap;">{{ evt.created_at|date('H:i:s') }}</td>
-            <td>
-                <span class="badge badge-{{ evt.level }}">{{ evt.level }}</span>
+            <td style="white-space: nowrap;">
+                <div>{{ evt.created_at|date('H:i:s') }}</div>
+                <div class="evt-date">{{ evt.created_at|date('d/m/Y') }}</div>
             </td>
             <td>
-                <span class="badge badge-{{ evt.channel }}">{{ evt.channel }}</span>
+                {% if evt.level == 'error' %}
+                    <span class="badge badge-error" data-tooltip="Action required. Investigate and fix the root cause. Check the Context column for details.">{{ evt.level }}</span>
+                {% elseif evt.level == 'warning' %}
+                    <span class="badge badge-warning" data-tooltip="Worth monitoring. May indicate a client-side issue or stale configuration.">{{ evt.level }}</span>
+                {% else %}
+                    <span class="badge badge-info">{{ evt.level }}</span>
+                {% endif %}
             </td>
-            <td>{{ evt.message }}</td>
-            <td class="context-cell">{{ evt.context }}</td>
+            <td>
+                {% if evt.channel == 'relay' %}
+                    <span class="badge badge-relay" data-tooltip="Relay messaging: deposit/collection of encrypted messages between peers via the hub.">{{ evt.channel }}</span>
+                {% elseif evt.channel == 'directory' %}
+                    <span class="badge badge-directory" data-tooltip="Directory: profile registration, updates, or lookups.">{{ evt.channel }}</span>
+                {% else %}
+                    <span class="badge badge-info">{{ evt.channel }}</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if evt.message == 'deposit to non-existent mailbox' %}
+                    <span data-tooltip="A peer is sending to a deleted mailbox. Client-side fix: the peer needs a fresh invitation. No server action needed.">{{ evt.message }}</span>
+                {% elseif evt.message == 'invalid write token' %}
+                    <span data-tooltip="Invalid write token. The peer is using an expired or revoked invitation link. Client-side fix: regenerate an invitation.">{{ evt.message }}</span>
+                {% elseif evt.message == 'collect from non-existent mailbox' %}
+                    <span data-tooltip="Collection from a non-existent mailbox. The peer needs to re-register with the hub. No server action needed.">{{ evt.message }}</span>
+                {% elseif evt.message == 'mailbox creation failed' %}
+                    <span data-tooltip="Mailbox creation failed -- database issue. Check the Context column for the error detail.">{{ evt.message }}</span>
+                {% elseif evt.message == 'deposit failed' %}
+                    <span data-tooltip="Message deposit failed -- database issue. Check the Context column for the error detail.">{{ evt.message }}</span>
+                {% elseif evt.message == 'registration rejected (missing write_token)' %}
+                    <span data-tooltip="Registration rejected: missing write token. Outdated client (pre-v0.8) or unauthorized attempt. Suspicious if recurring from the same node_id.">{{ evt.message }}</span>
+                {% elseif evt.message == 'upsert forbidden' %}
+                    <span data-tooltip="Profile update rejected: insufficient permissions. The peer tried to modify a profile it does not own. No action unless recurring (possible client bug).">{{ evt.message }}</span>
+                {% elseif evt.message == 'upsert failed' %}
+                    <span data-tooltip="Profile update failed -- database issue. Check the Context column for the error detail.">{{ evt.message }}</span>
+                {% elseif evt.message == 'recovery failed (invalid code)' %}
+                    <span data-tooltip="Invalid recovery code. Likely a typo. Suspicious if repeated attempts from different sources.">{{ evt.message }}</span>
+                {% elseif evt.message == 'profile recovered via recovery code' %}
+                    <span data-tooltip="Profile successfully recovered via recovery code. Informational, no action needed.">{{ evt.message }}</span>
+                {% elseif evt.message == 'profile lookup: not found' %}
+                    <span data-tooltip="Profile lookup returned no result. Normal if the node_id is unknown to this hub. No action needed.">{{ evt.message }}</span>
+                {% else %}
+                    {{ evt.message }}
+                {% endif %}
+            </td>
+            <td class="context-cell" {% if evt.context %}data-tooltip="{{ evt.context }}"{% endif %}>{{ evt.context }}</td>
         </tr>
         {% endfor %}
     </tbody>

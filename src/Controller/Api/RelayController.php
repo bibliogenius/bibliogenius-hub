@@ -52,7 +52,7 @@ class RelayController extends AbstractController
             $this->entityManager->persist($mailbox);
             $this->entityManager->flush();
         } catch (\Throwable $e) {
-            $this->eventLogger->error('relay', 'mailbox creation failed', []);
+            $this->eventLogger->error('relay', 'mailbox creation failed', ['reason' => $e->getMessage()]);
             return $this->json(['error' => 'Failed to create mailbox'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
@@ -134,7 +134,7 @@ class RelayController extends AbstractController
             $this->entityManager->persist($message);
             $this->entityManager->flush();
         } catch (\Throwable $e) {
-            $this->eventLogger->error('relay', 'deposit failed', ['uuid' => $uuid]);
+            $this->eventLogger->error('relay', 'deposit failed', ['uuid' => $uuid, 'reason' => $e->getMessage()]);
             return $this->json(['error' => 'Failed to store message'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
