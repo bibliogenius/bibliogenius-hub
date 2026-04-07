@@ -33,23 +33,15 @@ class ImportNudgerPricesCommand extends Command
 
     protected function configure(): void
     {
-        $this
-            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Simulate the import without writing to the database')
-            ->addOption('market', null, InputOption::VALUE_REQUIRED, 'Market code (2-letter country)', 'FR');
+        $this->addOption('dry-run', null, InputOption::VALUE_NONE, 'Simulate the import without writing to the database');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
         $dryRun = (bool) $input->getOption('dry-run');
-        $market = strtoupper($input->getOption('market'));
 
-        if (!preg_match('/^[A-Z]{2}$/', $market)) {
-            $io->error('market must be a 2-letter country code.');
-            return Command::FAILURE;
-        }
-
-        $io->title(sprintf('nudger.fr price import - market %s (ODbL - attribution: nudger.fr)', $market));
+        $io->title('nudger.fr price import (ODbL - attribution: nudger.fr)');
 
         if ($dryRun) {
             $io->note('Dry-run mode: no data will be written.');
@@ -72,7 +64,7 @@ class ImportNudgerPricesCommand extends Command
         }
 
         try {
-            $result = $this->importFromFile($csvPath, $dryRun, $market, $io);
+            $result = $this->importFromFile($csvPath, $dryRun, $io);
         } finally {
             unlink($csvPath);
         }
@@ -204,7 +196,7 @@ class ImportNudgerPricesCommand extends Command
     /**
      * @return array{int, int}|null [imported, skipped] or null on header parse failure
      */
-    private function importFromFile(string $filePath, bool $dryRun, string $market, SymfonyStyle $io): ?array
+    private function importFromFile(string $filePath, bool $dryRun, SymfonyStyle $io): ?array
     {
         $io->section('Parsing and importing...');
 
@@ -283,7 +275,6 @@ class ImportNudgerPricesCommand extends Command
 
             $batch[] = [
                 'isbn' => $isbn,
-                'market' => $market,
                 'price_cents' => $priceCents,
                 'currency' => $currency,
                 'offers_count' => $offersCount,
@@ -316,7 +307,7 @@ class ImportNudgerPricesCommand extends Command
     }
 
     /**
-     * @param array<array{isbn: string, market: string, price_cents: int, currency: string, offers_count: ?int}> $batch
+     * @param array<array{isbn: string, price_cents: int, currency: string, offers_count: ?int}> $batch
      */
     private function upsertBatch(array $batch, string $now): void
     {
@@ -329,11 +320,10 @@ class ImportNudgerPricesCommand extends Command
 
         foreach ($batch as $i => $row) {
             $values[] = sprintf(
-                '(:isbn_%d, :market_%d, :price_%d, :currency_%d, :offers_%d, :source_%d, :updated_%d)',
-                $i, $i, $i, $i, $i, $i, $i,
+                '(:isbn_%d, :price_%d, :currency_%d, :offers_%d, :source_%d, :updated_%d)',
+                $i, $i, $i, $i, $i, $i,
             );
             $params["isbn_$i"] = $row['isbn'];
-            $params["market_$i"] = $row['market'];
             $params["price_$i"] = $row['price_cents'];
             $params["currency_$i"] = $row['currency'];
             $params["offers_$i"] = $row['offers_count'];
@@ -342,8 +332,8 @@ class ImportNudgerPricesCommand extends Command
         }
 
         $sql = sprintf(
-            'INSERT INTO book_prices (isbn, market, price_cents, currency, offers_count, source, updated_at) VALUES %s
-             ON CONFLICT (isbn, market) DO UPDATE SET
+            'INSERT INTO book_prices (isbn, price_cents, currency, offers_count, source, updated_at) VALUES %s
+             ON CONFLICT (isbn) DO UPDATE SET
                 price_cents = EXCLUDED.price_cents,
                 currency = EXCLUDED.currency,
                 offers_count = EXCLUDED.offers_count,

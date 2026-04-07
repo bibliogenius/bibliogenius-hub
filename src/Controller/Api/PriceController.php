@@ -42,14 +42,6 @@ class PriceController extends AbstractController
             );
         }
 
-        $market = strtoupper($request->query->getString('market', 'FR'));
-        if (!preg_match('/^[A-Z]{2}$/', $market)) {
-            return $this->json(
-                ['error' => 'market must be a 2-letter country code.'],
-                Response::HTTP_BAD_REQUEST,
-            );
-        }
-
         $isbns = array_filter(array_map('trim', explode(',', $raw)));
         if (count($isbns) > self::BATCH_MAX) {
             return $this->json(
@@ -68,7 +60,7 @@ class PriceController extends AbstractController
             }
         }
 
-        $prices = $this->bookPriceRepository->findByIsbns($isbns, $market);
+        $prices = $this->bookPriceRepository->findByIsbns($isbns);
 
         return $this->json([
             'data' => array_map(fn($p) => $p->toArray(), $prices),
@@ -77,11 +69,11 @@ class PriceController extends AbstractController
     }
 
     /**
-     * GET /api/prices/{isbn}?market=FR
-     * Returns the price for a single ISBN in the given market, or 404 if not found.
+     * GET /api/prices/{isbn}
+     * Returns the price for a single ISBN, or 404 if not found.
      */
     #[Route('/{isbn}', name: 'show', methods: ['GET'], priority: 1)]
-    public function show(Request $request, string $isbn): JsonResponse
+    public function show(string $isbn): JsonResponse
     {
         if (!preg_match('/^\d{10}(\d{3})?$/', $isbn)) {
             return $this->json(
@@ -90,15 +82,7 @@ class PriceController extends AbstractController
             );
         }
 
-        $market = strtoupper($request->query->getString('market', 'FR'));
-        if (!preg_match('/^[A-Z]{2}$/', $market)) {
-            return $this->json(
-                ['error' => 'market must be a 2-letter country code.'],
-                Response::HTTP_BAD_REQUEST,
-            );
-        }
-
-        $price = $this->bookPriceRepository->findByIsbn($isbn, $market);
+        $price = $this->bookPriceRepository->findByIsbn($isbn);
 
         if ($price === null) {
             return $this->json(['error' => 'Price not found.'], Response::HTTP_NOT_FOUND);
