@@ -23,6 +23,7 @@ class ImportNudgerPricesCommand extends Command
     private const BATCH_SIZE = 1000;
     private const STALE_DAYS = 90;
     private const CLEANUP_PROBABILITY = 100; // 1 in 100 = 1%
+    private const MAX_PRICE_CENTS = 10_000_00; // 10 000 EUR - skip garbage data above this
 
     public function __construct(
         private readonly Connection $connection,
@@ -266,7 +267,7 @@ class ImportNudgerPricesCommand extends Command
             }
 
             $priceCents = $this->parsePriceCents($priceRaw);
-            if ($priceCents === null || $priceCents <= 0) {
+            if ($priceCents === null || $priceCents <= 0 || $priceCents > self::MAX_PRICE_CENTS) {
                 $skipped++;
                 continue;
             }
