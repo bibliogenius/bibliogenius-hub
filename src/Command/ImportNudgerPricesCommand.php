@@ -280,7 +280,9 @@ class ImportNudgerPricesCommand extends Command
             $offersRaw = ($offersCol !== false && isset($fields[$offersCol]))
                 ? trim($fields[$offersCol])
                 : '';
-            $offersCount = ($offersRaw !== '' && ctype_digit($offersRaw)) ? (int) $offersRaw : null;
+            $offersCount = ($offersRaw !== '' && ctype_digit($offersRaw) && strlen($offersRaw) < 10)
+                ? (int) $offersRaw
+                : null;
 
             $batch[] = [
                 'isbn' => $isbn,
