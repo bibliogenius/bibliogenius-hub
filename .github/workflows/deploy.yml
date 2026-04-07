@@ -10,7 +10,6 @@ on:
 env:
   REGISTRY: rg.fr-par.scw.cloud/bibliogenius-hub
   IMAGE_NAME: hub
-  CONTAINER_ID: 5e740f84-f17f-4535-b9a2-9a6ee1c7bec3
 
 jobs:
   deploy:
@@ -34,34 +33,13 @@ jobs:
         with:
           context: ./bibliogenius-hub
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:vps
           platforms: linux/amd64
 
-      - name: Install Scaleway CLI
-        uses: scaleway/action-scw@v0
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1
         with:
-          save-config: true
-          export-config: true
-          access-key: ${{ secrets.SCW_ACCESS_KEY }}
-          secret-key: ${{ secrets.SCW_SECRET_KEY }}
-          default-project-id: ${{ secrets.SCW_DEFAULT_PROJECT_ID }}
-          default-zone: fr-par-1
-
-      - name: Update Container Configuration
-        run: |
-          scw container container update ${{ env.CONTAINER_ID }} \
-            environment-variables.APP_ENV=prod \
-            environment-variables.APP_DEBUG=0 \
-            environment-variables.DATABASE_URL="${{ secrets.DATABASE_URL }}" \
-            environment-variables.CORS_ALLOW_ORIGIN='^https?://(.*\.)?bibliogenius\.(org|app|fr)(:[0-9]+)?$$' \
-            environment-variables.DEFAULT_URI="https://hub.bibliogenius.org" \
-            environment-variables.JIRA_BASE_URL="${{ secrets.JIRA_BASE_URL }}" \
-            environment-variables.JIRA_PROJECT_KEY="${{ secrets.JIRA_PROJECT_KEY }}" \
-            environment-variables.JIRA_EMAIL="${{ secrets.JIRA_EMAIL }}" \
-            environment-variables.JIRA_API_TOKEN="${{ secrets.JIRA_API_TOKEN }}" \
-            environment-variables.APP_SECRET="${{ secrets.APP_SECRET }}" \
-            environment-variables.HEALTH_TOKEN="${{ secrets.HEALTH_TOKEN }}"
-
-      - name: Deploy Container
-        run: |
-          scw container container deploy ${{ env.CONTAINER_ID }}
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: bash /opt/hub/scripts/vps-deploy.sh prod
