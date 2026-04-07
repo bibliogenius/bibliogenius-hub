@@ -47,6 +47,44 @@ services:
       retries: 3
       start_period: 60s
 
+  ws-sidecar-prod:
+    image: rg.fr-par.scw.cloud/bibliogenius-hub/ws-sidecar:vps
+    container_name: ws-sidecar-prod
+    restart: unless-stopped
+    ports:
+      - "9091:9091"
+    # Internal port NOT exposed to host: only reachable via Docker network.
+    environment:
+      - RUST_LOG=info
+      - PUBLIC_PORT=9091
+      - INTERNAL_PORT=9090
+      - INTERNAL_BIND=0.0.0.0
+      - HUB_INTERNAL_URL=http://hub-prod:80
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  ws-sidecar-staging:
+    image: rg.fr-par.scw.cloud/bibliogenius-hub/ws-sidecar:vps
+    container_name: ws-sidecar-staging
+    restart: unless-stopped
+    ports:
+      - "9092:9091"
+    # Internal port NOT exposed to host: only reachable via Docker network.
+    environment:
+      - RUST_LOG=info
+      - PUBLIC_PORT=9091
+      - INTERNAL_PORT=9090
+      - INTERNAL_BIND=0.0.0.0
+      - HUB_INTERNAL_URL=http://hub-staging:80
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 volumes:
   hub_prod_var:
   hub_staging_var:

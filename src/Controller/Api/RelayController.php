@@ -14,6 +14,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use App\Service\HubEventLogger;
+use App\Service\SidecarNotifier;
 use Symfony\Component\Routing\Attribute\Route;
 
 #[Route('/api/relay', name: 'api_relay_')]
@@ -29,6 +30,7 @@ class RelayController extends AbstractController
         private readonly RelayMailboxRepository $mailboxRepository,
         private readonly RelayMessageRepository $messageRepository,
         private readonly HubEventLogger $eventLogger,
+        private readonly ?SidecarNotifier $sidecarNotifier = null,
     ) {
     }
 
@@ -144,6 +146,9 @@ class RelayController extends AbstractController
             'msg_id' => $message->getId(),
         ]);
 
+        // Nudge the WebSocket sidecar (fire-and-forget, ADR-017).
+        $this->sidecarNotifier?->nudge($uuid);
+
         return $this->json(['id' => $message->getId()], Response::HTTP_CREATED);
     }
 
@@ -211,6 +216,35 @@ class RelayController extends AbstractController
         }
 
         return $this->json(['messages' => $items]);
+    }
+
+    /**
+     * GET /api/relay/mailbox/{uuid}/verify — Verify read_token ownership.
+     * Lightweight endpoint used by the WebSocket sidecar at handshake time.
+     * Returns 200 if the token is valid, 401 otherwise. No DB side effects.
+     */
+    #[Route('/mailbox/{uuid}/verify', name: 'verify_token', methods: ['GET'])]
+    public function verifyToken(string $uuid, Request $request): JsonResponse
+    {
+        if (!self::isValidUuid($uuid)) {
+            return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $token = $this->extractBearerToken($request);
+        if ($token === null) {
+            return $this->json(['error' => 'Missing Authorization header'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        $mailbox = $this->mailboxRepository->findByUuid($uuid);
+        if ($mailbox === null) {
+            return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        if (!hash_equals($mailbox->getReadToken(), $token)) {
+            return $this->json(['error' => 'Invalid read token'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        return $this->json(['status' => 'ok']);
     }
 
     /**

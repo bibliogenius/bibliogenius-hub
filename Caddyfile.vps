@@ -5,9 +5,27 @@
 
 # Production
 hub.bibliogenius.org {
-    reverse_proxy localhost:8080
+    # WebSocket endpoint (ADR-017) - no access log to avoid leaking
+    # tokens if passed as query param fallback.
+    handle /ws {
+        log {
+            output discard
+        }
+        reverse_proxy localhost:9091
+    }
+    handle {
+        reverse_proxy localhost:8080
+    }
 }
 
 hub-dev.bibliogenius.org {
-    reverse_proxy localhost:8081
+    handle /ws {
+        log {
+            output discard
+        }
+        reverse_proxy localhost:9092
+    }
+    handle {
+        reverse_proxy localhost:8081
+    }
 }

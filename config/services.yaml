@@ -1,4 +1,5 @@
 parameters:
+    sidecar_default: null
 
 services:
     _defaults:
@@ -11,6 +12,12 @@ services:
             - '../src/DependencyInjection/'
             - '../src/Entity/'
             - '../src/Kernel.php'
+
+    # WebSocket sidecar notifier (ADR-017)
+    # SIDECAR_URL env var is optional: defaults to http://127.0.0.1:9090 if unset
+    App\Service\SidecarNotifier:
+        arguments:
+            $sidecarUrl: '%env(default:sidecar_default:SIDECAR_URL)%'
 
     # Jira integration service
     App\Service\JiraService:
