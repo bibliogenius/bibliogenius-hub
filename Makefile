@@ -34,6 +34,10 @@ help:
 	@echo "  make status-dev   - Check staging container status"
 	@echo "  make test-dev     - Test staging endpoints"
 	@echo ""
+	@echo "WebSocket Sidecar (ADR-017):"
+	@echo "  make deploy-sidecar-dev - Build, push, deploy sidecar to staging"
+	@echo "  make deploy-sidecar     - Build, push, deploy sidecar to prod"
+	@echo ""
 	@echo "VPS Deployment (Scaleway DEV1-S + Secret Manager):"
 	@echo "  make vps-setup        - Upload config files to VPS (run once)"
 	@echo "  make vps-init-secrets - Provision secrets in Secret Manager (run once)"
@@ -155,6 +159,40 @@ test-dev:
 	@echo "\n📍 Health:"
 	@curl -s $(HUB_DEV_URL)/api/feedback/health
 	@echo "\n✅ Staging OK"
+
+# ---------------------------------------------------------------------------
+# WebSocket Sidecar (ADR-017)
+# ---------------------------------------------------------------------------
+
+SIDECAR_IMAGE := ws-sidecar
+
+.PHONY: build-sidecar
+build-sidecar:
+	@echo "Building ws-sidecar image for $(PLATFORM)..."
+	docker build --platform=$(PLATFORM) -t $(REGISTRY)/$(SIDECAR_IMAGE):vps ws-sidecar/
+
+.PHONY: push-sidecar
+push-sidecar:
+	@echo "Pushing ws-sidecar to Scaleway registry..."
+	docker push $(REGISTRY)/$(SIDECAR_IMAGE):vps
+
+.PHONY: deploy-sidecar-dev
+deploy-sidecar-dev: build-sidecar push-sidecar
+	@echo "Deploying ws-sidecar-staging on VPS..."
+	$(VPS_SSH) "cd $(VPS_DIR) && docker compose pull ws-sidecar-staging && docker compose up -d ws-sidecar-staging"
+	@echo "Waiting for sidecar to start..."
+	@sleep 5
+	@echo "Checking sidecar health..."
+	@curl -sf https://hub-dev.bibliogenius.org/ws && echo " (upgrade required = OK)" || echo "Sidecar health check (direct):"
+	@$(VPS_SSH) "curl -sf http://localhost:9092/health" && echo " OK" || echo " FAIL"
+
+.PHONY: deploy-sidecar
+deploy-sidecar: build-sidecar push-sidecar
+	@echo "Deploying ws-sidecar-prod on VPS..."
+	$(VPS_SSH) "cd $(VPS_DIR) && docker compose pull ws-sidecar-prod && docker compose up -d ws-sidecar-prod"
+	@echo "Waiting for sidecar to start..."
+	@sleep 5
+	@$(VPS_SSH) "curl -sf http://localhost:9091/health" && echo " OK" || echo " FAIL"
 
 # ---------------------------------------------------------------------------
 # Local development
