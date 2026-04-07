@@ -16,6 +16,10 @@ class BookPrice
     #[ORM\Column(type: 'string', length: 13)]
     private string $isbn;
 
+    #[ORM\Id]
+    #[ORM\Column(type: 'string', length: 2)]
+    private string $market;
+
     #[ORM\Column(type: 'integer')]
     private int $priceCents;
 
@@ -37,8 +41,10 @@ class BookPrice
         string $currency = 'EUR',
         ?int $offersCount = null,
         string $source = 'nudger',
+        string $market = 'FR',
     ) {
         $this->isbn = $isbn;
+        $this->market = $market;
         $this->priceCents = $priceCents;
         $this->currency = $currency;
         $this->offersCount = $offersCount;
@@ -49,6 +55,11 @@ class BookPrice
     public function getIsbn(): string
     {
         return $this->isbn;
+    }
+
+    public function getMarket(): string
+    {
+        return $this->market;
     }
 
     public function getPriceCents(): int
@@ -90,6 +101,7 @@ class BookPrice
     {
         return [
             'isbn' => $this->isbn,
+            'market' => $this->market,
             'price_cents' => $this->priceCents,
             'currency' => $this->currency,
             'offers_count' => $this->offersCount,

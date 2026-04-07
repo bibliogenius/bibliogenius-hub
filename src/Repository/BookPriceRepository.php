@@ -18,16 +18,16 @@ class BookPriceRepository extends ServiceEntityRepository
         parent::__construct($registry, BookPrice::class);
     }
 
-    public function findByIsbn(string $isbn): ?BookPrice
+    public function findByIsbn(string $isbn, string $market = 'FR'): ?BookPrice
     {
-        return $this->find($isbn);
+        return $this->find(['isbn' => $isbn, 'market' => $market]);
     }
 
     /**
      * @param string[] $isbns
      * @return BookPrice[]
      */
-    public function findByIsbns(array $isbns): array
+    public function findByIsbns(array $isbns, string $market = 'FR'): array
     {
         if (empty($isbns)) {
             return [];
@@ -35,7 +35,9 @@ class BookPriceRepository extends ServiceEntityRepository
 
         return $this->createQueryBuilder('p')
             ->where('p.isbn IN (:isbns)')
+            ->andWhere('p.market = :market')
             ->setParameter('isbns', $isbns)
+            ->setParameter('market', $market)
             ->getQuery()
             ->getResult();
     }
