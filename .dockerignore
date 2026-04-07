@@ -1,0 +1,27 @@
+# Secrets and local config -- NEVER bake into Docker image
+.env.local
+.env.*.config
+.env.prod
+.env.staging
+
+# Git
+.git
+.gitignore
+
+# CI/CD
+.github
+
+# Development
+docker-compose*.yml
+Makefile
+Caddyfile.vps
+Caddyfile.container.vps
+scripts/
+*.md
+
+# IDE
+.idea
+.vscode
+
+# OS
+.DS_Store

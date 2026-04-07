@@ -173,14 +173,24 @@ VPS_SCP  := scp -F ~/.ssh/config/bibliogenius.config
 VPS_HOST := hub-vps
 VPS_DIR  := /opt/hub
 
+.PHONY: build-vps
+build-vps: build
+	@echo "Tagging image as :vps..."
+	docker tag $(REGISTRY)/$(IMAGE_NAME):latest $(REGISTRY)/$(IMAGE_NAME):vps
+
+.PHONY: push-vps
+push-vps:
+	@echo "Pushing :vps tag to Scaleway registry..."
+	docker push $(REGISTRY)/$(IMAGE_NAME):vps
+
 .PHONY: deploy-vps
-deploy-vps: build push
+deploy-vps: build-vps push-vps
 	@echo "Deploying production to VPS (secrets from Scaleway Secret Manager)..."
 	$(VPS_SSH) "bash $(VPS_DIR)/scripts/vps-deploy.sh prod"
 	@$(MAKE) test
 
 .PHONY: deploy-vps-dev
-deploy-vps-dev: build push
+deploy-vps-dev: build-vps push-vps
 	@echo "Deploying staging to VPS (secrets from Scaleway Secret Manager)..."
 	$(VPS_SSH) "bash $(VPS_DIR)/scripts/vps-deploy.sh staging"
 	@$(MAKE) test-dev

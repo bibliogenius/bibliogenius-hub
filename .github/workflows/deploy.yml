@@ -50,11 +50,17 @@ jobs:
       - name: Update Container Configuration
         run: |
           scw container container update ${{ env.CONTAINER_ID }} \
+            environment-variables.APP_ENV=prod \
+            environment-variables.APP_DEBUG=0 \
+            environment-variables.DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            environment-variables.CORS_ALLOW_ORIGIN='^https?://(.*\.)?bibliogenius\.(org|app|fr)(:[0-9]+)?$$' \
+            environment-variables.DEFAULT_URI="https://hub.bibliogenius.org" \
             environment-variables.JIRA_BASE_URL="${{ secrets.JIRA_BASE_URL }}" \
             environment-variables.JIRA_PROJECT_KEY="${{ secrets.JIRA_PROJECT_KEY }}" \
             environment-variables.JIRA_EMAIL="${{ secrets.JIRA_EMAIL }}" \
             environment-variables.JIRA_API_TOKEN="${{ secrets.JIRA_API_TOKEN }}" \
-            environment-variables.APP_SECRET="${{ secrets.APP_SECRET }}"
+            environment-variables.APP_SECRET="${{ secrets.APP_SECRET }}" \
+            environment-variables.HEALTH_TOKEN="${{ secrets.HEALTH_TOKEN }}"
 
       - name: Deploy Container
         run: |
