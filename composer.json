@@ -2,7 +2,7 @@
     "name": "bibliogenius/hub",
     "type": "project",
     "description": "BiblioGenius Hub - Optional central directory service",
-    "version": "0.8.9-beta.11",
+    "version": "0.8.9-beta.12",
     "require": {
         "php": ">=8.3",
         "ext-ctype": "*",
