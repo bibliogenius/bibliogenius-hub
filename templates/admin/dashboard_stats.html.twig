@@ -443,10 +443,9 @@
     <tbody>
         {% for mb in busy_mailboxes %}
         {% set age_hours = (("now"|date("U")) - (mb.oldest_msg|date("U"))) / 3600 %}
-        {% set mailbox_url = mailbox_detail_base_url ~ '&entityId=' ~ mb.mailbox_uuid %}
         <tr>
             <td>
-                <a href="{{ mailbox_url }}" class="mono" title="Open mailbox detail">{{ mb.mailbox_uuid[:8] }}…</a>
+                <code class="mono">{{ mb.mailbox_uuid[:8] }}…</code>
             </td>
             <td>
                 {% if mb.profile_node_id %}

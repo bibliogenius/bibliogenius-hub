@@ -101,10 +101,6 @@ class DashboardController extends AbstractDashboardController
              ORDER BY total_bytes DESC",
         );
 
-        // Base URL for mailbox detail — entityId appended in Twig per row
-        $mailboxDetailBaseUrl = '/admin?crudAction=detail&crudControllerFqcn='
-            . urlencode(RelayMailboxCrudController::class);
-
         return $this->render('admin/dashboard_stats.html.twig', [
             'total_profiles' => $totalProfiles,
             'active_profiles' => $activeProfiles,
@@ -121,7 +117,6 @@ class DashboardController extends AbstractDashboardController
             'invite_token_count' => $inviteTokenCount,
             'registration_failure_count' => $registrationFailureCount,
             'table_sizes' => $tableSizes,
-            'mailbox_detail_base_url' => $mailboxDetailBaseUrl,
         ]);
     }
 
