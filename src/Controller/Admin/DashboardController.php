@@ -22,6 +22,7 @@ class DashboardController extends AbstractDashboardController
         private readonly EntityManagerInterface $em,
         private readonly RelayMailboxRepository $mailboxRepository,
         private readonly HubEventLogger $eventLogger,
+        private readonly AdminUrlGenerator $adminUrlGenerator,
     ) {
     }
 
@@ -50,10 +51,14 @@ class DashboardController extends AbstractDashboardController
 
         // Message stats
         $pendingMessages = (int) $conn->fetchOne('SELECT COUNT(*) FROM relay_messages');
+        $staleMessages = (int) $conn->fetchOne(
+            "SELECT COUNT(*) FROM relay_messages WHERE created_at < ?",
+            [$yesterday],
+        );
 
         // Event stats (24h)
         $deposit404s = (int) $conn->fetchOne(
-            "SELECT COUNT(*) FROM hub_events WHERE channel = 'relay' AND message LIKE '%404%' AND created_at >= ?",
+            "SELECT COUNT(*) FROM hub_events WHERE channel = 'relay' AND message = 'deposit to non-existent mailbox' AND created_at >= ?",
             [$yesterday],
         );
         $recentWarnings = (int) $conn->fetchOne(
@@ -65,11 +70,15 @@ class DashboardController extends AbstractDashboardController
             [$yesterday],
         );
 
-        // Busy mailboxes (top 10 with pending messages)
+        // Busy mailboxes (top 10) — joined with library_profiles for anonymous node_id
         $busyMailboxes = $conn->fetchAllAssociative(
-            'SELECT rm.mailbox_uuid, COUNT(*) AS msg_count, MIN(rm.created_at) AS oldest_msg
+            'SELECT rm.mailbox_uuid,
+                    COUNT(*) AS msg_count,
+                    MIN(rm.created_at) AS oldest_msg,
+                    lp.node_id AS profile_node_id
              FROM relay_messages rm
-             GROUP BY rm.mailbox_uuid
+             LEFT JOIN library_profiles lp ON lp.relay_mailbox_id = rm.mailbox_uuid
+             GROUP BY rm.mailbox_uuid, lp.node_id
              ORDER BY msg_count DESC
              LIMIT 10',
         );
@@ -82,6 +91,25 @@ class DashboardController extends AbstractDashboardController
              LIMIT 50',
         );
 
+        // Token / failure counts
+        $inviteTokenCount = (int) $conn->fetchOne('SELECT COUNT(*) FROM invite_tokens');
+        $registrationFailureCount = (int) $conn->fetchOne('SELECT COUNT(*) FROM registration_failures');
+
+        // DB table sizes (PostgreSQL)
+        $tableSizes = $conn->fetchAllAssociative(
+            "SELECT relname AS table_name,
+                    pg_total_relation_size(quote_ident(relname)) AS total_bytes
+             FROM pg_stat_user_tables
+             WHERE schemaname = 'public'
+             ORDER BY total_bytes DESC",
+        );
+
+        // EasyAdmin link base URLs for mailbox detail
+        $mailboxDetailBaseUrl = $this->adminUrlGenerator
+            ->setController(RelayMailboxCrudController::class)
+            ->setAction(Action::DETAIL)
+            ->generateUrl();
+
         return $this->render('admin/dashboard_stats.html.twig', [
             'total_profiles' => $totalProfiles,
             'active_profiles' => $activeProfiles,
@@ -89,11 +117,16 @@ class DashboardController extends AbstractDashboardController
             'total_mailboxes' => $totalMailboxes,
             'active_mailboxes' => $activeMailboxes,
             'pending_messages' => $pendingMessages,
+            'stale_messages' => $staleMessages,
             'deposit_404s' => $deposit404s,
             'recent_warnings' => $recentWarnings,
             'recent_errors' => $recentErrors,
             'busy_mailboxes' => $busyMailboxes,
             'recent_events' => $recentEvents,
+            'invite_token_count' => $inviteTokenCount,
+            'registration_failure_count' => $registrationFailureCount,
+            'table_sizes' => $tableSizes,
+            'mailbox_detail_base_url' => $mailboxDetailBaseUrl,
         ]);
     }
 

@@ -32,10 +32,9 @@ class InviteTokenRepository extends ServiceEntityRepository
     {
         $conn = $this->getEntityManager()->getConnection();
 
-        // Constants only (no user input) - safe to interpolate.
-        // SQLite datetime() modifiers don't work with bound parameters.
+        // Integer constant only — safe to interpolate (no user input).
         return (int) $conn->executeStatement(
-            sprintf("DELETE FROM invite_tokens WHERE created_at < datetime('now', '-%d days')", $ttlDays),
+            sprintf("DELETE FROM invite_tokens WHERE created_at < NOW() - INTERVAL '%d days'", $ttlDays),
         );
     }
 }

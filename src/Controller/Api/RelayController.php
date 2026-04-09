@@ -22,7 +22,7 @@ class RelayController extends AbstractController
 {
     private const MAX_BLOB_SIZE = 64 * 1024; // 64 KB
     private const MAX_MESSAGES_PER_MAILBOX = 100;
-    private const MESSAGE_TTL_DAYS = 30;
+    private const MESSAGE_TTL_DAYS = 7;
     private const MAILBOX_TTL_DAYS = 90;
 
     public function __construct(
@@ -148,6 +148,12 @@ class RelayController extends AbstractController
 
         // Nudge the WebSocket sidecar (fire-and-forget, ADR-017).
         $this->sidecarNotifier?->nudge($uuid);
+
+        // Probabilistic cleanup (~1% chance) — also triggered on write so that
+        // mailboxes that are never polled don't accumulate indefinitely.
+        if (random_int(0, 99) === 0) {
+            $this->cleanup();
+        }
 
         return $this->json(['id' => $message->getId()], Response::HTTP_CREATED);
     }
@@ -357,18 +363,17 @@ class RelayController extends AbstractController
         $conn = $this->entityManager->getConnection();
 
         try {
-            // Constants only (no user input) — safe to interpolate, and required
-            // because SQLite datetime() modifiers don't work with bound parameters.
+            // Integer constants only — safe to interpolate (no user input).
             $conn->executeStatement(
-                sprintf("DELETE FROM relay_messages WHERE created_at < datetime('now', '-%d days')", self::MESSAGE_TTL_DAYS),
+                sprintf("DELETE FROM relay_messages WHERE created_at < NOW() - INTERVAL '%d days'", self::MESSAGE_TTL_DAYS),
             );
 
             $conn->executeStatement(
-                sprintf("DELETE FROM relay_mailboxes WHERE last_accessed IS NOT NULL AND last_accessed < datetime('now', '-%d days')", self::MAILBOX_TTL_DAYS),
+                sprintf("DELETE FROM relay_mailboxes WHERE last_accessed IS NOT NULL AND last_accessed < NOW() - INTERVAL '%d days'", self::MAILBOX_TTL_DAYS),
             );
 
             $conn->executeStatement(
-                sprintf("DELETE FROM relay_mailboxes WHERE last_accessed IS NULL AND created_at < datetime('now', '-%d days')", self::MAILBOX_TTL_DAYS),
+                sprintf("DELETE FROM relay_mailboxes WHERE last_accessed IS NULL AND created_at < NOW() - INTERVAL '%d days'", self::MAILBOX_TTL_DAYS),
             );
         } catch (\Throwable) {
             // Cleanup is best-effort

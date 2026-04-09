@@ -1,0 +1,143 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Command;
+
+use App\Repository\InviteTokenRepository;
+use Doctrine\DBAL\Connection;
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Style\SymfonyStyle;
+
+/**
+ * Nightly database pruning — run via cron to keep tables lean.
+ *
+ * Tables covered:
+ *   relay_messages       — TTL 7 days  (E2EE blobs, largest table)
+ *   relay_mailboxes      — TTL 90 days (last_accessed or created_at)
+ *   invite_tokens        — TTL 30 days
+ *   registration_failures — TTL 90 days (audit trail)
+ *   hub_events           — TTL 30 days + cap 1000 rows
+ */
+#[AsCommand(
+    name: 'app:db:prune',
+    description: 'Prune stale rows from all time-bounded tables',
+)]
+class PruneCommand extends Command
+{
+    private const RELAY_MESSAGE_TTL_DAYS = 7;
+    private const RELAY_MAILBOX_TTL_DAYS = 90;
+    private const INVITE_TOKEN_TTL_DAYS = 30;
+    private const REGISTRATION_FAILURE_TTL_DAYS = 90;
+    private const HUB_EVENTS_TTL_DAYS = 30;
+    private const HUB_EVENTS_MAX_ROWS = 1000;
+
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly InviteTokenRepository $inviteTokenRepository,
+    ) {
+        parent::__construct();
+    }
+
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        $io = new SymfonyStyle($input, $output);
+        $io->title('BiblioGenius DB prune');
+
+        $total = 0;
+        $total += $this->pruneRelayMessages($io);
+        $total += $this->pruneRelayMailboxes($io);
+        $total += $this->pruneInviteTokens($io);
+        $total += $this->pruneRegistrationFailures($io);
+        $total += $this->pruneHubEvents($io);
+
+        $io->success(sprintf('Done — %d rows deleted.', $total));
+
+        return Command::SUCCESS;
+    }
+
+    private function pruneRelayMessages(SymfonyStyle $io): int
+    {
+        $deleted = (int) $this->connection->executeStatement(
+            sprintf(
+                "DELETE FROM relay_messages WHERE created_at < NOW() - INTERVAL '%d days'",
+                self::RELAY_MESSAGE_TTL_DAYS,
+            ),
+        );
+        $io->writeln(sprintf('  relay_messages   (%d-day TTL): <info>%d deleted</info>', self::RELAY_MESSAGE_TTL_DAYS, $deleted));
+
+        return $deleted;
+    }
+
+    private function pruneRelayMailboxes(SymfonyStyle $io): int
+    {
+        $deleted = (int) $this->connection->executeStatement(
+            sprintf(
+                "DELETE FROM relay_mailboxes WHERE last_accessed IS NOT NULL AND last_accessed < NOW() - INTERVAL '%d days'",
+                self::RELAY_MAILBOX_TTL_DAYS,
+            ),
+        );
+        $deleted += (int) $this->connection->executeStatement(
+            sprintf(
+                "DELETE FROM relay_mailboxes WHERE last_accessed IS NULL AND created_at < NOW() - INTERVAL '%d days'",
+                self::RELAY_MAILBOX_TTL_DAYS,
+            ),
+        );
+        $io->writeln(sprintf('  relay_mailboxes  (%d-day TTL): <info>%d deleted</info>', self::RELAY_MAILBOX_TTL_DAYS, $deleted));
+
+        return $deleted;
+    }
+
+    private function pruneInviteTokens(SymfonyStyle $io): int
+    {
+        $deleted = $this->inviteTokenRepository->deleteExpired(self::INVITE_TOKEN_TTL_DAYS);
+        $io->writeln(sprintf('  invite_tokens    (%d-day TTL): <info>%d deleted</info>', self::INVITE_TOKEN_TTL_DAYS, $deleted));
+
+        return $deleted;
+    }
+
+    private function pruneRegistrationFailures(SymfonyStyle $io): int
+    {
+        $deleted = (int) $this->connection->executeStatement(
+            sprintf(
+                "DELETE FROM registration_failures WHERE created_at < NOW() - INTERVAL '%d days'",
+                self::REGISTRATION_FAILURE_TTL_DAYS,
+            ),
+        );
+        $io->writeln(sprintf('  registration_failures (%d-day TTL): <info>%d deleted</info>', self::REGISTRATION_FAILURE_TTL_DAYS, $deleted));
+
+        return $deleted;
+    }
+
+    private function pruneHubEvents(SymfonyStyle $io): int
+    {
+        $deleted = (int) $this->connection->executeStatement(
+            sprintf(
+                "DELETE FROM hub_events WHERE created_at < NOW() - INTERVAL '%d days'",
+                self::HUB_EVENTS_TTL_DAYS,
+            ),
+        );
+
+        // Secondary cap: keep at most MAX_ROWS newest entries
+        $count = (int) $this->connection->fetchOne('SELECT COUNT(*) FROM hub_events');
+        $capDeleted = 0;
+        if ($count > self::HUB_EVENTS_MAX_ROWS) {
+            $excess = $count - self::HUB_EVENTS_MAX_ROWS;
+            $capDeleted = (int) $this->connection->executeStatement(
+                "DELETE FROM hub_events WHERE id IN (SELECT id FROM hub_events ORDER BY created_at ASC LIMIT $excess)",
+            );
+        }
+
+        $io->writeln(sprintf(
+            '  hub_events       (%d-day TTL, cap %d): <info>%d deleted</info>',
+            self::HUB_EVENTS_TTL_DAYS,
+            self::HUB_EVENTS_MAX_ROWS,
+            $deleted + $capDeleted,
+        ));
+
+        return $deleted + $capDeleted;
+    }
+}
