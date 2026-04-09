@@ -23,5 +23,8 @@ scripts/
 .idea
 .vscode
 
+# Rust build artifacts (ws-sidecar compiled locally — can be hundreds of MB)
+ws-sidecar/target/
+
 # OS
 .DS_Store
