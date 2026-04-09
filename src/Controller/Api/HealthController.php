@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Controller\Api;
 
 use App\Repository\InviteTokenRepository;
-use App\Repository\PeerRepository;
 use App\Repository\RelayMailboxRepository;
 use App\Repository\RelayMessageRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -29,7 +28,6 @@ class HealthController extends AbstractController
         private readonly EntityManagerInterface $entityManager,
         private readonly RelayMailboxRepository $mailboxRepository,
         private readonly RelayMessageRepository $messageRepository,
-        private readonly PeerRepository $peerRepository,
         private readonly InviteTokenRepository $inviteTokenRepository,
         private readonly KernelInterface $kernel,
     ) {
@@ -103,9 +101,6 @@ class HealthController extends AbstractController
             'SELECT AVG(cnt) as avg_depth, MAX(cnt) as max_depth FROM (SELECT COUNT(*) as cnt FROM relay_messages GROUP BY mailbox_uuid)'
         )->fetchAssociative();
 
-        // Peer count
-        $peerCount = (int) $conn->executeQuery('SELECT COUNT(*) FROM peers')->fetchOne();
-
         // Invite token count
         $inviteCount = (int) $conn->executeQuery('SELECT COUNT(*) FROM invite_tokens')->fetchOne();
 
@@ -132,9 +127,6 @@ class HealthController extends AbstractController
                 'avg_messages_per_mailbox' => round((float) ($mailboxDepth['avg_depth'] ?? 0), 1),
                 'max_messages_in_mailbox' => (int) ($mailboxDepth['max_depth'] ?? 0),
                 'oldest_pending_message' => $oldestMessage ?: null,
-            ],
-            'peers' => [
-                'total' => $peerCount,
             ],
             'invites' => [
                 'total' => $inviteCount,

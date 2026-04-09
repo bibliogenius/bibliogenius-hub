@@ -16,10 +16,7 @@ class HomeController extends AbstractController
             'version' => $_ENV['APP_VERSION'] ?? 'dev',
             'description' => 'Central directory and discovery service for BiblioGenius ecosystem',
             'endpoints' => [
-                'GET /api/peers' => 'List registered peers',
-                'GET /api/peers/search' => 'Search peers by tags',
-                'POST /api/peers/connect' => 'Connect to a peer',
-                'GET /api/health' => 'Liveness check (public)',
+'GET /api/health' => 'Liveness check (public)',
                 'GET /api/health/detailed' => 'Full metrics (requires HEALTH_TOKEN)',
                 'GET /api/feedback/health' => 'Feedback system health check',
             ],
