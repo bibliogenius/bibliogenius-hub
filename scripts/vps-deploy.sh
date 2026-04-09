@@ -111,4 +111,8 @@ else
     exit 1
 fi
 
+# --- Prune dangling images left by the previous deploy ---
+echo "==> Pruning dangling Docker images..."
+docker image prune -f
+
 echo "==> Deployment complete for ${SERVICE}"
