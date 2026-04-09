@@ -92,6 +92,33 @@ class DashboardController extends AbstractDashboardController
         $inviteTokenCount = (int) $conn->fetchOne('SELECT COUNT(*) FROM invite_tokens');
         $registrationFailureCount = (int) $conn->fetchOne('SELECT COUNT(*) FROM registration_failures');
 
+        // Activity stats
+        $totalBooks = (int) $conn->fetchOne('SELECT COALESCE(SUM(book_count), 0) FROM library_profiles');
+        $borrowingEnabledCount = (int) $conn->fetchOne('SELECT COUNT(*) FROM library_profiles WHERE allow_borrowing = true');
+        $totalLoans = (int) $conn->fetchOne('SELECT COUNT(*) FROM borrow_requests');
+        $acceptedLoans = (int) $conn->fetchOne("SELECT COUNT(*) FROM borrow_requests WHERE status = 'accepted'");
+        $recentLoans = (int) $conn->fetchOne(
+            "SELECT COUNT(*) FROM borrow_requests WHERE created_at >= NOW() - INTERVAL '30 days'",
+        );
+
+        // Loans per day — last 30 days (for chart)
+        $loansPerDay = $conn->fetchAllAssociative(
+            "SELECT TO_CHAR(created_at, 'YYYY-MM-DD') AS day, COUNT(*) AS count
+             FROM borrow_requests
+             WHERE created_at >= NOW() - INTERVAL '30 days'
+             GROUP BY day
+             ORDER BY day ASC",
+        );
+
+        // New libraries per week — last 8 weeks (for chart)
+        $libraryGrowth = $conn->fetchAllAssociative(
+            "SELECT TO_CHAR(DATE_TRUNC('week', created_at), 'YYYY-MM-DD') AS week, COUNT(*) AS count
+             FROM library_profiles
+             WHERE created_at >= NOW() - INTERVAL '8 weeks'
+             GROUP BY week
+             ORDER BY week ASC",
+        );
+
         // DB table sizes (PostgreSQL)
         $tableSizes = $conn->fetchAllAssociative(
             "SELECT relname AS table_name,
@@ -117,6 +144,13 @@ class DashboardController extends AbstractDashboardController
             'invite_token_count' => $inviteTokenCount,
             'registration_failure_count' => $registrationFailureCount,
             'table_sizes' => $tableSizes,
+            'total_books' => $totalBooks,
+            'borrowing_enabled_count' => $borrowingEnabledCount,
+            'total_loans' => $totalLoans,
+            'accepted_loans' => $acceptedLoans,
+            'recent_loans' => $recentLoans,
+            'loans_per_day' => $loansPerDay,
+            'library_growth' => $libraryGrowth,
         ]);
     }
 
