@@ -6,11 +6,9 @@ use App\Repository\RelayMailboxRepository;
 use App\Service\HubEventLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminDashboard;
-use EasyCorp\Bundle\EasyAdminBundle\Config\Action;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Dashboard;
 use EasyCorp\Bundle\EasyAdminBundle\Config\MenuItem;
 use EasyCorp\Bundle\EasyAdminBundle\Controller\AbstractDashboardController;
-use EasyCorp\Bundle\EasyAdminBundle\Router\AdminUrlGenerator;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
@@ -22,7 +20,6 @@ class DashboardController extends AbstractDashboardController
         private readonly EntityManagerInterface $em,
         private readonly RelayMailboxRepository $mailboxRepository,
         private readonly HubEventLogger $eventLogger,
-        private readonly AdminUrlGenerator $adminUrlGenerator,
     ) {
     }
 
@@ -104,11 +101,9 @@ class DashboardController extends AbstractDashboardController
              ORDER BY total_bytes DESC",
         );
 
-        // EasyAdmin link base URLs for mailbox detail
-        $mailboxDetailBaseUrl = $this->adminUrlGenerator
-            ->setController(RelayMailboxCrudController::class)
-            ->setAction(Action::DETAIL)
-            ->generateUrl();
+        // Base URL for mailbox detail — entityId appended in Twig per row
+        $mailboxDetailBaseUrl = '/admin?crudAction=detail&crudControllerFqcn='
+            . urlencode(RelayMailboxCrudController::class);
 
         return $this->render('admin/dashboard_stats.html.twig', [
             'total_profiles' => $totalProfiles,
