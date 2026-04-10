@@ -10,6 +10,7 @@ use App\Repository\BorrowRequestRepository;
 use App\Repository\FollowRepository;
 use App\Repository\LibraryProfileRepository;
 use App\Service\DirectoryService;
+use App\Service\SidecarNotifier;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
@@ -56,6 +57,7 @@ class DirectoryController extends AbstractController
         private readonly Connection $connection,
         private readonly EntityManagerInterface $entityManager,
         private readonly HubEventLogger $eventLogger,
+        private readonly SidecarNotifier $sidecarNotifier,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -412,6 +414,9 @@ class DirectoryController extends AbstractController
             return $this->json(['status' => 'pending']);
         }
 
+        // Notify the followed library (new follower or pending request).
+        $this->nudgeProfile($followed->getRelayMailboxId());
+
         return $this->json($follow->toArray(), Response::HTTP_CREATED);
     }
 
@@ -470,6 +475,10 @@ class DirectoryController extends AbstractController
         } catch (\LogicException $e) {
             return $this->error($e->getMessage(), Response::HTTP_FORBIDDEN);
         }
+
+        // Notify the follower that their request was approved, rejected, or blocked.
+        $followerProfile = $this->profileRepository->findByNodeId($follow->getFollowerNodeId());
+        $this->nudgeProfile($followerProfile?->getRelayMailboxId());
 
         return $this->json($follow->toArray());
     }
@@ -610,6 +619,10 @@ class DirectoryController extends AbstractController
             return $this->error('createBorrowRequest failed: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
+        // Notify the lender of the incoming borrow request.
+        $lenderProfile = $this->profileRepository->findByNodeId($lenderNodeId);
+        $this->nudgeProfile($lenderProfile?->getRelayMailboxId());
+
         return $this->json($borrowRequest->toArray(), Response::HTTP_CREATED);
     }
 
@@ -670,6 +683,10 @@ class DirectoryController extends AbstractController
             return $this->error($e->getMessage(), Response::HTTP_FORBIDDEN);
         }
 
+        // Notify the requester that their borrow request was accepted or rejected.
+        $requesterProfile = $this->profileRepository->findByNodeId($borrowRequest->getRequesterNodeId());
+        $this->nudgeProfile($requesterProfile?->getRelayMailboxId());
+
         return $this->json($borrowRequest->toArray());
     }
 
@@ -695,6 +712,17 @@ class DirectoryController extends AbstractController
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Fire-and-forget nudge to a relay mailbox. No-op if mailboxId is null
+     * (profile not yet registered on the relay) or if the sidecar is down.
+     */
+    private function nudgeProfile(?string $mailboxId): void
+    {
+        if ($mailboxId !== null) {
+            $this->sidecarNotifier->nudge($mailboxId);
+        }
+    }
 
     private function extractBearerToken(Request $request): ?string
     {
