@@ -16,9 +16,11 @@ use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use App\Service\HubEventLogger;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 use Symfony\Component\Routing\Attribute\Route;
 
 /**
@@ -58,6 +60,8 @@ class DirectoryController extends AbstractController
         private readonly EntityManagerInterface $entityManager,
         private readonly HubEventLogger $eventLogger,
         private readonly SidecarNotifier $sidecarNotifier,
+        #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%covers_directory%')]
+        private readonly string $coversDirectory,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -303,6 +307,92 @@ class DirectoryController extends AbstractController
         }
 
         return $this->json($response);
+    }
+
+    // -------------------------------------------------------------------------
+    // Cover thumbnails
+    // -------------------------------------------------------------------------
+
+    #[Route('/{nodeId}/covers/{bookId}', name: 'cover_upload', methods: ['POST'], priority: 2)]
+    public function uploadCover(string $nodeId, string $bookId, Request $request): JsonResponse|Response
+    {
+        if (!$this->isValidNodeId($nodeId) || !ctype_digit($bookId)) {
+            return $this->error('Invalid parameters.', Response::HTTP_BAD_REQUEST);
+        }
+
+        $profile = $this->requireAuth($request);
+        if ($profile instanceof JsonResponse) {
+            return $profile;
+        }
+
+        // Ensure the authenticated profile matches the nodeId
+        if ($profile->getNodeId() !== $nodeId) {
+            return $this->error('Forbidden.', Response::HTTP_FORBIDDEN);
+        }
+
+        $body = $request->getContent();
+
+        if (strlen($body) > 102400) { // 100 KB
+            return $this->error('Cover too large (max 100 KB).', Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+        }
+
+        if (strlen($body) < 3 || $body[0] !== "\xFF" || $body[1] !== "\xD8" || $body[2] !== "\xFF") {
+            return $this->error('Invalid image (JPEG required).', Response::HTTP_BAD_REQUEST);
+        }
+
+        $dir = $this->coversDirectory . '/' . $nodeId;
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        file_put_contents($dir . '/' . $bookId . '.jpg', $body);
+
+        return $this->json(['status' => 'ok'], Response::HTTP_CREATED);
+    }
+
+    #[Route('/{nodeId}/covers/{bookId}', name: 'cover_get', methods: ['GET'], priority: 2)]
+    public function getCover(string $nodeId, string $bookId): BinaryFileResponse|JsonResponse
+    {
+        if (!$this->isValidNodeId($nodeId) || !ctype_digit($bookId)) {
+            return $this->error('Invalid parameters.', Response::HTTP_BAD_REQUEST);
+        }
+
+        $path = $this->coversDirectory . '/' . $nodeId . '/' . $bookId . '.jpg';
+
+        if (!is_file($path)) {
+            return $this->error('Cover not found.', Response::HTTP_NOT_FOUND);
+        }
+
+        $response = new BinaryFileResponse($path);
+        $response->headers->set('Content-Type', 'image/jpeg');
+        $response->headers->set('Cache-Control', 'public, max-age=86400');
+        $response->setContentDisposition(ResponseHeaderBag::DISPOSITION_INLINE, $bookId . '.jpg');
+
+        return $response;
+    }
+
+    #[Route('/{nodeId}/covers/{bookId}', name: 'cover_delete', methods: ['DELETE'], priority: 2)]
+    public function deleteCover(string $nodeId, string $bookId, Request $request): JsonResponse
+    {
+        if (!$this->isValidNodeId($nodeId) || !ctype_digit($bookId)) {
+            return $this->error('Invalid parameters.', Response::HTTP_BAD_REQUEST);
+        }
+
+        $profile = $this->requireAuth($request);
+        if ($profile instanceof JsonResponse) {
+            return $profile;
+        }
+
+        if ($profile->getNodeId() !== $nodeId) {
+            return $this->error('Forbidden.', Response::HTTP_FORBIDDEN);
+        }
+
+        $path = $this->coversDirectory . '/' . $nodeId . '/' . $bookId . '.jpg';
+        if (is_file($path)) {
+            unlink($path);
+        }
+
+        return $this->json(null, Response::HTTP_NO_CONTENT);
     }
 
     // -------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 parameters:
     sidecar_default: null
+    covers_directory: '%kernel.project_dir%/var/data/covers'
 
 services:
     _defaults:

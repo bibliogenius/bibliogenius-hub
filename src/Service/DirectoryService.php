@@ -43,6 +43,8 @@ class DirectoryService
         private readonly FollowRepository $followRepository,
         private readonly BorrowRequestRepository $borrowRequestRepository,
         private readonly RelayMailboxRepository $relayMailboxRepository,
+        #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%covers_directory%')]
+        private readonly string $coversDirectory,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -429,6 +431,13 @@ class DirectoryService
         $mailboxId = $profile->getRelayMailboxId();
         if ($mailboxId !== null) {
             $this->relayMailboxRepository->deleteWithMessages($mailboxId);
+        }
+
+        // Delete cover thumbnails from filesystem
+        $coverDir = $this->coversDirectory . '/' . $nodeId;
+        if (is_dir($coverDir)) {
+            array_map('unlink', glob($coverDir . '/*.jpg') ?: []);
+            @rmdir($coverDir);
         }
 
         // cached_catalogs has onDelete CASCADE on the FK to library_profiles,
