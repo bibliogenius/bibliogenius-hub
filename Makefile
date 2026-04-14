@@ -95,7 +95,7 @@ test:
 	@echo "\n📍 Health:"
 	@curl -s $(HUB_URL)/api/feedback/health
 	@echo "\n📍 Peers:"
-	@curl -s $(HUB_URL)/api/peers
+	@curl -s $(HUB_URL)/api/discovery/peers
 	@echo "\n✅ All endpoints tested"
 
 # Test relay endpoints (E2EE blind mailbox)
