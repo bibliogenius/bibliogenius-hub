@@ -256,11 +256,23 @@ class DirectoryService
     /**
      * Pushes or refreshes the catalog cache for a library.
      *
+     * If $catalogHash is provided and matches the hash of the currently
+     * stored catalog, the payload is not rewritten; only the TTL and
+     * `last_seen_at` are bumped. The returned result carries
+     * `unchanged=true`, which the controller translates into a
+     * 304 Not Modified response (ADR-027).
+     *
      * @param string      $isbnPayload    JSON array of ISBNs (legacy format)
      * @param string|null $catalogPayload JSON array of {isbn, title, author} objects (enriched format)
+     * @param string|null $catalogHash    SHA-256 hex digest (64 chars) of the client-canonical payload
      */
-    public function pushCatalog(LibraryProfile $profile, string $isbnPayload, ?string $catalogPayload = null, ?int $bookCount = null): CachedCatalog
-    {
+    public function pushCatalog(
+        LibraryProfile $profile,
+        string $isbnPayload,
+        ?string $catalogPayload = null,
+        ?int $bookCount = null,
+        ?string $catalogHash = null,
+    ): PushCatalogResult {
         $this->probabilisticCleanup();
 
         // Validate catalog_payload size if provided (max 2 MB for enriched data)
@@ -268,30 +280,54 @@ class DirectoryService
             throw new \InvalidArgumentException('catalog_payload exceeds maximum allowed size.');
         }
 
+        // catalog_hash is always a lowercase 64-hex digest when present; reject
+        // anything else so we never persist an attacker-controlled value.
+        if ($catalogHash !== null && !preg_match('/^[0-9a-f]{64}$/', $catalogHash)) {
+            throw new \InvalidArgumentException('catalog_hash must be a 64-char lowercase hex digest.');
+        }
+
         $catalog = $this->entityManager->find(CachedCatalog::class, $profile->getNodeId());
 
+        // Fast path: same hash as what we already have → no payload rewrite.
+        if (
+            $catalog !== null
+            && $catalogHash !== null
+            && $catalog->getCatalogHash() === $catalogHash
+        ) {
+            $catalog->touchTtl();
+            $profile->touchLastSeen();
+            // book_count may still have drifted, update it without rewriting the payload.
+            $this->applyBookCount($profile, $isbnPayload, $bookCount);
+            $this->entityManager->flush();
+            return new PushCatalogResult($catalog, unchanged: true);
+        }
+
         if ($catalog === null) {
-            $catalog = new CachedCatalog($profile, $isbnPayload, $catalogPayload);
+            $catalog = new CachedCatalog($profile, $isbnPayload, $catalogPayload, $catalogHash);
             $this->entityManager->persist($catalog);
         } else {
-            $catalog->refresh($isbnPayload, $catalogPayload);
+            $catalog->refresh($isbnPayload, $catalogPayload, $catalogHash);
         }
 
-        // Update book_count: prefer the total count sent by the client
-        // (includes books without ISBNs), fall back to ISBN count.
-        if ($bookCount !== null) {
-            $profile->setBookCount($bookCount);
-        } else {
-            $isbns = json_decode($isbnPayload, true);
-            if (is_array($isbns)) {
-                $profile->setBookCount(count($isbns));
-            }
-        }
-
+        $this->applyBookCount($profile, $isbnPayload, $bookCount);
         $profile->touchLastSeen();
         $this->entityManager->flush();
 
-        return $catalog;
+        return new PushCatalogResult($catalog, unchanged: false);
+    }
+
+    private function applyBookCount(LibraryProfile $profile, string $isbnPayload, ?int $bookCount): void
+    {
+        // Prefer the total count sent by the client (includes books without
+        // ISBNs); fall back to the length of the legacy ISBN array.
+        if ($bookCount !== null) {
+            $profile->setBookCount($bookCount);
+            return;
+        }
+        $isbns = json_decode($isbnPayload, true);
+        if (is_array($isbns)) {
+            $profile->setBookCount(count($isbns));
+        }
     }
 
     /**

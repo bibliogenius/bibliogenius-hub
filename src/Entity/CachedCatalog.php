@@ -33,6 +33,14 @@ class CachedCatalog
     #[ORM\Column(type: 'text', nullable: true)]
     private ?string $catalogPayload = null;
 
+    /**
+     * SHA-256 hex digest of the client-canonical catalog payload (ADR-027).
+     * Null for legacy catalogs pushed before diff-based sync was rolled out.
+     * Clients compare this hash to their own to short-circuit re-pushes.
+     */
+    #[ORM\Column(type: 'string', length: 64, nullable: true)]
+    private ?string $catalogHash = null;
+
     #[ORM\Column]
     private \DateTimeImmutable $updatedAt;
 
@@ -42,11 +50,16 @@ class CachedCatalog
 
     private const TTL_DAYS = 7;
 
-    public function __construct(LibraryProfile $libraryProfile, string $isbnPayload, ?string $catalogPayload = null)
-    {
+    public function __construct(
+        LibraryProfile $libraryProfile,
+        string $isbnPayload,
+        ?string $catalogPayload = null,
+        ?string $catalogHash = null,
+    ) {
         $this->libraryProfile = $libraryProfile;
         $this->isbnPayload = $isbnPayload;
         $this->catalogPayload = $catalogPayload;
+        $this->catalogHash = $catalogHash;
         $this->updatedAt = new \DateTimeImmutable();
         $this->expiresAt = new \DateTimeImmutable(sprintf('+%d days', self::TTL_DAYS));
     }
@@ -71,16 +84,35 @@ class CachedCatalog
         return $this->catalogPayload;
     }
 
+    public function getCatalogHash(): ?string
+    {
+        return $this->catalogHash;
+    }
+
     public function isExpired(): bool
     {
         return $this->expiresAt < new \DateTimeImmutable();
     }
 
     /** Replaces the payload and resets the TTL. */
-    public function refresh(string $isbnPayload, ?string $catalogPayload = null): static
+    public function refresh(string $isbnPayload, ?string $catalogPayload = null, ?string $catalogHash = null): static
     {
         $this->isbnPayload = $isbnPayload;
         $this->catalogPayload = $catalogPayload;
+        $this->catalogHash = $catalogHash;
+        $this->updatedAt = new \DateTimeImmutable();
+        $this->expiresAt = new \DateTimeImmutable(sprintf('+%d days', self::TTL_DAYS));
+        return $this;
+    }
+
+    /**
+     * Bumps the TTL and updated_at without touching the stored payload.
+     * Used by the diff-based push path when the client signals that the
+     * catalog is unchanged (same hash) — keeps the cache alive without
+     * a redundant rewrite (ADR-027).
+     */
+    public function touchTtl(): static
+    {
         $this->updatedAt = new \DateTimeImmutable();
         $this->expiresAt = new \DateTimeImmutable(sprintf('+%d days', self::TTL_DAYS));
         return $this;

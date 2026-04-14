@@ -1,0 +1,74 @@
+# Local development stack for the hub.
+#
+# Services:
+#   postgres : Postgres 15, matches prod server_version
+#   hub      : FrankenPHP with dev deps, source bind-mounted from repo
+#
+# Performance note:
+#   vendor/ and var/ live in named volumes, NOT on the host bind-mount.
+#   On macOS, bind-mounting vendor/ is 10 to 50x slower due to Docker
+#   Desktop's VirtioFS overhead on small files.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d --build   # first time
+#   docker compose -f docker-compose.dev.yml up -d           # subsequent
+#   docker compose -f docker-compose.dev.yml logs -f hub     # follow logs
+#   docker compose -f docker-compose.dev.yml exec hub bash   # shell in container
+#   docker compose -f docker-compose.dev.yml down            # stop
+#   docker compose -f docker-compose.dev.yml down -v         # wipe DB + vendor
+#
+# Run tests:
+#   docker compose -f docker-compose.dev.yml exec hub vendor/bin/phpunit
+#
+# Hub URL: http://localhost:8082
+# Postgres: localhost:5433 (non-default to avoid clashing with host pg)
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: hub
+      POSTGRES_PASSWORD: hub
+      POSTGRES_DB: hub_local
+    ports:
+      - "5433:5432"
+    volumes:
+      - hub_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hub -d hub_local"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  hub:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8082:80"
+    environment:
+      APP_ENV: dev
+      APP_DEBUG: "1"
+      # Dev-only secret. Never reuse in staging/prod.
+      APP_SECRET: devsecret-change-me-32chars-long-ok
+      DATABASE_URL: "postgresql://hub:hub@postgres:5432/hub_local?serverVersion=15&charset=utf8"
+      CORS_ALLOW_ORIGIN: "^https?://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?$$"
+      # JIRA integration is optional for dev — set to empty to skip.
+      JIRA_BASE_URL: ""
+      JIRA_PROJECT_KEY: ""
+      JIRA_EMAIL: ""
+      JIRA_API_TOKEN: ""
+    volumes:
+      # Source bind-mount for live edits.
+      - .:/app
+      # Named volumes override the bind-mount for heavy dirs = fast.
+      - hub_vendor:/app/vendor
+      - hub_var:/app/var
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  hub_pg:
+  hub_vendor:
+  hub_var:

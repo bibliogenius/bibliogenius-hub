@@ -1,0 +1,32 @@
+# Dev image for local work on the hub (composer install + migrations at
+# container start, bind-mount of the source tree, no production caching).
+# The prod image lives in Dockerfile and bakes vendor/ at build time.
+FROM dunglas/frankenphp:latest-php8.3
+
+RUN apt-get update && apt-get install -y \
+    git \
+    unzip \
+    postgresql-client \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+RUN install-php-extensions \
+    pdo \
+    pdo_pgsql \
+    pgsql \
+    intl \
+    opcache
+
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+COPY Caddyfile.container /etc/caddy/Caddyfile
+# Both entrypoints are copied so the dev one can delegate to the prod one
+# for schema bootstrap + FrankenPHP startup.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY docker-entrypoint.dev.sh /usr/local/bin/docker-entrypoint.dev.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.dev.sh
+
+WORKDIR /app
+
+EXPOSE 80
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.dev.sh"]

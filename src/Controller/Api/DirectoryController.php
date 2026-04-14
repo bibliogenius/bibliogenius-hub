@@ -219,7 +219,7 @@ class DirectoryController extends AbstractController
     // -------------------------------------------------------------------------
 
     #[Route('/catalog', name: 'catalog_push', methods: ['POST'])]
-    public function pushCatalog(Request $request): JsonResponse
+    public function pushCatalog(Request $request): JsonResponse|Response
     {
         $profile = $this->requireAuth($request);
         if ($profile instanceof JsonResponse) {
@@ -246,20 +246,54 @@ class DirectoryController extends AbstractController
             ? max(0, (int) $data['book_count'])
             : null;
 
-        try {
-            $catalog = $this->directoryService->pushCatalog($profile, $data['isbn_payload'], $catalogPayload, $bookCount);
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
+        // Optional client-computed SHA-256 of the canonical payload (ADR-027).
+        // When present and matching the stored hash, the hub returns 304 and
+        // skips rewriting the payload. Format is validated by the service.
+        $catalogHash = null;
+        if (isset($data['catalog_hash']) && is_string($data['catalog_hash'])) {
+            $catalogHash = $data['catalog_hash'];
         }
 
-        return $this->json([
-            'updated_at' => $catalog->getUpdatedAt()->format(\DateTimeInterface::ATOM),
-            'expires_at' => $catalog->getExpiresAt()->format(\DateTimeInterface::ATOM),
+        try {
+            $result = $this->directoryService->pushCatalog(
+                $profile,
+                $data['isbn_payload'],
+                $catalogPayload,
+                $bookCount,
+                $catalogHash,
+            );
+        } catch (\InvalidArgumentException $e) {
+            // Size limit vs. hash format: both raise InvalidArgumentException.
+            // Map format errors to 400, size errors to 413.
+            $status = str_contains($e->getMessage(), 'catalog_hash')
+                ? Response::HTTP_BAD_REQUEST
+                : Response::HTTP_REQUEST_ENTITY_TOO_LARGE;
+            return $this->error($e->getMessage(), $status);
+        }
+
+        if ($result->unchanged) {
+            // 304 Not Modified: the client already has the same catalog.
+            // Per RFC 7232, the body must be empty; callers read the ETag
+            // header to confirm which version matched.
+            $response = new Response(null, Response::HTTP_NOT_MODIFIED);
+            if ($result->catalog->getCatalogHash() !== null) {
+                $response->headers->set('ETag', '"'.$result->catalog->getCatalogHash().'"');
+            }
+            return $response;
+        }
+
+        $json = $this->json([
+            'updated_at' => $result->catalog->getUpdatedAt()->format(\DateTimeInterface::ATOM),
+            'expires_at' => $result->catalog->getExpiresAt()->format(\DateTimeInterface::ATOM),
         ]);
+        if ($result->catalog->getCatalogHash() !== null) {
+            $json->headers->set('ETag', '"'.$result->catalog->getCatalogHash().'"');
+        }
+        return $json;
     }
 
-    #[Route('/{nodeId}/catalog', name: 'catalog_get', methods: ['GET'])]
-    public function getCatalog(string $nodeId, Request $request): JsonResponse
+    #[Route('/{nodeId}/catalog', name: 'catalog_get', methods: ['GET', 'HEAD'])]
+    public function getCatalog(string $nodeId, Request $request): JsonResponse|Response
     {
         if (!$this->isValidNodeId($nodeId)) {
             return $this->error('Invalid node_id.', Response::HTTP_BAD_REQUEST);
@@ -281,11 +315,6 @@ class DirectoryController extends AbstractController
 
         $catalog = $this->directoryService->getCatalog($profile, $requester);
 
-        if ($catalog !== null) {
-            $visitorId = $requester?->getNodeId() ?? $request->getClientIp() ?? 'unknown';
-            $this->recordView($profile, $visitorId);
-        }
-
         if ($catalog === null) {
             return $this->error(
                 $profile->isRequiresApproval()
@@ -294,6 +323,21 @@ class DirectoryController extends AbstractController
                 Response::HTTP_FORBIDDEN
             );
         }
+
+        // Conditional GET: if the client already has the current hash, return
+        // 304 and skip the view-count bump (ADR-027).
+        $etag = $catalog->getCatalogHash() !== null
+            ? '"'.$catalog->getCatalogHash().'"'
+            : null;
+        $ifNoneMatch = $request->headers->get('If-None-Match');
+        if ($etag !== null && $ifNoneMatch !== null && $this->ifNoneMatchMatches($ifNoneMatch, $etag)) {
+            $notModified = new Response(null, Response::HTTP_NOT_MODIFIED);
+            $notModified->headers->set('ETag', $etag);
+            return $notModified;
+        }
+
+        $visitorId = $requester?->getNodeId() ?? $request->getClientIp() ?? 'unknown';
+        $this->recordView($profile, $visitorId);
 
         $response = [
             'node_id'      => $profile->getNodeId(),
@@ -306,7 +350,32 @@ class DirectoryController extends AbstractController
             $response['catalog_payload'] = $catalog->getCatalogPayload();
         }
 
-        return $this->json($response);
+        $json = $this->json($response);
+        if ($etag !== null) {
+            $json->headers->set('ETag', $etag);
+        }
+        return $json;
+    }
+
+    /**
+     * Matches an `If-None-Match` header against a strong ETag.
+     *
+     * Accepts the RFC 7232 forms: wildcard `*`, comma-separated list,
+     * and weak `W/"..."` equivalents (opaque comparison).
+     */
+    private function ifNoneMatchMatches(string $header, string $etag): bool
+    {
+        foreach (explode(',', $header) as $candidate) {
+            $trimmed = trim($candidate);
+            if ($trimmed === '*') {
+                return true;
+            }
+            $normalized = str_starts_with($trimmed, 'W/') ? substr($trimmed, 2) : $trimmed;
+            if ($normalized === $etag) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // -------------------------------------------------------------------------
