@@ -2,6 +2,7 @@
     "name": "bibliogenius/hub",
     "type": "project",
     "description": "BiblioGenius Hub - Optional central directory service",
+    "license": "AGPL-3.0-or-later",
     "version": "0.8.9-beta.17",
     "require": {
         "php": ">=8.3",

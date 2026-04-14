@@ -1,6 +1,6 @@
 # BiblioGenius Hub
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Symfony](https://img.shields.io/badge/symfony-7.0-black)](https://symfony.com)
 [![PHP](https://img.shields.io/badge/php-8.3-blue)](https://www.php.net)
 
@@ -55,4 +55,4 @@ DATABASE_URL="postgresql://user:password@127.0.0.1:5432/bibliohub"
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU Affero General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
