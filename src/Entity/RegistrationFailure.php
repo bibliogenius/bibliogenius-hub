@@ -34,6 +34,10 @@ class RegistrationFailure
     #[ORM\Column(type: 'string', length: 45, nullable: true)]
     private ?string $clientIp;
 
+    /** Client app version reported in the rejected payload (informational). */
+    #[ORM\Column(type: 'string', length: 32, nullable: true)]
+    private ?string $appVersion = null;
+
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
 
@@ -42,12 +46,18 @@ class RegistrationFailure
         return sprintf('%s (%s)', $this->displayName, substr($this->nodeId, 0, 8));
     }
 
-    public function __construct(string $nodeId, string $displayName, int $bookCount, ?string $clientIp)
-    {
+    public function __construct(
+        string $nodeId,
+        string $displayName,
+        int $bookCount,
+        ?string $clientIp,
+        ?string $appVersion = null,
+    ) {
         $this->nodeId = $nodeId;
         $this->displayName = $displayName;
         $this->bookCount = $bookCount;
         $this->clientIp = $clientIp;
+        $this->appVersion = $appVersion;
         $this->createdAt = new \DateTimeImmutable();
     }
 
@@ -74,6 +84,11 @@ class RegistrationFailure
     public function getClientIp(): ?string
     {
         return $this->clientIp;
+    }
+
+    public function getAppVersion(): ?string
+    {
+        return $this->appVersion;
     }
 
     public function getCreatedAt(): \DateTimeImmutable

@@ -170,6 +170,20 @@ class DirectoryService
                 $profile->setDeviceFingerprint(null);
             }
         }
+        if (array_key_exists('app_version', $data)) {
+            $v = $data['app_version'];
+            if ($v === null) {
+                $profile->setAppVersion(null);
+            } elseif (is_string($v)) {
+                // Truncate then validate semver-ish charset. Silent reject on
+                // malformed input so an injection attempt does not overwrite
+                // a previously valid stored value.
+                $trimmed = substr(trim(strip_tags($v)), 0, 32);
+                if ($trimmed !== '' && preg_match('/^[A-Za-z0-9._+\-]{1,32}$/', $trimmed)) {
+                    $profile->setAppVersion($trimmed);
+                }
+            }
+        }
         // Relay credentials: allow peers to refresh stale relay info
         if (array_key_exists('relay_url', $data)) {
             $profile->setRelayUrl(

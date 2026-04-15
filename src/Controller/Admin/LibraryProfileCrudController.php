@@ -35,7 +35,7 @@ class LibraryProfileCrudController extends AbstractCrudController
             ->setEntityLabelInSingular('Library Profile')
             ->setEntityLabelInPlural('Library Profiles')
             ->setDefaultSort(['createdAt' => 'DESC'])
-            ->setSearchFields(['nodeId', 'displayName', 'locationCountry', 'deviceFingerprint'])
+            ->setSearchFields(['nodeId', 'displayName', 'locationCountry', 'deviceFingerprint', 'appVersion'])
             ->setEntityPermission('ROLE_ADMIN');
     }
 
@@ -93,6 +93,9 @@ class LibraryProfileCrudController extends AbstractCrudController
         yield TextField::new('deviceFingerprint', 'Fingerprint')
             ->hideOnIndex()
             ->setFormTypeOption('disabled', true);
+        yield TextField::new('appVersion', 'App Version')
+            ->setFormTypeOption('disabled', true)
+            ->formatValue(fn($value) => $value ?: '—');
         yield DateTimeField::new('lastSeenAt', 'Last Seen');
         yield DateTimeField::new('createdAt', 'Created')
             ->hideOnIndex();
@@ -107,6 +110,7 @@ class LibraryProfileCrudController extends AbstractCrudController
             ->add('isListed')
             ->add('requiresApproval')
             ->add('allowBorrowing')
-            ->add('locationCountry');
+            ->add('locationCountry')
+            ->add('appVersion');
     }
 }

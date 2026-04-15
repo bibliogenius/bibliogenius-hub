@@ -78,6 +78,10 @@ class LibraryProfile
     #[ORM\Column(type: 'string', length: 128, nullable: true)]
     private ?string $deviceFingerprint = null;
 
+    /** Client app version reported at last register/heartbeat (e.g. "0.9.0-alpha.1+422"). Informational. */
+    #[ORM\Column(type: 'string', length: 32, nullable: true)]
+    private ?string $appVersion = null;
+
     /** Relay hub URL (e.g. "https://hub.bibliogenius.org"). Enables credential refresh for relay-only peers. */
     #[ORM\Column(type: 'string', length: 255, nullable: true)]
     private ?string $relayUrl = null;
@@ -284,6 +288,17 @@ class LibraryProfile
         return $this;
     }
 
+    public function getAppVersion(): ?string
+    {
+        return $this->appVersion;
+    }
+
+    public function setAppVersion(?string $appVersion): static
+    {
+        $this->appVersion = $appVersion;
+        return $this;
+    }
+
     public function getRelayUrl(): ?string
     {
         return $this->relayUrl;
@@ -372,6 +387,7 @@ class LibraryProfile
             'website'           => $this->website,
             'device_model'      => $this->deviceModel,
             'device_fingerprint' => $this->deviceFingerprint,
+            'app_version'       => $this->appVersion,
             'avatar_config'     => $this->avatarConfig,
         ];
     }

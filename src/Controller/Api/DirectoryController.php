@@ -89,6 +89,8 @@ class DirectoryController extends AbstractController
         $token = $this->extractBearerToken($request);
         $authenticated = $token !== null ? $this->directoryService->authenticate($token) : null;
 
+        $appVersion = $this->sanitizeAppVersion($data['app_version'] ?? null);
+
         $existing = $this->profileRepository->findByNodeId($nodeId);
         if ($existing !== null && $authenticated?->getNodeId() !== $nodeId) {
             // Log the failed attempt so admins can unblock manually via BO
@@ -98,6 +100,7 @@ class DirectoryController extends AbstractController
                     substr(strip_tags($data['display_name'] ?? ''), 0, 255),
                     max(0, (int) ($data['book_count'] ?? 0)),
                     $request->getClientIp(),
+                    $appVersion,
                 );
                 $this->entityManager->persist($failure);
                 $this->entityManager->flush();
@@ -107,6 +110,7 @@ class DirectoryController extends AbstractController
             $this->eventLogger->warning('directory', 'registration rejected (missing write_token)', [
                 'node_id' => substr($nodeId, 0, 12),
                 'name' => substr(strip_tags($data['display_name'] ?? ''), 0, 50),
+                'app_version' => $appVersion,
             ]);
             return $this->error('Valid write_token required to update an existing profile.', Response::HTTP_UNAUTHORIZED);
         }
@@ -146,6 +150,7 @@ class DirectoryController extends AbstractController
             $this->eventLogger->info('directory', 'profile registered', [
                 'node_id' => substr($nodeId, 0, 12),
                 'name' => substr(strip_tags($data['display_name'] ?? ''), 0, 50),
+                'app_version' => $appVersion,
             ]);
         }
 
@@ -925,6 +930,23 @@ class DirectoryController extends AbstractController
     private function isValidNodeId(mixed $nodeId): bool
     {
         return is_string($nodeId) && $nodeId !== '' && strlen($nodeId) <= 128;
+    }
+
+    /**
+     * Normalizes an incoming app_version value for logging/persistence.
+     * Mirrors the stricter validation in DirectoryService::applyProfileData —
+     * returns null on anything unrecognized to avoid leaking injection attempts
+     * into hub_events.context or registration_failures.app_version.
+     */
+    private function sanitizeAppVersion(mixed $raw): ?string
+    {
+        if (!is_string($raw)) {
+            return null;
+        }
+        $trimmed = substr(trim(strip_tags($raw)), 0, 32);
+        return $trimmed !== '' && preg_match('/^[A-Za-z0-9._+\-]{1,32}$/', $trimmed)
+            ? $trimmed
+            : null;
     }
 
     private function error(string $message, int $status): JsonResponse

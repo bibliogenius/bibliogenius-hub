@@ -119,6 +119,18 @@ class DashboardController extends AbstractDashboardController
              ORDER BY week ASC",
         );
 
+        // Version distribution among active (24h) profiles. Diagnostic for
+        // correlating hub-side anomalies with specific client builds.
+        $versionDistribution = $conn->fetchAllAssociative(
+            "SELECT COALESCE(app_version, 'unknown') AS version, COUNT(*) AS count
+             FROM library_profiles
+             WHERE last_seen_at >= ?
+             GROUP BY app_version
+             ORDER BY count DESC, version ASC
+             LIMIT 20",
+            [$yesterday],
+        );
+
         // DB table sizes (PostgreSQL)
         $tableSizes = $conn->fetchAllAssociative(
             "SELECT relname AS table_name,
@@ -151,6 +163,7 @@ class DashboardController extends AbstractDashboardController
             'recent_loans' => $recentLoans,
             'loans_per_day' => $loansPerDay,
             'library_growth' => $libraryGrowth,
+            'version_distribution' => $versionDistribution,
         ]);
     }
 

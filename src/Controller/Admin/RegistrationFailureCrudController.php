@@ -27,7 +27,7 @@ class RegistrationFailureCrudController extends AbstractCrudController
             ->setEntityLabelInSingular('Registration Failure')
             ->setEntityLabelInPlural('Registration Failures')
             ->setDefaultSort(['createdAt' => 'DESC'])
-            ->setSearchFields(['nodeId', 'displayName']);
+            ->setSearchFields(['nodeId', 'displayName', 'appVersion']);
     }
 
     public function configureActions(Actions $actions): Actions
@@ -43,6 +43,8 @@ class RegistrationFailureCrudController extends AbstractCrudController
         yield TextField::new('displayName', 'Display Name');
         yield IntegerField::new('bookCount', 'Books');
         yield TextField::new('clientIp', 'Client IP');
+        yield TextField::new('appVersion', 'App Version')
+            ->formatValue(fn($value) => $value ?: '—');
         yield DateTimeField::new('createdAt', 'When');
     }
 }
