@@ -327,11 +327,15 @@ class RelayController extends AbstractController
         }
 
         try {
-            $this->mailboxRepository->deleteByUuid($uuid);
+            $this->mailboxRepository->deleteWithMessages($uuid);
             $this->eventLogger->info('relay', 'mailbox deleted by owner', [
                 'uuid' => $uuid,
             ]);
         } catch (\Throwable $e) {
+            $this->eventLogger->error('relay', 'mailbox delete failed', [
+                'uuid' => $uuid,
+                'reason' => $e->getMessage(),
+            ]);
             return $this->json(['error' => 'Failed to delete mailbox'], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 

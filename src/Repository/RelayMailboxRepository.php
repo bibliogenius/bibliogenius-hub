@@ -92,7 +92,14 @@ class RelayMailboxRepository extends ServiceEntityRepository
     public function deleteWithMessages(string $uuid): void
     {
         $conn = $this->getEntityManager()->getConnection();
-        $conn->executeStatement('DELETE FROM relay_messages WHERE mailbox_uuid = ?', [$uuid]);
-        $conn->executeStatement('DELETE FROM relay_mailboxes WHERE uuid = ?', [$uuid]);
+        $conn->beginTransaction();
+        try {
+            $conn->executeStatement('DELETE FROM relay_messages WHERE mailbox_uuid = ?', [$uuid]);
+            $conn->executeStatement('DELETE FROM relay_mailboxes WHERE uuid = ?', [$uuid]);
+            $conn->commit();
+        } catch (\Throwable $e) {
+            $conn->rollBack();
+            throw $e;
+        }
     }
 }
