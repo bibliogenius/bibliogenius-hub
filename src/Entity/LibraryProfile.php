@@ -48,9 +48,13 @@ class LibraryProfile
     #[ORM\Column(type: 'string', length: 20)]
     private string $acceptFrom = 'everyone';
 
-    /** Whether this library accepts borrow requests from followers via the hub. */
+    /**
+     * Whether this library accepts borrow requests from followers via the hub.
+     * Default is `false` (opt-in): publishing a library should not
+     * automatically expose the owner to unsolicited physical-loan requests.
+     */
     #[ORM\Column(type: 'boolean')]
-    private bool $allowBorrowing = true;
+    private bool $allowBorrowing = false;
 
     /** Whether this library appears in the public directory. */
     #[ORM\Column(type: 'boolean')]
