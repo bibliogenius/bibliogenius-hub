@@ -394,14 +394,21 @@ class DirectoryService
             $followed->getNodeId()
         );
 
-        // Already blocked: silent rejection
+        // Already blocked: silent rejection (privacy-preserving, no leak)
         if ($existing?->getStatus() === Follow::STATUS_BLOCKED) {
             return null;
         }
 
-        // Already active or pending: return as-is
+        // Already active or pending: idempotent, return as-is
         if ($existing !== null && in_array($existing->getStatus(), [Follow::STATUS_ACTIVE, Follow::STATUS_PENDING], true)) {
             return $existing;
+        }
+
+        // Previously rejected: re-open as pending so the owner gets a fresh
+        // notification instead of seeing the silently-unchanged record. This
+        // matches the UX the requester expects when they tap "Follow" again.
+        if ($existing !== null && $existing->getStatus() === Follow::STATUS_REJECTED) {
+            $existing->resetPending();
         }
 
         $follow = $existing ?? new Follow($follower->getNodeId(), $followed->getNodeId());

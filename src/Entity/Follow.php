@@ -109,6 +109,21 @@ class Follow
         return $this;
     }
 
+    /**
+     * Re-opens a previously rejected follow as pending.
+     *
+     * Used when the requester re-attempts a follow after a rejection: the
+     * UX expectation is that a second try triggers a new decision from the
+     * owner, not a silent no-op on the old rejected record.
+     * BLOCKED follows must NOT go through this path (handled upstream).
+     */
+    public function resetPending(): static
+    {
+        $this->status = self::STATUS_PENDING;
+        $this->resolvedAt = null;
+        return $this;
+    }
+
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
