@@ -658,7 +658,7 @@ class DirectoryController extends AbstractController
         $direction = $request->query->get('direction', 'following');
 
         $follows = match ($direction) {
-            'following' => $this->followRepository->findActiveFollowing($profile->getNodeId()),
+            'following' => $this->followRepository->findFollowing($profile->getNodeId()),
             'followers' => $this->followRepository->findActiveFollowers($profile->getNodeId()),
             default     => null,
         };

@@ -44,17 +44,22 @@ class FollowRepository extends ServiceEntityRepository
     }
 
     /**
-     * Active libraries that the given node is following.
+     * Libraries that the given node is following, including pending requests.
+     *
+     * Pending follows are returned so the requester's UI can reflect that
+     * a request was sent (e.g. show "awaiting approval" instead of the
+     * regular Follow button). Rejected and blocked entries are filtered out
+     * because the requester has no actionable state there.
      *
      * @return Follow[]
      */
-    public function findActiveFollowing(string $followerNodeId): array
+    public function findFollowing(string $followerNodeId): array
     {
         return $this->createQueryBuilder('f')
             ->where('f.followerNodeId = :follower')
-            ->andWhere('f.status = :status')
+            ->andWhere('f.status IN (:statuses)')
             ->setParameter('follower', $followerNodeId)
-            ->setParameter('status', Follow::STATUS_ACTIVE)
+            ->setParameter('statuses', [Follow::STATUS_PENDING, Follow::STATUS_ACTIVE])
             ->orderBy('f.createdAt', 'DESC')
             ->getQuery()
             ->getResult();
