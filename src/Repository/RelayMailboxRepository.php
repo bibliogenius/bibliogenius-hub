@@ -40,6 +40,50 @@ class RelayMailboxRepository extends ServiceEntityRepository
     }
 
     /**
+     * Count profiles referencing a mailbox UUID that no longer exists in
+     * relay_mailboxes. Surfaced on the dashboard so admins can detect
+     * broken references (stale local state, pruned mailbox, or manual
+     * deletion) before peers accumulate "deposit to non-existent mailbox"
+     * warnings.
+     */
+    public function countProfilesWithOrphanMailbox(): int
+    {
+        $conn = $this->getEntityManager()->getConnection();
+
+        return (int) $conn->fetchOne(
+            "SELECT COUNT(*) FROM library_profiles lp
+             WHERE lp.relay_mailbox_id IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM relay_mailboxes rm
+                   WHERE rm.uuid = lp.relay_mailbox_id
+               )"
+        );
+    }
+
+    /**
+     * Return mailbox UUIDs referenced by more than one profile. This is a
+     * hijack signal: under the current model, each profile should own its
+     * own mailbox. A shared UUID indicates either a data migration artefact
+     * or an attempt by a profile to redirect traffic to a mailbox it does
+     * not own (OWASP A01).
+     *
+     * @return array<array{relay_mailbox_id: string, profile_count: int}>
+     */
+    public function findProfilesWithSharedMailbox(): array
+    {
+        $conn = $this->getEntityManager()->getConnection();
+
+        return $conn->fetchAllAssociative(
+            "SELECT relay_mailbox_id, COUNT(*) AS profile_count
+             FROM library_profiles
+             WHERE relay_mailbox_id IS NOT NULL
+             GROUP BY relay_mailbox_id
+             HAVING COUNT(*) > 1
+             ORDER BY profile_count DESC, relay_mailbox_id ASC"
+        );
+    }
+
+    /**
      * Count total messages sitting in orphan mailboxes.
      */
     public function countOrphanMessages(): int

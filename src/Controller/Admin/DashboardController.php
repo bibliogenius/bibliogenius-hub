@@ -53,6 +53,12 @@ class DashboardController extends AbstractDashboardController
             [$yesterday],
         );
 
+        // Integrity signals: orphan references + hijack candidates.
+        // Kept out of the SQL block above because they rely on repository
+        // methods that are unit-tested (shape of the SELECT is frozen).
+        $orphanProfileRefs = $this->mailboxRepository->countProfilesWithOrphanMailbox();
+        $sharedMailboxRefs = $this->mailboxRepository->findProfilesWithSharedMailbox();
+
         // Event stats (24h)
         $deposit404s = (int) $conn->fetchOne(
             "SELECT COUNT(*) FROM hub_events WHERE channel = 'relay' AND message = 'deposit to non-existent mailbox' AND created_at >= ?",
@@ -148,6 +154,8 @@ class DashboardController extends AbstractDashboardController
             'active_mailboxes' => $activeMailboxes,
             'pending_messages' => $pendingMessages,
             'stale_messages' => $staleMessages,
+            'orphan_profile_refs' => $orphanProfileRefs,
+            'shared_mailbox_refs' => $sharedMailboxRefs,
             'deposit_404s' => $deposit404s,
             'recent_warnings' => $recentWarnings,
             'recent_errors' => $recentErrors,

@@ -398,7 +398,7 @@
     <div class="stat-card {{ deposit_404s > 0 ? 'status-alert' : 'status-ok' }}">
         <div class="stat-label">
             Deposit 404s (24h)
-            <i class="tip" data-tip="Peers tried to send a message to a mailbox that no longer exists. This happens when a peer holds a stale invitation. Not a server error — the sender needs a fresh invitation link.">i</i>
+            <i class="tip" data-tip="Peers tried to send a message to a mailbox that no longer exists. This happens when a peer holds a stale invitation. Not a server error, the sender needs a fresh invitation link.">i</i>
         </div>
         <div class="stat-value">{{ deposit_404s }}</div>
         <div class="stat-sub">
@@ -410,7 +410,63 @@
         </div>
     </div>
 
+    <div class="stat-card {{ orphan_profile_refs > 0 ? 'status-alert' : 'status-ok' }}">
+        <div class="stat-label">
+            Orphan Mailbox Refs
+            <i class="tip" data-tip="Profiles that point to a mailbox UUID no longer present in relay_mailboxes. Causes continuous deposit 404s from peers. Fix: clear the relay_mailbox_id on the affected profile, or delete the profile so the client re-registers cleanly.">i</i>
+        </div>
+        <div class="stat-value">{{ orphan_profile_refs }}</div>
+        <div class="stat-sub">
+            {% if orphan_profile_refs > 0 %}
+                <span class="sub-alert">profile references a gone mailbox</span>
+            {% else %}
+                all references valid
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="stat-card {{ shared_mailbox_refs|length > 0 ? 'status-alert' : 'status-ok' }}">
+        <div class="stat-label">
+            Shared Mailbox Refs
+            <i class="tip" data-tip="Mailbox UUIDs referenced by more than one profile. Under the current model, each profile should own its own mailbox. A shared UUID is a hijack signal (OWASP A01) or a data migration artefact.">i</i>
+        </div>
+        <div class="stat-value">{{ shared_mailbox_refs|length }}</div>
+        <div class="stat-sub">
+            {% if shared_mailbox_refs|length > 0 %}
+                <span class="sub-alert">investigate below</span>
+            {% else %}
+                no collisions
+            {% endif %}
+        </div>
+    </div>
+
 </div>
+
+{% if shared_mailbox_refs|length > 0 %}
+<div class="section-title" style="margin-top: 24px;">Shared Mailbox References (hijack signal)</div>
+<p class="section-legend">
+    Each row shows a <code>relay_mailbox_id</code> referenced by multiple profiles. Expected count is always 1.
+    <strong>Action:</strong> open each affected profile in the Library Profiles admin, compare <code>node_id</code>
+    and creation date, and clear or correct the later reference. Investigation before deletion is mandatory:
+    a non-zero value can indicate an attempted redirection of encrypted traffic.
+</p>
+<table class="hub-table" style="max-width: 620px;">
+    <thead>
+        <tr>
+            <th>Mailbox UUID</th>
+            <th style="text-align:right">Profiles</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in shared_mailbox_refs %}
+        <tr>
+            <td><code class="mono">{{ row.relay_mailbox_id }}</code></td>
+            <td class="db-size-val"><strong>{{ row.profile_count }}</strong></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
 
 {# — Health — #}
 <div class="section-title" style="margin-top: 24px;">Health</div>
