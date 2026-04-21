@@ -27,6 +27,15 @@ class RelayMailbox
     #[ORM\Column(nullable: true)]
     private ?\DateTimeImmutable $lastAccessed = null;
 
+    /**
+     * Node identity that owns this mailbox. Set on first reference from
+     * DirectoryService::applyProfileData (claim-on-first-reference). See
+     * ADR-031 for the threat model and ownership semantics. NULL means
+     * the mailbox has not yet been claimed.
+     */
+    #[ORM\Column(type: 'string', length: 128, nullable: true)]
+    private ?string $ownerNodeId = null;
+
     public function __construct()
     {
         $this->createdAt = new \DateTimeImmutable();
@@ -88,6 +97,18 @@ class RelayMailbox
     public function setLastAccessed(?\DateTimeImmutable $lastAccessed): static
     {
         $this->lastAccessed = $lastAccessed;
+
+        return $this;
+    }
+
+    public function getOwnerNodeId(): ?string
+    {
+        return $this->ownerNodeId;
+    }
+
+    public function setOwnerNodeId(?string $ownerNodeId): static
+    {
+        $this->ownerNodeId = $ownerNodeId;
 
         return $this;
     }

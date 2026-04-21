@@ -1,6 +1,10 @@
 parameters:
     sidecar_default: null
     covers_directory: '%kernel.project_dir%/var/data/covers'
+    # ADR-031: mailbox ownership enforcement. Shadow-by-default (false) so the
+    # ownership check logs hijack attempts without blocking. Flip to "1" via the
+    # MAILBOX_OWNERSHIP_ENFORCED env var after the 72h shadow window.
+    mailbox_ownership_enforced_default: '0'
 
 services:
     _defaults:
@@ -19,6 +23,11 @@ services:
     App\Service\SidecarNotifier:
         arguments:
             $sidecarUrl: '%env(default:sidecar_default:SIDECAR_URL)%'
+
+    # Directory service (ADR-031: mailbox ownership feature flag)
+    App\Service\DirectoryService:
+        arguments:
+            $mailboxOwnershipEnforced: '%env(bool:default:mailbox_ownership_enforced_default:MAILBOX_OWNERSHIP_ENFORCED)%'
 
     # Jira integration service
     App\Service\JiraService:

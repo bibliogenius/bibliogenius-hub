@@ -110,6 +110,15 @@ class LibraryProfile
     #[ORM\Column(type: 'integer')]
     private int $viewCount = 0;
 
+    /**
+     * Monotonic count of mailbox hijack attempts caught by the service-level
+     * ownership check (ADR-031). The 24h-rolling figure shown on the
+     * dashboard is computed from hub_events; this column is the authoritative
+     * cumulative total kept even if hub_events rows are purged by TTL.
+     */
+    #[ORM\Column(type: 'integer')]
+    private int $hijackAttemptsTotal = 0;
+
     public function __construct(string $nodeId, string $writeToken, string $displayName)
     {
         $this->nodeId = $nodeId;
@@ -246,6 +255,11 @@ class LibraryProfile
     {
         $this->viewCount++;
         return $this;
+    }
+
+    public function getHijackAttemptsTotal(): int
+    {
+        return $this->hijackAttemptsTotal;
     }
 
     public function getX25519PublicKey(): ?string
@@ -387,6 +401,7 @@ class LibraryProfile
             'allow_borrowing'   => $this->allowBorrowing,
             'last_seen_at'      => $this->lastSeenAt?->format(\DateTimeInterface::ATOM),
             'view_count'        => $this->viewCount,
+            'hijack_attempts_total' => $this->hijackAttemptsTotal,
             'x25519_public_key' => $this->x25519PublicKey,
             'website'           => $this->website,
             'device_model'      => $this->deviceModel,

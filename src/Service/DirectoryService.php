@@ -8,6 +8,7 @@ use App\Entity\BorrowRequest;
 use App\Entity\CachedCatalog;
 use App\Entity\Follow;
 use App\Entity\LibraryProfile;
+use App\Exception\MailboxOwnershipConflictException;
 use App\Repository\BorrowRequestRepository;
 use App\Repository\FollowRepository;
 use App\Repository\LibraryProfileRepository;
@@ -43,8 +44,10 @@ class DirectoryService
         private readonly FollowRepository $followRepository,
         private readonly BorrowRequestRepository $borrowRequestRepository,
         private readonly RelayMailboxRepository $relayMailboxRepository,
+        private readonly HubEventLogger $eventLogger,
         #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%covers_directory%')]
         private readonly string $coversDirectory,
+        private readonly bool $mailboxOwnershipEnforced = false,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -87,7 +90,7 @@ class DirectoryService
                 $this->sanitizeString($data['display_name'] ?? '', 255)
             );
             $profile->setRecoveryCodeHash(hash('sha256', $recoveryCode));
-            $this->applyProfileData($profile, $data);
+            $this->applyProfileData($profile, $data, callerNodeId: $nodeId);
             $this->entityManager->persist($profile);
             $this->entityManager->flush();
 
@@ -99,14 +102,14 @@ class DirectoryService
             throw new \LogicException('Authenticated profile does not match node_id.');
         }
 
-        $this->applyProfileData($existing, $data);
+        $this->applyProfileData($existing, $data, callerNodeId: $existing->getNodeId());
         $existing->touchLastSeen();
         $this->entityManager->flush();
 
         return ['profile' => $existing, 'write_token' => null, 'recovery_code' => null];
     }
 
-    private function applyProfileData(LibraryProfile $profile, array $data): void
+    private function applyProfileData(LibraryProfile $profile, array $data, string $callerNodeId): void
     {
         if (isset($data['display_name'])) {
             $profile->setDisplayName($this->sanitizeString($data['display_name'], 255));
@@ -196,7 +199,14 @@ class DirectoryService
             $mid = $data['relay_mailbox_id'];
             // Validate UUID format (36 chars with dashes)
             if ($mid !== null && is_string($mid) && preg_match('/^[0-9a-f\-]{36}$/i', $mid)) {
-                $profile->setRelayMailboxId(strtolower($mid));
+                $normalized = strtolower($mid);
+                // ADR-031: claim-on-first-reference ownership check. Runs
+                // only when the mailbox id passed format validation and is
+                // a non-null value. Explicit null (clear-own-mailbox) and
+                // malformed values do not trigger it, since they do not
+                // touch relay_mailboxes rows owned by anyone.
+                $this->checkAndClaimMailboxOwnership($normalized, $callerNodeId);
+                $profile->setRelayMailboxId($normalized);
             } elseif ($mid === null) {
                 $profile->setRelayMailboxId(null);
             }
@@ -228,6 +238,94 @@ class DirectoryService
                 }
             }
         }
+    }
+
+    /**
+     * Claim-on-first-reference ownership check on relay_mailboxes. See ADR-031.
+     *
+     * Runs inside a dedicated short transaction with SELECT ... FOR UPDATE
+     * to serialize concurrent claimants on the same fresh mailbox.
+     *
+     * Three branches:
+     *   - row absent: trust-on-first-use, no claim recorded here (the
+     *     relay service will assign ownership at mailbox creation time,
+     *     out of scope for this ADR).
+     *   - owner_node_id NULL: claim it for the caller.
+     *   - owner_node_id == caller: legitimate owner refreshing creds, no-op.
+     *   - owner_node_id != caller: log + bump counter. In enforced mode,
+     *     throws MailboxOwnershipConflictException (caller-facing 403).
+     */
+    private function checkAndClaimMailboxOwnership(string $mailboxId, string $callerNodeId): void
+    {
+        $conn = $this->entityManager->getConnection();
+        $conn->beginTransaction();
+        try {
+            $row = $conn->fetchAssociative(
+                'SELECT owner_node_id FROM relay_mailboxes WHERE uuid = :uuid FOR UPDATE',
+                ['uuid' => $mailboxId],
+            );
+
+            if ($row === false) {
+                $conn->commit();
+                return;
+            }
+
+            $owner = $row['owner_node_id'] ?? null;
+
+            if ($owner === null) {
+                $conn->update(
+                    'relay_mailboxes',
+                    ['owner_node_id' => $callerNodeId],
+                    ['uuid' => $mailboxId],
+                );
+                $conn->commit();
+                $this->eventLogger->info('directory', 'mailbox claimed on first reference', [
+                    'mailbox' => $mailboxId,
+                    'node_id' => substr($callerNodeId, 0, 12),
+                ]);
+                return;
+            }
+
+            if ($owner === $callerNodeId) {
+                $conn->commit();
+                return;
+            }
+
+            // Hijack attempt. Commit the read-only tx before logging so the
+            // row lock is released; we do not record any mutation.
+            $conn->commit();
+        } catch (\Throwable $e) {
+            if ($conn->isTransactionActive()) {
+                $conn->rollBack();
+            }
+            throw $e;
+        }
+
+        // Outside the TX: log and bump the cumulative counter on the caller.
+        // Both paths are best-effort; their failure must not mask the hijack.
+        $mode = $this->mailboxOwnershipEnforced ? 'enforced' : 'shadow';
+        $this->eventLogger->warning('directory', 'hijack_attempt', [
+            'mailbox' => $mailboxId,
+            'node_id' => substr($callerNodeId, 0, 12),
+            'reason'  => $mode,
+        ]);
+
+        try {
+            $conn->executeStatement(
+                'UPDATE library_profiles SET hijack_attempts_total = hijack_attempts_total + 1 WHERE node_id = :node_id',
+                ['node_id' => $callerNodeId],
+            );
+        } catch (\Throwable) {
+            // Best-effort counter bump. The authoritative audit trail is the
+            // hub_events warning above; the counter is a dashboard convenience.
+        }
+
+        if ($this->mailboxOwnershipEnforced) {
+            // Opaque message: do not reveal which field failed, whether the
+            // mailbox exists, or who owns it. Controller maps this to 403.
+            throw new MailboxOwnershipConflictException('Credentials conflict.');
+        }
+        // Shadow mode: fall through, upsert proceeds.
     }
 
     /**

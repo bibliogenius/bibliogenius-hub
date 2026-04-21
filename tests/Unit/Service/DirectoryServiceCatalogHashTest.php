@@ -11,6 +11,7 @@ use App\Repository\FollowRepository;
 use App\Repository\LibraryProfileRepository;
 use App\Repository\RelayMailboxRepository;
 use App\Service\DirectoryService;
+use App\Service\HubEventLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\TestCase;
 
@@ -41,6 +42,7 @@ final class DirectoryServiceCatalogHashTest extends TestCase
             $this->createStub(FollowRepository::class),
             $this->createStub(BorrowRequestRepository::class),
             $this->createStub(RelayMailboxRepository::class),
+            $this->createStub(HubEventLogger::class),
             coversDirectory: sys_get_temp_dir(),
         );
     }

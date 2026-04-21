@@ -59,6 +59,23 @@ class DashboardController extends AbstractDashboardController
         $orphanProfileRefs = $this->mailboxRepository->countProfilesWithOrphanMailbox();
         $sharedMailboxRefs = $this->mailboxRepository->findProfilesWithSharedMailbox();
 
+        // Mailbox hijack attempts (ADR-031). 24h count comes from hub_events
+        // so the figure is truly rolling; the monotonic per-profile total on
+        // library_profiles.hijack_attempts_total is used for the offenders
+        // drill-down below, and stays accurate even when hub_events is
+        // purged by TTL.
+        $hijackAttempts24h = (int) $conn->fetchOne(
+            "SELECT COUNT(*) FROM hub_events WHERE channel = 'directory' AND message = 'hijack_attempt' AND created_at >= ?",
+            [$yesterday],
+        );
+        $hijackOffenders = $conn->fetchAllAssociative(
+            'SELECT node_id, display_name, hijack_attempts_total, last_seen_at
+             FROM library_profiles
+             WHERE hijack_attempts_total > 0
+             ORDER BY hijack_attempts_total DESC, last_seen_at DESC
+             LIMIT 10',
+        );
+
         // Event stats (24h)
         $deposit404s = (int) $conn->fetchOne(
             "SELECT COUNT(*) FROM hub_events WHERE channel = 'relay' AND message = 'deposit to non-existent mailbox' AND created_at >= ?",
@@ -156,6 +173,8 @@ class DashboardController extends AbstractDashboardController
             'stale_messages' => $staleMessages,
             'orphan_profile_refs' => $orphanProfileRefs,
             'shared_mailbox_refs' => $sharedMailboxRefs,
+            'hijack_attempts_24h' => $hijackAttempts24h,
+            'hijack_offenders' => $hijackOffenders,
             'deposit_404s' => $deposit404s,
             'recent_warnings' => $recentWarnings,
             'recent_errors' => $recentErrors,
