@@ -99,6 +99,14 @@ php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS hub_events (id SER
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_hub_events_created ON hub_events (created_at DESC)" --env=$ENV --no-interaction || true
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_hub_events_channel ON hub_events (channel)" --env=$ENV --no-interaction || true
 
+# Mailbox ownership enforcement (Version20260421120000 - ADR-031)
+# owner_node_id claim-on-first-reference + monotonic hijack counter.
+# Backfill is idempotent via the WHERE owner_node_id IS NULL guard.
+php /app/bin/console dbal:run-sql "ALTER TABLE relay_mailboxes ADD COLUMN IF NOT EXISTS owner_node_id VARCHAR(128) DEFAULT NULL" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_relay_mailboxes_owner_node_id ON relay_mailboxes (owner_node_id)" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS hijack_attempts_total INTEGER NOT NULL DEFAULT 0" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "UPDATE relay_mailboxes rm SET owner_node_id = lp.node_id FROM library_profiles lp WHERE rm.owner_node_id IS NULL AND lp.relay_mailbox_id IS NOT NULL AND LOWER(rm.uuid) = LOWER(lp.relay_mailbox_id)" --env=$ENV --no-interaction || true
+
 # Clear and warm up cache
 php /app/bin/console cache:clear --env=$ENV --no-debug || true
 php /app/bin/console cache:warmup --env=$ENV || true
