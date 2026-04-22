@@ -149,13 +149,15 @@ class PruneCommand extends Command
             ),
         );
 
-        // Secondary cap: keep at most MAX_ROWS newest entries
+        // Secondary cap: keep at most MAX_ROWS newest entries.
+        // Maintenance markers (e.g. prune_run) are exempt so that a noisy relay cannot
+        // evict the observability signals the dashboard depends on.
         $count = (int) $this->connection->fetchOne('SELECT COUNT(*) FROM hub_events');
         $capDeleted = 0;
         if ($count > self::HUB_EVENTS_MAX_ROWS) {
             $excess = $count - self::HUB_EVENTS_MAX_ROWS;
             $capDeleted = (int) $this->connection->executeStatement(
-                "DELETE FROM hub_events WHERE id IN (SELECT id FROM hub_events ORDER BY created_at ASC LIMIT $excess)",
+                "DELETE FROM hub_events WHERE id IN (SELECT id FROM hub_events WHERE channel <> 'maintenance' ORDER BY created_at ASC LIMIT $excess)",
             );
         }
 

@@ -97,12 +97,13 @@ class HubEventLogger
                 "DELETE FROM hub_events WHERE created_at < NOW() - INTERVAL '" . self::TTL_DAYS . " days'"
             );
 
-            // Cap total entries
+            // Cap total entries. Maintenance markers (e.g. prune_run) are exempt so that
+            // a noisy relay cannot evict the observability signals the dashboard depends on.
             $count = (int) $this->connection->fetchOne('SELECT COUNT(*) FROM hub_events');
             if ($count > self::MAX_ENTRIES) {
                 $excess = $count - self::MAX_ENTRIES;
                 $this->connection->executeStatement(
-                    "DELETE FROM hub_events WHERE id IN (SELECT id FROM hub_events ORDER BY created_at ASC LIMIT $excess)"
+                    "DELETE FROM hub_events WHERE id IN (SELECT id FROM hub_events WHERE channel <> 'maintenance' ORDER BY created_at ASC LIMIT $excess)"
                 );
             }
         } catch (\Throwable) {
