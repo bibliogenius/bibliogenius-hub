@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Unit\Command;
 
 use App\Command\PruneCommand;
+use App\Repository\Deposit404LogRepository;
 use App\Repository\InviteTokenRepository;
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
@@ -24,6 +25,7 @@ final class PruneCommandTest extends TestCase
     {
         $conn = $this->createMock(Connection::class);
         $inviteRepo = $this->createStub(InviteTokenRepository::class);
+        $deposit404Repo = $this->createStub(Deposit404LogRepository::class);
 
         // DELETE counts: relay_messages, relay_mailboxes (2 calls), registration_failures, hub_events TTL
         // pruneHubEvents also does fetchOne + optional cap DELETE; mock count <= MAX to skip cap.
@@ -38,6 +40,7 @@ final class PruneCommandTest extends TestCase
             );
         $conn->method('fetchOne')->willReturn(500); // hub_events count, below cap
         $inviteRepo->method('deleteExpired')->willReturn(6);
+        $deposit404Repo->method('pruneOlderThanDays')->willReturn(9);
 
         $insertArgs = null;
         $conn->expects($this->once())
@@ -50,7 +53,7 @@ final class PruneCommandTest extends TestCase
                 }),
             );
 
-        $tester = $this->buildCommandTester($conn, $inviteRepo);
+        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo);
         $tester->execute([]);
         $tester->assertCommandIsSuccessful();
 
@@ -64,8 +67,8 @@ final class PruneCommandTest extends TestCase
         $this->assertArrayHasKey('total_deleted', $context);
         $this->assertArrayHasKey('per_table', $context);
 
-        // 10 + (3+2) + 6 + 7 + 4 = 32
-        $this->assertSame(32, $context['total_deleted']);
+        // 10 + (3+2) + 6 + 7 + 4 + 9 = 41
+        $this->assertSame(41, $context['total_deleted']);
         $this->assertSame(
             [
                 'relay_messages' => 10,
@@ -73,6 +76,7 @@ final class PruneCommandTest extends TestCase
                 'invite_tokens' => 6,
                 'registration_failures' => 7,
                 'hub_events' => 4,
+                'deposit_404_log' => 9,
             ],
             $context['per_table'],
         );
@@ -82,16 +86,18 @@ final class PruneCommandTest extends TestCase
     {
         $conn = $this->createMock(Connection::class);
         $inviteRepo = $this->createStub(InviteTokenRepository::class);
+        $deposit404Repo = $this->createStub(Deposit404LogRepository::class);
 
         $conn->method('executeStatement')->willReturn(0);
         $conn->method('fetchOne')->willReturn(0);
         $inviteRepo->method('deleteExpired')->willReturn(0);
+        $deposit404Repo->method('pruneOlderThanDays')->willReturn(0);
 
         $conn->expects($this->once())
             ->method('insert')
             ->willThrowException(new \RuntimeException('DB unavailable'));
 
-        $tester = $this->buildCommandTester($conn, $inviteRepo);
+        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo);
         $tester->execute([]);
 
         // Prune itself succeeded; observability failure is best-effort only.
@@ -102,8 +108,9 @@ final class PruneCommandTest extends TestCase
     private function buildCommandTester(
         Connection $conn,
         InviteTokenRepository $inviteRepo,
+        Deposit404LogRepository $deposit404Repo,
     ): CommandTester {
-        $command = new PruneCommand($conn, $inviteRepo);
+        $command = new PruneCommand($conn, $inviteRepo, $deposit404Repo);
         $app = new Application();
         $app->add($command);
 

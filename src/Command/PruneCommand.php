@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Command;
 
+use App\Repository\Deposit404LogRepository;
 use App\Repository\InviteTokenRepository;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -21,6 +22,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *   invite_tokens        — TTL 30 days
  *   registration_failures — TTL 90 days (audit trail)
  *   hub_events           — TTL 30 days + cap 1000 rows
+ *   deposit_404_log      — TTL 30 days (aggregated, so cap is implicit)
  */
 #[AsCommand(
     name: 'app:db:prune',
@@ -34,10 +36,12 @@ class PruneCommand extends Command
     private const REGISTRATION_FAILURE_TTL_DAYS = 90;
     private const HUB_EVENTS_TTL_DAYS = 30;
     private const HUB_EVENTS_MAX_ROWS = 1000;
+    private const DEPOSIT_404_LOG_TTL_DAYS = 30;
 
     public function __construct(
         private readonly Connection $connection,
         private readonly InviteTokenRepository $inviteTokenRepository,
+        private readonly Deposit404LogRepository $deposit404LogRepository,
     ) {
         parent::__construct();
     }
@@ -53,6 +57,7 @@ class PruneCommand extends Command
             'invite_tokens' => $this->pruneInviteTokens($io),
             'registration_failures' => $this->pruneRegistrationFailures($io),
             'hub_events' => $this->pruneHubEvents($io),
+            'deposit_404_log' => $this->pruneDeposit404Log($io),
         ];
         $total = array_sum($perTable);
 
@@ -169,5 +174,13 @@ class PruneCommand extends Command
         ));
 
         return $deleted + $capDeleted;
+    }
+
+    private function pruneDeposit404Log(SymfonyStyle $io): int
+    {
+        $deleted = $this->deposit404LogRepository->pruneOlderThanDays(self::DEPOSIT_404_LOG_TTL_DAYS);
+        $io->writeln(sprintf('  deposit_404_log  (%d-day TTL): <info>%d deleted</info>', self::DEPOSIT_404_LOG_TTL_DAYS, $deleted));
+
+        return $deleted;
     }
 }

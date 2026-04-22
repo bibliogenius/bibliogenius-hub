@@ -2,6 +2,7 @@
 
 namespace App\Controller\Admin;
 
+use App\Repository\Deposit404LogRepository;
 use App\Repository\RelayMailboxRepository;
 use App\Service\HubEventLogger;
 use Doctrine\ORM\EntityManagerInterface;
@@ -20,6 +21,7 @@ class DashboardController extends AbstractDashboardController
         private readonly EntityManagerInterface $em,
         private readonly RelayMailboxRepository $mailboxRepository,
         private readonly HubEventLogger $eventLogger,
+        private readonly Deposit404LogRepository $deposit404Log,
     ) {
     }
 
@@ -76,11 +78,12 @@ class DashboardController extends AbstractDashboardController
              LIMIT 10',
         );
 
-        // Event stats (24h)
-        $deposit404s = (int) $conn->fetchOne(
-            "SELECT COUNT(*) FROM hub_events WHERE channel = 'relay' AND message = 'deposit to non-existent mailbox' AND created_at >= ?",
-            [$yesterday],
-        );
+        // Event stats (24h).
+        // deposit_404s comes from the dedicated aggregated counter, not hub_events:
+        // we SUM the per-(uuid, hour) counter so the tile keeps reporting the true
+        // number of 404 hits even though the underlying table now holds one row per
+        // mailbox per hour instead of one row per hit.
+        $deposit404s = $this->deposit404Log->countSince($now->modify('-24 hours'));
         $recentWarnings = (int) $conn->fetchOne(
             "SELECT COUNT(*) FROM hub_events WHERE level = 'warning' AND created_at >= ?",
             [$yesterday],

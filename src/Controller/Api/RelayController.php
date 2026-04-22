@@ -6,6 +6,7 @@ namespace App\Controller\Api;
 
 use App\Entity\RelayMailbox;
 use App\Entity\RelayMessage;
+use App\Repository\Deposit404LogRepository;
 use App\Repository\RelayMailboxRepository;
 use App\Repository\RelayMessageRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -30,6 +31,7 @@ class RelayController extends AbstractController
         private readonly RelayMailboxRepository $mailboxRepository,
         private readonly RelayMessageRepository $messageRepository,
         private readonly HubEventLogger $eventLogger,
+        private readonly Deposit404LogRepository $deposit404Log,
         private readonly ?SidecarNotifier $sidecarNotifier = null,
     ) {
     }
@@ -96,9 +98,10 @@ class RelayController extends AbstractController
         // 3. Find mailbox and verify write token
         $mailbox = $this->mailboxRepository->findByUuid($uuid);
         if ($mailbox === null) {
-            $this->eventLogger->warning('relay', 'deposit to non-existent mailbox', [
-                'uuid' => $uuid,
-            ]);
+            // Aggregated counter (deposit_404_log) instead of a per-event hub_events row.
+            // Peers holding a stale write_token retry in a loop, and at the former rate
+            // (~80% of hub_events) they evicted legitimate warnings from the 1000-row cap.
+            $this->deposit404Log->recordHit($uuid);
             return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
         }
 

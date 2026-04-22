@@ -107,6 +107,11 @@ php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_relay_mailboxe
 php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS hijack_attempts_total INTEGER NOT NULL DEFAULT 0" --env=$ENV --no-interaction || true
 php /app/bin/console dbal:run-sql "UPDATE relay_mailboxes rm SET owner_node_id = lp.node_id FROM library_profiles lp WHERE rm.owner_node_id IS NULL AND lp.relay_mailbox_id IS NOT NULL AND LOWER(rm.uuid) = LOWER(lp.relay_mailbox_id)" --env=$ENV --no-interaction || true
 
+# deposit_404_log (Version20260422120000 - aggregated deposit-404 counter)
+# Replaces the per-event warning rows that flooded hub_events (~80% of rows).
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS deposit_404_log (mailbox_uuid VARCHAR(36) NOT NULL, hour_bucket TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, count INTEGER NOT NULL DEFAULT 1, first_seen TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), last_seen TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), PRIMARY KEY (mailbox_uuid, hour_bucket))" --env=$ENV --no-interaction || echo "WARNING: deposit_404_log creation failed"
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_deposit_404_log_hour_bucket ON deposit_404_log (hour_bucket DESC)" --env=$ENV --no-interaction || true
+
 # Clear and warm up cache
 php /app/bin/console cache:clear --env=$ENV --no-debug || true
 php /app/bin/console cache:warmup --env=$ENV || true
