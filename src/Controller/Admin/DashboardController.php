@@ -115,6 +115,11 @@ class DashboardController extends AbstractDashboardController
         $inviteTokenCount = (int) $conn->fetchOne('SELECT COUNT(*) FROM invite_tokens');
         $registrationFailureCount = (int) $conn->fetchOne('SELECT COUNT(*) FROM registration_failures');
 
+        // Nightly prune marker (written by app:db:prune). null => never ran.
+        $lastPruneAt = $conn->fetchOne(
+            "SELECT MAX(created_at) FROM hub_events WHERE channel = 'maintenance' AND message = 'prune_run'",
+        ) ?: null;
+
         // Activity stats
         $totalBooks = (int) $conn->fetchOne('SELECT COALESCE(SUM(book_count), 0) FROM library_profiles');
         $borrowingEnabledCount = (int) $conn->fetchOne('SELECT COUNT(*) FROM library_profiles WHERE allow_borrowing = true');
@@ -182,6 +187,7 @@ class DashboardController extends AbstractDashboardController
             'recent_events' => $recentEvents,
             'invite_token_count' => $inviteTokenCount,
             'registration_failure_count' => $registrationFailureCount,
+            'last_prune_at' => $lastPruneAt,
             'table_sizes' => $tableSizes,
             'total_books' => $totalBooks,
             'borrowing_enabled_count' => $borrowingEnabledCount,

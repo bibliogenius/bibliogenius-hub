@@ -47,16 +47,44 @@ class PruneCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $io->title('BiblioGenius DB prune');
 
-        $total = 0;
-        $total += $this->pruneRelayMessages($io);
-        $total += $this->pruneRelayMailboxes($io);
-        $total += $this->pruneInviteTokens($io);
-        $total += $this->pruneRegistrationFailures($io);
-        $total += $this->pruneHubEvents($io);
+        $perTable = [
+            'relay_messages' => $this->pruneRelayMessages($io),
+            'relay_mailboxes' => $this->pruneRelayMailboxes($io),
+            'invite_tokens' => $this->pruneInviteTokens($io),
+            'registration_failures' => $this->pruneRegistrationFailures($io),
+            'hub_events' => $this->pruneHubEvents($io),
+        ];
+        $total = array_sum($perTable);
+
+        $this->logPruneRun($total, $perTable, $io);
 
         $io->success(sprintf('Done — %d rows deleted.', $total));
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Record a marker event so the admin dashboard can display the age of the
+     * last successful prune — the primary way to detect a broken VPS cron.
+     *
+     * Written with a direct INSERT rather than via HubEventLogger because the
+     * logger sanitizes context to an allowlist that would strip per_table.
+     */
+    private function logPruneRun(int $total, array $perTable, SymfonyStyle $io): void
+    {
+        try {
+            $this->connection->insert('hub_events', [
+                'level' => 'info',
+                'channel' => 'maintenance',
+                'message' => 'prune_run',
+                'context' => json_encode(
+                    ['total_deleted' => $total, 'per_table' => $perTable],
+                    JSON_UNESCAPED_UNICODE,
+                ),
+            ]);
+        } catch (\Throwable $e) {
+            $io->warning(sprintf('Failed to log prune_run event: %s', $e->getMessage()));
+        }
     }
 
     private function pruneRelayMessages(SymfonyStyle $io): int

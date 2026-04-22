@@ -318,6 +318,35 @@
         </div>
     </div>
 
+    {% set prune_age_hours = last_prune_at ? ((("now"|date("U")) - (last_prune_at|date("U"))) / 3600) : null %}
+    {% set prune_stale = last_prune_at is null or prune_age_hours > 48 %}
+    <div class="stat-card {{ prune_stale ? 'status-warn' : 'status-ok' }}">
+        <div class="stat-label">
+            Last Prune
+            <i class="tip" data-tip="Nightly prune command — should run every 24h. If null or >48h, the VPS cron may be broken. Check: sudo crontab -l on the VPS, or run manually via docker exec hub-prod php bin/console app:db:prune.">i</i>
+        </div>
+        <div class="stat-value">
+            {% if last_prune_at is null %}
+                never
+            {% elseif prune_age_hours < 1 %}
+                &lt;1h
+            {% elseif prune_age_hours < 24 %}
+                {{ prune_age_hours|round }}h
+            {% else %}
+                {{ (prune_age_hours / 24)|round }}d
+            {% endif %}
+        </div>
+        <div class="stat-sub">
+            {% if last_prune_at is null %}
+                <span class="sub-warn">cron never ran</span>
+            {% elseif prune_age_hours > 48 %}
+                <span class="sub-warn">check VPS crontab</span>
+            {% else %}
+                ago
+            {% endif %}
+        </div>
+    </div>
+
 </div>
 
 {# — Client Versions — #}
