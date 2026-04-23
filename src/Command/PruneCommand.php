@@ -6,6 +6,7 @@ namespace App\Command;
 
 use App\Repository\Deposit404LogRepository;
 use App\Repository\InviteTokenRepository;
+use App\Service\DirectoryService;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -14,15 +15,16 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
- * Nightly database pruning — run via cron to keep tables lean.
+ * Nightly database pruning - run via cron to keep tables lean.
  *
  * Tables covered:
- *   relay_messages       — TTL 7 days  (E2EE blobs, largest table)
- *   relay_mailboxes      — TTL 90 days (last_accessed or created_at)
- *   invite_tokens        — TTL 30 days
- *   registration_failures — TTL 90 days (audit trail)
- *   hub_events           — TTL 30 days + cap 1000 rows
- *   deposit_404_log      — TTL 30 days (aggregated, so cap is implicit)
+ *   relay_messages        - TTL 7 days  (E2EE blobs, largest table)
+ *   relay_mailboxes       - TTL 90 days (last_accessed or created_at)
+ *   invite_tokens         - TTL 30 days
+ *   registration_failures - TTL 90 days (audit trail)
+ *   hub_events            - TTL 30 days + cap 1000 rows
+ *   deposit_404_log       - TTL 30 days (aggregated, so cap is implicit)
+ *   orphan_covers         - catalog-driven filesystem sweep (ADR-033)
  */
 #[AsCommand(
     name: 'app:db:prune',
@@ -42,6 +44,7 @@ class PruneCommand extends Command
         private readonly Connection $connection,
         private readonly InviteTokenRepository $inviteTokenRepository,
         private readonly Deposit404LogRepository $deposit404LogRepository,
+        private readonly DirectoryService $directoryService,
     ) {
         parent::__construct();
     }
@@ -58,6 +61,7 @@ class PruneCommand extends Command
             'registration_failures' => $this->pruneRegistrationFailures($io),
             'hub_events' => $this->pruneHubEvents($io),
             'deposit_404_log' => $this->pruneDeposit404Log($io),
+            'orphan_covers' => $this->pruneOrphanCovers($io),
         ];
         $total = array_sum($perTable);
 
@@ -180,6 +184,25 @@ class PruneCommand extends Command
     {
         $deleted = $this->deposit404LogRepository->pruneOlderThanDays(self::DEPOSIT_404_LOG_TTL_DAYS);
         $io->writeln(sprintf('  deposit_404_log  (%d-day TTL): <info>%d deleted</info>', self::DEPOSIT_404_LOG_TTL_DAYS, $deleted));
+
+        return $deleted;
+    }
+
+    /**
+     * Catalog-driven orphan cover sweep (ADR-033, Option 3 safety net).
+     * Delegates to DirectoryService which applies the 50% threshold guard
+     * per node. Failures are swallowed so the observability marker still
+     * fires with orphan_covers=0 and the dashboard does not wedge.
+     */
+    private function pruneOrphanCovers(SymfonyStyle $io): int
+    {
+        try {
+            $deleted = $this->directoryService->pruneOrphanCoversForAllNodes();
+        } catch (\Throwable $e) {
+            $io->warning(sprintf('Orphan cover sweep failed: %s', $e->getMessage()));
+            $deleted = 0;
+        }
+        $io->writeln(sprintf('  orphan_covers    (catalog-driven): <info>%d deleted</info>', $deleted));
 
         return $deleted;
     }

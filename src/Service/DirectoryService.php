@@ -38,6 +38,13 @@ class DirectoryService
     private const RECOVERY_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
     private const RECOVERY_CODE_LENGTH = 12;
 
+    /**
+     * Safety guard for orphan-cover GC (ADR-033): skip if removing the
+     * orphans would wipe >= this fraction of files on disk for the node.
+     * Protects against mass-deletion if a client pushes a corrupted catalog.
+     */
+    private const COVER_GC_DEFAULT_MAX_DELETE_RATIO = 0.5;
+
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly LibraryProfileRepository $profileRepository,
@@ -425,7 +432,183 @@ class DirectoryService
         $profile->touchLastSeen();
         $this->entityManager->flush();
 
+        // Catalog-driven orphan cover GC (ADR-033). Runs only on the rewrite
+        // path (not the hash-unchanged fast path) and only when the client
+        // sent enriched entries: legacy catalogs without book_id cannot
+        // drive safe GC. Best-effort: any failure is logged, not raised.
+        if ($catalogPayload !== null) {
+            try {
+                $this->pruneOrphanCoversForNode($profile->getNodeId(), $catalogPayload, 'push');
+            } catch (\Throwable $e) {
+                $this->logCoverGcEvent('error', 'error', $profile->getNodeId(), [
+                    'trigger' => 'push',
+                    'error' => substr($e->getMessage(), 0, 200),
+                ]);
+            }
+        }
+
         return new PushCatalogResult($catalog, unchanged: false);
+    }
+
+    /**
+     * Scans every cached catalog with enriched data and prunes orphan covers
+     * (ADR-033 Option 3). Called from the nightly PruneCommand as a safety
+     * net that catches silent nodes that rarely push catalogs.
+     *
+     * Returns the total number of cover files deleted across all nodes.
+     * Per-node failures are logged and swallowed so one bad node cannot
+     * abort the cron.
+     */
+    public function pruneOrphanCoversForAllNodes(): int
+    {
+        $total = 0;
+        $rows = $this->entityManager->getConnection()->iterateAssociative(
+            'SELECT node_id, catalog_payload FROM cached_catalogs WHERE catalog_payload IS NOT NULL',
+        );
+        foreach ($rows as $row) {
+            $nodeId = (string) ($row['node_id'] ?? '');
+            $payload = (string) ($row['catalog_payload'] ?? '');
+            if ($nodeId === '' || $payload === '') {
+                continue;
+            }
+            try {
+                $total += $this->pruneOrphanCoversForNode($nodeId, $payload, 'cron');
+            } catch (\Throwable $e) {
+                $this->logCoverGcEvent('error', 'error', $nodeId, [
+                    'trigger' => 'cron',
+                    'error' => substr($e->getMessage(), 0, 200),
+                ]);
+            }
+        }
+        return $total;
+    }
+
+    /**
+     * Compares the catalog's book_ids against files on disk under
+     * covers/{nodeId}/ and deletes the orphans. Skips if:
+     *   - the catalog decodes to an empty book_id set (suspicious)
+     *   - the delete would exceed COVER_GC_MAX_DELETE_RATIO of disk files
+     *     (threshold guard, ADR-033)
+     * Returns the number of files deleted (0 when skipped or when nothing
+     * to delete).
+     */
+    private function pruneOrphanCoversForNode(string $nodeId, string $catalogPayload, string $trigger): int
+    {
+        $dir = $this->coversDirectory . '/' . $nodeId;
+        if (!is_dir($dir)) {
+            return 0;
+        }
+
+        $entries = json_decode($catalogPayload, true);
+        if (!is_array($entries)) {
+            return 0;
+        }
+
+        $keep = [];
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $bookId = $entry['book_id'] ?? null;
+            if (is_int($bookId) && $bookId > 0) {
+                $keep[$bookId] = true;
+            }
+        }
+
+        $files = glob($dir . '/*.jpg') ?: [];
+        $diskCount = count($files);
+        if ($diskCount === 0) {
+            return 0;
+        }
+
+        if ($keep === []) {
+            $this->logCoverGcEvent('warning', 'skipped_empty_catalog', $nodeId, [
+                'trigger' => $trigger,
+                'disk_count' => $diskCount,
+            ]);
+            return 0;
+        }
+
+        $orphans = [];
+        foreach ($files as $file) {
+            $basename = basename($file, '.jpg');
+            if (!ctype_digit($basename)) {
+                continue; // ignore non-numeric filenames, not ours
+            }
+            $bookId = (int) $basename;
+            if (!isset($keep[$bookId])) {
+                $orphans[] = $file;
+            }
+        }
+
+        $orphanCount = count($orphans);
+        if ($orphanCount === 0) {
+            return 0;
+        }
+
+        if ($orphanCount / $diskCount >= $this->coverGcMaxDeleteRatio()) {
+            $this->logCoverGcEvent('warning', 'skipped_threshold', $nodeId, [
+                'trigger' => $trigger,
+                'orphan_count' => $orphanCount,
+                'disk_count' => $diskCount,
+            ]);
+            return 0;
+        }
+
+        $deleted = 0;
+        foreach ($orphans as $file) {
+            if (@unlink($file)) {
+                $deleted++;
+            }
+        }
+
+        if ($deleted > 0) {
+            $this->logCoverGcEvent('info', 'deleted', $nodeId, [
+                'trigger' => $trigger,
+                'deleted_count' => $deleted,
+                'disk_count' => $diskCount,
+            ]);
+        }
+        return $deleted;
+    }
+
+    /**
+     * Reads the runtime threshold from the COVER_GC_MAX_DELETE_RATIO env var
+     * with safe fallbacks: any malformed or out-of-range value falls back
+     * to the default. Inclusive of 1.0 (would disable GC) and 0.0 (no guard).
+     */
+    private function coverGcMaxDeleteRatio(): float
+    {
+        $raw = getenv('COVER_GC_MAX_DELETE_RATIO');
+        if (!is_string($raw) || $raw === '' || !is_numeric($raw)) {
+            return self::COVER_GC_DEFAULT_MAX_DELETE_RATIO;
+        }
+        $value = (float) $raw;
+        if ($value < 0.0 || $value > 1.0) {
+            return self::COVER_GC_DEFAULT_MAX_DELETE_RATIO;
+        }
+        return $value;
+    }
+
+    /**
+     * Direct INSERT to hub_events for cover GC observability. Bypasses the
+     * HubEventLogger allowlist so we can keep structured fields like
+     * deleted_count / disk_count / trigger without renaming them to the
+     * generic "count" / "size" / "reason" slots.
+     */
+    private function logCoverGcEvent(string $level, string $message, string $nodeId, array $context): void
+    {
+        try {
+            $context['node_id'] = substr($nodeId, 0, 12);
+            $this->entityManager->getConnection()->insert('hub_events', [
+                'level' => $level,
+                'channel' => 'catalog_gc',
+                'message' => $message,
+                'context' => json_encode($context, JSON_UNESCAPED_UNICODE),
+            ]);
+        } catch (\Throwable) {
+            // Best-effort: observability must never break the caller.
+        }
     }
 
     private function applyBookCount(LibraryProfile $profile, string $isbnPayload, ?int $bookCount): void

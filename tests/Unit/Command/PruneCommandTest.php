@@ -7,6 +7,7 @@ namespace App\Tests\Unit\Command;
 use App\Command\PruneCommand;
 use App\Repository\Deposit404LogRepository;
 use App\Repository\InviteTokenRepository;
+use App\Service\DirectoryService;
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Application;
@@ -26,6 +27,7 @@ final class PruneCommandTest extends TestCase
         $conn = $this->createMock(Connection::class);
         $inviteRepo = $this->createStub(InviteTokenRepository::class);
         $deposit404Repo = $this->createStub(Deposit404LogRepository::class);
+        $directoryService = $this->createStub(DirectoryService::class);
 
         // DELETE counts: relay_messages, relay_mailboxes (2 calls), registration_failures, hub_events TTL
         // pruneHubEvents also does fetchOne + optional cap DELETE; mock count <= MAX to skip cap.
@@ -41,6 +43,8 @@ final class PruneCommandTest extends TestCase
         $conn->method('fetchOne')->willReturn(500); // hub_events count, below cap
         $inviteRepo->method('deleteExpired')->willReturn(6);
         $deposit404Repo->method('pruneOlderThanDays')->willReturn(9);
+        // Orphan-cover sweep (ADR-033): 2 files deleted across all nodes.
+        $directoryService->method('pruneOrphanCoversForAllNodes')->willReturn(2);
 
         $insertArgs = null;
         $conn->expects($this->once())
@@ -53,7 +57,7 @@ final class PruneCommandTest extends TestCase
                 }),
             );
 
-        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo);
+        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService);
         $tester->execute([]);
         $tester->assertCommandIsSuccessful();
 
@@ -67,8 +71,8 @@ final class PruneCommandTest extends TestCase
         $this->assertArrayHasKey('total_deleted', $context);
         $this->assertArrayHasKey('per_table', $context);
 
-        // 10 + (3+2) + 6 + 7 + 4 + 9 = 41
-        $this->assertSame(41, $context['total_deleted']);
+        // 10 + (3+2) + 6 + 7 + 4 + 9 + 2 = 43
+        $this->assertSame(43, $context['total_deleted']);
         $this->assertSame(
             [
                 'relay_messages' => 10,
@@ -77,6 +81,7 @@ final class PruneCommandTest extends TestCase
                 'registration_failures' => 7,
                 'hub_events' => 4,
                 'deposit_404_log' => 9,
+                'orphan_covers' => 2,
             ],
             $context['per_table'],
         );
@@ -87,17 +92,19 @@ final class PruneCommandTest extends TestCase
         $conn = $this->createMock(Connection::class);
         $inviteRepo = $this->createStub(InviteTokenRepository::class);
         $deposit404Repo = $this->createStub(Deposit404LogRepository::class);
+        $directoryService = $this->createStub(DirectoryService::class);
 
         $conn->method('executeStatement')->willReturn(0);
         $conn->method('fetchOne')->willReturn(0);
         $inviteRepo->method('deleteExpired')->willReturn(0);
         $deposit404Repo->method('pruneOlderThanDays')->willReturn(0);
+        $directoryService->method('pruneOrphanCoversForAllNodes')->willReturn(0);
 
         $conn->expects($this->once())
             ->method('insert')
             ->willThrowException(new \RuntimeException('DB unavailable'));
 
-        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo);
+        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService);
         $tester->execute([]);
 
         // Prune itself succeeded; observability failure is best-effort only.
@@ -105,12 +112,50 @@ final class PruneCommandTest extends TestCase
         $this->assertStringContainsString('Failed to log prune_run event', $tester->getDisplay());
     }
 
+    public function testOrphanCoversStepFailureDoesNotBreakCommand(): void
+    {
+        // A runtime error in the cover sweep (e.g. I/O failure, unreadable dir)
+        // must not abort the other prune steps. The marker event still fires
+        // with orphan_covers=0 so the dashboard does not wedge.
+        $conn = $this->createMock(Connection::class);
+        $inviteRepo = $this->createStub(InviteTokenRepository::class);
+        $deposit404Repo = $this->createStub(Deposit404LogRepository::class);
+        $directoryService = $this->createStub(DirectoryService::class);
+
+        $conn->method('executeStatement')->willReturn(0);
+        $conn->method('fetchOne')->willReturn(0);
+        $inviteRepo->method('deleteExpired')->willReturn(0);
+        $deposit404Repo->method('pruneOlderThanDays')->willReturn(0);
+        $directoryService->method('pruneOrphanCoversForAllNodes')
+            ->willThrowException(new \RuntimeException('disk I/O'));
+
+        $insertArgs = null;
+        $conn->expects($this->once())
+            ->method('insert')
+            ->with(
+                $this->equalTo('hub_events'),
+                $this->callback(function (array $data) use (&$insertArgs) {
+                    $insertArgs = $data;
+                    return true;
+                }),
+            );
+
+        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService);
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+
+        $this->assertNotNull($insertArgs);
+        $context = json_decode($insertArgs['context'], true);
+        $this->assertSame(0, $context['per_table']['orphan_covers']);
+    }
+
     private function buildCommandTester(
         Connection $conn,
         InviteTokenRepository $inviteRepo,
         Deposit404LogRepository $deposit404Repo,
+        DirectoryService $directoryService,
     ): CommandTester {
-        $command = new PruneCommand($conn, $inviteRepo, $deposit404Repo);
+        $command = new PruneCommand($conn, $inviteRepo, $deposit404Repo, $directoryService);
         $app = new Application();
         $app->add($command);
 
