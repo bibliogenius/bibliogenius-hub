@@ -1003,11 +1003,16 @@ class DirectoryService
     // -------------------------------------------------------------------------
 
     /** @return LibraryProfile[] */
-    public function listDirectory(int $limit, int $offset, ?string $country, ?string $search = null): array
-    {
+    public function listDirectory(
+        int $limit,
+        int $offset,
+        ?string $country,
+        ?string $search = null,
+        ?int $cityId = null,
+    ): array {
         $limit = min(100, max(1, $limit));
 
-        return $this->profileRepository->findListed($limit, $offset, $country, $search);
+        return $this->profileRepository->findListed($limit, $offset, $country, $search, $cityId);
     }
 
     // -------------------------------------------------------------------------

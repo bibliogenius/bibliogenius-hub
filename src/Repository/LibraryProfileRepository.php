@@ -36,12 +36,17 @@ class LibraryProfileRepository extends ServiceEntityRepository
 
     /**
      * Returns listed libraries, ordered by last_seen_at descending.
-     * Supports optional country filter and pagination.
+     * Supports optional country / city / search filters and pagination.
      *
      * @return LibraryProfile[]
      */
-    public function findListed(int $limit = 50, int $offset = 0, ?string $country = null, ?string $search = null): array
-    {
+    public function findListed(
+        int $limit = 50,
+        int $offset = 0,
+        ?string $country = null,
+        ?string $search = null,
+        ?int $cityId = null,
+    ): array {
         $qb = $this->createQueryBuilder('p')
             ->where('p.isListed = :listed')
             ->setParameter('listed', true)
@@ -52,6 +57,14 @@ class LibraryProfileRepository extends ServiceEntityRepository
         if ($country !== null) {
             $qb->andWhere('p.locationCountry = :country')
                ->setParameter('country', $country);
+        }
+
+        if ($cityId !== null) {
+            // ADR-035 Phase 2: optional city filter, combinable with country
+            // and search. The pair (country, city_id) is what the picker
+            // surfaces to users so the filter mirrors the input shape.
+            $qb->andWhere('p.locationCityId = :cityId')
+               ->setParameter('cityId', $cityId);
         }
 
         if ($search !== null && $search !== '') {

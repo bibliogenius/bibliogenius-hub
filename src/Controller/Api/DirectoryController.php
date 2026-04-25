@@ -480,9 +480,29 @@ class DirectoryController extends AbstractController
         $offset  = max(0, (int) $request->query->get('offset', 0));
         $country = $request->query->get('country');
         $search  = $request->query->get('search');
+        // ADR-035 Phase 2: optional city filter. Reject anything that is not
+        // a positive integer so a malformed query never reaches the SQL
+        // layer (defense in depth, the QB also binds via parameter).
+        $cityIdRaw = $request->query->get('city_id');
+        $cityId = null;
+        if ($cityIdRaw !== null && $cityIdRaw !== '') {
+            if (!ctype_digit((string) $cityIdRaw)) {
+                return $this->error('city_id must be a positive integer.', Response::HTTP_BAD_REQUEST);
+            }
+            $cityId = (int) $cityIdRaw;
+            if ($cityId <= 0) {
+                return $this->error('city_id must be a positive integer.', Response::HTTP_BAD_REQUEST);
+            }
+        }
 
         try {
-            $profiles = $this->directoryService->listDirectory($limit, $offset, $country ?: null, $search ?: null);
+            $profiles = $this->directoryService->listDirectory(
+                $limit,
+                $offset,
+                $country ?: null,
+                $search ?: null,
+                $cityId,
+            );
         } catch (\Throwable $e) {
             return $this->error('listDirectory failed: ' . $e->getMessage(), Response::HTTP_INTERNAL_SERVER_ERROR);
         }
