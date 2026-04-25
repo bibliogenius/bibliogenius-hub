@@ -35,6 +35,13 @@ class LibraryProfile
     private ?string $locationCountry = null;
 
     /**
+     * GeoNames populated-place ID (feature class P) opted into by the user.
+     * Closed-list client-side; hub stores without FK (see ADR-035).
+     */
+    #[ORM\Column(type: 'integer', nullable: true)]
+    private ?int $locationCityId = null;
+
+    /**
      * When true: A's follow request stays pending until B manually approves it.
      * When false: follow requests are auto-approved and the catalog is served publicly.
      */
@@ -183,6 +190,17 @@ class LibraryProfile
     public function setLocationCountry(?string $locationCountry): static
     {
         $this->locationCountry = $locationCountry;
+        return $this;
+    }
+
+    public function getLocationCityId(): ?int
+    {
+        return $this->locationCityId;
+    }
+
+    public function setLocationCityId(?int $locationCityId): static
+    {
+        $this->locationCityId = $locationCityId;
         return $this;
     }
 
@@ -397,6 +415,7 @@ class LibraryProfile
             'description'       => $this->description,
             'book_count'        => $this->bookCount,
             'location_country'  => $this->locationCountry,
+            'location_city_id'  => $this->locationCityId,
             'requires_approval' => $this->requiresApproval,
             'allow_borrowing'   => $this->allowBorrowing,
             'last_seen_at'      => $this->lastSeenAt?->format(\DateTimeInterface::ATOM),

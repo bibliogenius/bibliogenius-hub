@@ -94,6 +94,9 @@ php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NO
 # app_version on registration_failures (Version20260415130000 - per-version failure diagnostics)
 php /app/bin/console dbal:run-sql "ALTER TABLE registration_failures ADD COLUMN IF NOT EXISTS app_version VARCHAR(32) DEFAULT NULL" --env=$ENV --no-interaction || true
 
+# location_city_id on profiles (Version20260425120000 - ADR-035 city-level location, opt-in)
+php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS location_city_id INTEGER DEFAULT NULL" --env=$ENV --no-interaction || true
+
 # hub_events for BO monitoring (Version20260319130000)
 php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS hub_events (id SERIAL PRIMARY KEY, level VARCHAR(10) NOT NULL, channel VARCHAR(30) NOT NULL, message VARCHAR(500) NOT NULL, context TEXT DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT NOW())" --env=$ENV --no-interaction || echo "WARNING: hub_events creation failed"
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_hub_events_created ON hub_events (created_at DESC)" --env=$ENV --no-interaction || true

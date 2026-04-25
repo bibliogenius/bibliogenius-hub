@@ -138,6 +138,12 @@ class DirectoryService
                     : null
             );
         }
+        if (array_key_exists('location_city_id', $data)) {
+            $cityId = $data['location_city_id'];
+            $profile->setLocationCityId(
+                $cityId !== null && (int) $cityId > 0 ? (int) $cityId : null
+            );
+        }
         if (isset($data['requires_approval'])) {
             $profile->setRequiresApproval((bool) $data['requires_approval']);
         }
