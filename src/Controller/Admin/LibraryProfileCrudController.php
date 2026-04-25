@@ -77,6 +77,11 @@ class LibraryProfileCrudController extends AbstractCrudController
         yield TextField::new('displayName', 'Display Name');
         yield IntegerField::new('bookCount', 'Books');
         yield TextField::new('locationCountry', 'Country');
+        // ADR-035: raw GeoNames id (no name resolution server-side by design;
+        // CityRepository lives in Flutter, so admins see the integer id).
+        // A null cell means the user has not opted in to share their city.
+        yield IntegerField::new('locationCityId', 'City (GeoNames id)')
+            ->formatValue(fn($value) => $value ?? '—');
         yield BooleanField::new('isListed', 'Listed')
             ->renderAsSwitch(false);
         yield BooleanField::new('requiresApproval', 'Approval')
@@ -111,6 +116,7 @@ class LibraryProfileCrudController extends AbstractCrudController
             ->add('requiresApproval')
             ->add('allowBorrowing')
             ->add('locationCountry')
+            ->add('locationCityId')
             ->add('appVersion');
     }
 }
