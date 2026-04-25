@@ -1,0 +1,417 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Command;
+
+use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\HttpClient\HttpClient;
+use Symfony\Component\Process\Process;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+
+/**
+ * Build per-country city data files for ADR-035 Phase 1.
+ *
+ * Downloads `https://download.geonames.org/export/dump/{CC}.zip`, extracts
+ * the bundled `{CC}.txt` (tab-delimited GeoNames format), filters down to
+ * the populated-place feature codes the directory picker cares about, and
+ * writes a compact gzipped JSON array to `public/static/cities/{CC}.json.gz`.
+ *
+ * The output schema, kept frozen by the Flutter `CityRepository` parser:
+ *
+ *     [[id,"name","admin1",lat,lon], ...]
+ *
+ * with lat/lon quantized to 4 decimals (~10 m precision; ADR-035 §2bis).
+ *
+ * Run yearly or on demand:
+ *
+ *     php bin/console app:build-cities                # default European set
+ *     php bin/console app:build-cities --country=FR
+ *     php bin/console app:build-cities --country=FR --country=BE --country=CH
+ *     php bin/console app:build-cities --all          # every ISO-3166 alpha-2
+ *
+ * No database, no Symfony services beyond HttpClient: this is a pure
+ * batch command meant to run from any host with PHP, the `unzip` binary,
+ * and outbound HTTPS.
+ */
+#[AsCommand(
+    name: 'app:build-cities',
+    description: 'Build hub static city files from GeoNames country exports (ADR-035)',
+)]
+class BuildCitiesCommand extends Command
+{
+    /**
+     * Default country set: covers the early adopter footprint without
+     * paying the bandwidth/disk cost of the long tail. Override with
+     * --country or --all when shipping more.
+     */
+    private const DEFAULT_COUNTRIES = ['FR', 'BE', 'CH', 'LU', 'CA'];
+
+    /**
+     * GeoNames feature codes for populated places we surface in the picker.
+     * Drops PPLW (destroyed), PPLQ (abandoned), PPLH (historical), and
+     * PPLX (sub-sections of populated places — would inflate the file
+     * with arrondissement-level entries that ADR-035 §1 rejects).
+     */
+    private const KEEP_FEATURE_CODES = [
+        'PPL', 'PPLA', 'PPLA2', 'PPLA3', 'PPLA4', 'PPLA5',
+        'PPLC', 'PPLF', 'PPLL', 'PPLG',
+    ];
+
+    private const GEONAMES_BASE_URL = 'https://download.geonames.org/export/dump';
+
+    /**
+     * GeoNames dump column indices (zero-based, tab-delimited).
+     * https://download.geonames.org/export/dump/readme.txt
+     */
+    private const COL_ID = 0;
+    private const COL_NAME = 1;
+    private const COL_LAT = 4;
+    private const COL_LON = 5;
+    private const COL_FEATURE_CLASS = 6;
+    private const COL_FEATURE_CODE = 7;
+    private const COL_ADMIN1 = 10;
+
+    private readonly HttpClientInterface $http;
+
+    public function __construct(?HttpClientInterface $http = null)
+    {
+        parent::__construct();
+        $this->http = $http ?? HttpClient::create([
+            // GeoNames is generous but not infinite: identify ourselves so
+            // they can warn us if the script ever turns into a hot loop.
+            'headers' => ['User-Agent' => 'BiblioGenius-Hub/build-cities (https://bibliogenius.org)'],
+            'timeout' => 120,
+        ]);
+    }
+
+    protected function configure(): void
+    {
+        $this
+            ->addOption(
+                'country',
+                'c',
+                InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY,
+                'ISO 3166-1 alpha-2 country code(s) to build. Repeat to pass several. Default: '.implode(',', self::DEFAULT_COUNTRIES),
+            )
+            ->addOption(
+                'all',
+                null,
+                InputOption::VALUE_NONE,
+                'Build every country GeoNames knows about (~250 files, several minutes).',
+            )
+            ->addOption(
+                'output-dir',
+                'o',
+                InputOption::VALUE_REQUIRED,
+                'Override output directory. Defaults to public/static/cities/.',
+            )
+            ->addOption(
+                'force',
+                'f',
+                InputOption::VALUE_NONE,
+                'Re-download and rebuild even when an output file already exists.',
+            )
+            ->addOption(
+                'base-url',
+                null,
+                InputOption::VALUE_REQUIRED,
+                'Override the GeoNames base URL. Useful for mirrors or local fixtures during smoke tests. Default: '.self::GEONAMES_BASE_URL,
+            );
+    }
+
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        $io = new SymfonyStyle($input, $output);
+        $io->title('GeoNames -> hub static city files');
+
+        if (!$this->canUnzip($io)) {
+            return Command::FAILURE;
+        }
+
+        $countries = $this->resolveCountries($input, $io);
+        if ($countries === []) {
+            return Command::FAILURE;
+        }
+
+        $outputDir = $this->resolveOutputDir($input);
+        if (!is_dir($outputDir) && !mkdir($outputDir, 0755, true) && !is_dir($outputDir)) {
+            $io->error(sprintf('Cannot create output directory: %s', $outputDir));
+
+            return Command::FAILURE;
+        }
+
+        $force = (bool) $input->getOption('force');
+        $baseUrl = rtrim((string) ($input->getOption('base-url') ?? self::GEONAMES_BASE_URL), '/');
+        $totals = ['ok' => 0, 'skipped' => 0, 'failed' => 0, 'rows_kept' => 0];
+
+        foreach ($countries as $cc) {
+            $cc = strtoupper($cc);
+            $outFile = sprintf('%s/%s.json.gz', rtrim($outputDir, '/'), $cc);
+
+            if (!$force && is_file($outFile)) {
+                $io->writeln(sprintf('  <comment>%s</comment>: skip (already built; use --force to rebuild)', $cc));
+                ++$totals['skipped'];
+                continue;
+            }
+
+            try {
+                $kept = $this->buildOne($cc, $outFile, $baseUrl, $io);
+                ++$totals['ok'];
+                $totals['rows_kept'] += $kept;
+            } catch (\Throwable $e) {
+                $io->writeln(sprintf('  <error>%s</error>: %s', $cc, $e->getMessage()));
+                ++$totals['failed'];
+            }
+        }
+
+        $io->newLine();
+        $io->writeln(sprintf(
+            '<info>Built %d, skipped %d, failed %d (%d rows total)</info>',
+            $totals['ok'],
+            $totals['skipped'],
+            $totals['failed'],
+            $totals['rows_kept'],
+        ));
+
+        return $totals['failed'] === 0 ? Command::SUCCESS : Command::FAILURE;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function resolveCountries(InputInterface $input, SymfonyStyle $io): array
+    {
+        if ($input->getOption('all')) {
+            return $this->fetchAllCountryCodes($io);
+        }
+
+        /** @var list<string> $picked */
+        $picked = $input->getOption('country');
+        if ($picked !== []) {
+            return array_map(static fn (string $c) => strtoupper(trim($c)), $picked);
+        }
+
+        return self::DEFAULT_COUNTRIES;
+    }
+
+    private function resolveOutputDir(InputInterface $input): string
+    {
+        $override = $input->getOption('output-dir');
+        if (is_string($override) && $override !== '') {
+            return $override;
+        }
+
+        // Project root = command dir/../../  (src/Command -> src -> root)
+        $projectRoot = \dirname(__DIR__, 2);
+
+        return $projectRoot.'/public/static/cities';
+    }
+
+    /**
+     * Return every ISO 3166-1 alpha-2 code GeoNames publishes a file for.
+     * Parses the directory listing rather than hard-coding a list — that
+     * way the next ISO addition does not silently disappear.
+     */
+    private function fetchAllCountryCodes(SymfonyStyle $io): array
+    {
+        $io->writeln('Fetching country list from GeoNames...');
+        try {
+            $body = $this->http->request('GET', self::GEONAMES_BASE_URL.'/')->getContent();
+        } catch (\Throwable $e) {
+            $io->error('Could not list GeoNames country files: '.$e->getMessage());
+
+            return [];
+        }
+        // GeoNames serves an Apache directory listing with one href per file.
+        // Match exactly two-letter uppercase codes followed by .zip.
+        preg_match_all('/href="([A-Z]{2})\.zip"/', $body, $m);
+        $codes = array_values(array_unique($m[1] ?? []));
+        sort($codes);
+
+        return $codes;
+    }
+
+    private function canUnzip(SymfonyStyle $io): bool
+    {
+        $probe = new Process(['unzip', '-v']);
+        try {
+            $probe->run();
+        } catch (\Throwable) {
+            // Fall through.
+        }
+        if ($probe->isSuccessful()) {
+            return true;
+        }
+        $io->error('The `unzip` binary is required (Debian: apt install unzip).');
+
+        return false;
+    }
+
+    /**
+     * Build a single country's `.json.gz`. Returns the number of populated
+     * places kept after filtering. Throws on any I/O or HTTP error.
+     */
+    private function buildOne(string $cc, string $outFile, string $baseUrl, SymfonyStyle $io): int
+    {
+        $tmpDir = sys_get_temp_dir().'/build-cities-'.bin2hex(random_bytes(4));
+        if (!mkdir($tmpDir, 0700, true) && !is_dir($tmpDir)) {
+            throw new \RuntimeException('Cannot create scratch dir '.$tmpDir);
+        }
+
+        try {
+            $zipPath = $tmpDir.'/'.$cc.'.zip';
+            $this->download($baseUrl.'/'.$cc.'.zip', $zipPath);
+
+            $txtPath = $tmpDir.'/'.$cc.'.txt';
+            $this->extract($zipPath, $cc.'.txt', $txtPath);
+
+            [$rows, $kept, $dropped] = $this->parseAndFilter($txtPath);
+
+            $json = json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            // Level 9 (max compression): the file is built once a year and
+            // shipped to thousands of clients, so an extra second of CPU
+            // here saves bandwidth on every download.
+            $gz = gzencode($json, 9);
+            if ($gz === false) {
+                throw new \RuntimeException('gzencode failed');
+            }
+            // Atomic write so a crash mid-write never leaves a half-file
+            // behind that nginx/Caddy would happily serve.
+            $tmpOut = $outFile.'.tmp';
+            if (file_put_contents($tmpOut, $gz, LOCK_EX) === false) {
+                throw new \RuntimeException('Write failed: '.$tmpOut);
+            }
+            rename($tmpOut, $outFile);
+
+            $io->writeln(sprintf(
+                '  <info>%s</info>: %d places kept, %d dropped (%s on disk)',
+                $cc,
+                $kept,
+                $dropped,
+                $this->formatBytes(filesize($outFile) ?: 0),
+            ));
+
+            return $kept;
+        } finally {
+            $this->rmrf($tmpDir);
+        }
+    }
+
+    private function download(string $url, string $dest): void
+    {
+        $response = $this->http->request('GET', $url);
+        $status = $response->getStatusCode();
+        if ($status !== 200) {
+            throw new \RuntimeException(sprintf('GeoNames returned HTTP %d for %s', $status, $url));
+        }
+        $fh = fopen($dest, 'wb');
+        if ($fh === false) {
+            throw new \RuntimeException('Cannot open '.$dest.' for writing');
+        }
+        try {
+            foreach ($this->http->stream($response) as $chunk) {
+                fwrite($fh, $chunk->getContent());
+            }
+        } finally {
+            fclose($fh);
+        }
+    }
+
+    private function extract(string $zipPath, string $entry, string $dest): void
+    {
+        // `unzip -p` writes the entry to stdout; redirect to dest.
+        // Avoids depending on ext-zip while keeping the same effect.
+        $proc = Process::fromShellCommandline(sprintf(
+            'unzip -p %s %s > %s',
+            escapeshellarg($zipPath),
+            escapeshellarg($entry),
+            escapeshellarg($dest),
+        ));
+        $proc->setTimeout(120);
+        $proc->run();
+        if (!$proc->isSuccessful()) {
+            throw new \RuntimeException(sprintf(
+                'unzip failed for %s: %s',
+                $zipPath,
+                trim($proc->getErrorOutput()),
+            ));
+        }
+    }
+
+    /**
+     * @return array{0: list<array{0:int,1:string,2:string,3:float,4:float}>, 1: int, 2: int}
+     */
+    private function parseAndFilter(string $txtPath): array
+    {
+        $keep = array_flip(self::KEEP_FEATURE_CODES);
+        $rows = [];
+        $kept = 0;
+        $dropped = 0;
+
+        $fh = fopen($txtPath, 'rb');
+        if ($fh === false) {
+            throw new \RuntimeException('Cannot read '.$txtPath);
+        }
+        try {
+            while (($line = fgets($fh)) !== false) {
+                $cols = explode("\t", rtrim($line, "\r\n"));
+                if (\count($cols) < 11) {
+                    continue;
+                }
+                if ($cols[self::COL_FEATURE_CLASS] !== 'P') {
+                    continue;
+                }
+                if (!isset($keep[$cols[self::COL_FEATURE_CODE]])) {
+                    ++$dropped;
+                    continue;
+                }
+                $rows[] = [
+                    (int) $cols[self::COL_ID],
+                    $cols[self::COL_NAME],
+                    $cols[self::COL_ADMIN1],
+                    round((float) $cols[self::COL_LAT], 4),
+                    round((float) $cols[self::COL_LON], 4),
+                ];
+                ++$kept;
+            }
+        } finally {
+            fclose($fh);
+        }
+
+        return [$rows, $kept, $dropped];
+    }
+
+    private function rmrf(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        $items = scandir($dir) ?: [];
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+            $path = $dir.'/'.$item;
+            is_dir($path) ? $this->rmrf($path) : @unlink($path);
+        }
+        @rmdir($dir);
+    }
+
+    private function formatBytes(int $bytes): string
+    {
+        if ($bytes < 1024) {
+            return $bytes.' B';
+        }
+        if ($bytes < 1024 * 1024) {
+            return sprintf('%.1f KB', $bytes / 1024);
+        }
+
+        return sprintf('%.1f MB', $bytes / (1024 * 1024));
+    }
+}

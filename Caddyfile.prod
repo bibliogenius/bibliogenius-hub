@@ -4,10 +4,20 @@
 {$DOMAIN:hub.bibliogenius.org} {
     root * /app/public
     encode zstd gzip
-    
+
     # Health check endpoint
     respond /api/health "OK" 200
-    
+
+    # ADR-035 §2bis: static city data, raw gzipped JSON. Placed before
+    # the @static block so .json.gz files do not fall through to PHP.
+    @cities path /static/cities/*
+    handle @cities {
+        skip_log
+        header Cache-Control "public, max-age=2592000, immutable"
+        header Access-Control-Allow-Origin "*"
+        file_server
+    }
+
     # Serve static files directly
     @static {
         file
@@ -16,7 +26,7 @@
     handle @static {
         file_server
     }
-    
+
     # Handle all other requests through PHP
     php_fastcgi unix//run/php/php-fpm.sock
     file_server

@@ -6,7 +6,17 @@
 :80 {
     root * /app/public
     encode zstd gzip
-    
+
+    # ADR-035 §2bis: static city data, raw gzipped JSON. Must come before
+    # the @static block so the .gz extension does not fall through to PHP.
+    @cities path /static/cities/*
+    handle @cities {
+        skip_log
+        header Cache-Control "public, max-age=2592000, immutable"
+        header Access-Control-Allow-Origin "*"
+        file_server
+    }
+
     # Serve static files directly
     @static {
         file
@@ -15,7 +25,7 @@
     handle @static {
         file_server
     }
-    
+
     # Handle all other requests through Symfony
     reverse_proxy localhost:9000 {
         transport fastcgi {

@@ -12,6 +12,22 @@
     # Health check endpoint
     respond /health "OK" 200
 
+    # ADR-035 §2bis: static city data served as raw gzipped JSON. The file
+    # extension already encodes the compression, so we do NOT add
+    # Content-Encoding (the Flutter CityRepository decompresses bytes
+    # itself based on the gzip magic). Long cache lifetime because the
+    # data only changes on the yearly GeoNames refresh.
+    @cities path /static/cities/*
+    handle @cities {
+        # Avoid logging which countries each user downloads — knowing that
+        # a given IP fetched FR.json.gz reveals the country they opted into
+        # before they share anything publicly.
+        skip_log
+        header Cache-Control "public, max-age=2592000, immutable"
+        header Access-Control-Allow-Origin "*"
+        file_server
+    }
+
     # PHP handling via FrankenPHP
     php_server
 }

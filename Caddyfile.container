@@ -7,10 +7,20 @@
 :80 {
     root * /app/public
     encode zstd gzip
-    
+
     # Health check endpoint
     respond /health "OK" 200
-    
+
+    # ADR-035 §2bis: static city data, raw gzipped JSON. See
+    # Caddyfile.container.vps for the full rationale.
+    @cities path /static/cities/*
+    handle @cities {
+        skip_log
+        header Cache-Control "public, max-age=2592000, immutable"
+        header Access-Control-Allow-Origin "*"
+        file_server
+    }
+
     # PHP handling via FrankenPHP
     php_server
 }

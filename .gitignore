@@ -7,6 +7,10 @@
 *.db
 .DS_Store
 
+# ADR-035: city files are built on demand by app:build-cities.
+# Too large + churn yearly with GeoNames refresh, so we do not commit them.
+/public/static/cities/*.json.gz
+
 ###> symfony/framework-bundle ###
 /.env.local
 /.env.local.php

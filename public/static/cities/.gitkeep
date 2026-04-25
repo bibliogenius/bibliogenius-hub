@@ -1,0 +1,5 @@
+# Output directory for `php bin/console app:build-cities` (ADR-035 Phase 1).
+# Generated `.json.gz` files are gitignored — see project root .gitignore.
+# This .gitkeep keeps the directory present in the Docker build context so
+# Caddy's static handler resolves on first deploy even before any country
+# file has been built.
