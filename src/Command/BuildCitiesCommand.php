@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Command;
 
+use Doctrine\DBAL\Connection;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -78,9 +79,12 @@ class BuildCitiesCommand extends Command
     private const COL_ADMIN1 = 10;
 
     private readonly HttpClientInterface $http;
+    private readonly ?Connection $connection;
 
-    public function __construct(?HttpClientInterface $http = null)
-    {
+    public function __construct(
+        ?HttpClientInterface $http = null,
+        ?Connection $connection = null,
+    ) {
         parent::__construct();
         $this->http = $http ?? HttpClient::create([
             // GeoNames is generous but not infinite: identify ourselves so
@@ -88,6 +92,11 @@ class BuildCitiesCommand extends Command
             'headers' => ['User-Agent' => 'BiblioGenius-Hub/build-cities (https://bibliogenius.org)'],
             'timeout' => 120,
         ]);
+        // Optional: when wired up by Symfony DI, the run is logged to
+        // hub_events so the admin dashboard can show "last refresh: N
+        // days ago" — main signal that the yearly cron is still alive.
+        // Tests construct without DI and skip the logging.
+        $this->connection = $connection;
     }
 
     protected function configure(): void
@@ -179,7 +188,32 @@ class BuildCitiesCommand extends Command
             $totals['rows_kept'],
         ));
 
+        $this->logBuildRun($totals, $io);
+
         return $totals['failed'] === 0 ? Command::SUCCESS : Command::FAILURE;
+    }
+
+    /**
+     * Record a marker event so the admin dashboard can display the age of
+     * the last successful refresh — primary way to detect a broken yearly
+     * cron on the VPS host. Direct insert (vs HubEventLogger) because the
+     * logger sanitizes context to an allowlist that would strip our totals.
+     */
+    private function logBuildRun(array $totals, SymfonyStyle $io): void
+    {
+        if ($this->connection === null) {
+            return;
+        }
+        try {
+            $this->connection->insert('hub_events', [
+                'level' => $totals['failed'] === 0 ? 'info' : 'warning',
+                'channel' => 'maintenance',
+                'message' => 'build_cities_run',
+                'context' => json_encode($totals, JSON_UNESCAPED_UNICODE),
+            ]);
+        } catch (\Throwable $e) {
+            $io->warning(sprintf('Failed to log build_cities_run event: %s', $e->getMessage()));
+        }
     }
 
     /**
