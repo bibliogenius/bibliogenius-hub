@@ -82,7 +82,10 @@ if [[ $DO_CRON -eq 1 ]]; then
   if crontab -l 2>/dev/null | grep -qF "$CRON_TAG"; then
     echo "    Cron entry already present, leaving as-is."
   else
-    ( crontab -l 2>/dev/null; echo "$CRON_LINE" ) | crontab -
+    # crontab -l exits 1 when no crontab exists yet; `|| true` keeps the
+    # subshell alive under `set -e` so `echo` still runs and crontab -
+    # receives a single-line stdin to install.
+    ( crontab -l 2>/dev/null || true; echo "$CRON_LINE" ) | crontab -
     echo "    Added: $CRON_LINE"
   fi
   echo "    Current crontab line(s) for build-cities:"
