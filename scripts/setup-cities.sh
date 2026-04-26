@@ -9,19 +9,21 @@
 #   1. Ensure /var/lib/bibliogenius/cities exists with permissions that
 #      let Caddy read (and the container, running as root via
 #      `docker exec`, write).
-#   2. Bootstrap the city dataset by running `app:build-cities` inside
-#      hub-prod. Default set is European (FR, BE, CH, LU, CA); pass
-#      --all to seed every ISO 3166-1 alpha-2 file (~30 MB, several
-#      minutes).
+#   2. Bootstrap the city dataset by running `app:build-cities --all`
+#      inside hub-prod. Every ISO 3166-1 alpha-2 country GeoNames
+#      publishes is built (~250 files, ~30 MB, several minutes initial).
+#      A user opening the picker for any country gets a result; the
+#      yearly cron auto-picks up new ISO codes.
 #   3. Install a yearly crontab line that re-runs the build with
-#      --force, so the dataset tracks the GeoNames refresh. Tagged with
-#      a marker so re-runs do not duplicate the entry.
+#      --all --force, so the dataset tracks the GeoNames refresh and
+#      newly registered countries. Tagged with a marker so re-runs do
+#      not duplicate the entry.
 #   4. Sanity check: curl the public FR file and assert the long-cache
 #      Cache-Control header is in place.
 #
 # Usage (on the VPS, or remotely via the Makefile target):
-#   bash setup-cities.sh                 # default European set
-#   bash setup-cities.sh --all           # every country
+#   bash setup-cities.sh                 # all countries (default)
+#   bash setup-cities.sh --default-set   # small dev set (FR/BE/CH/LU/CA)
 #   bash setup-cities.sh --skip-bootstrap --skip-verify  # cron only
 
 set -euo pipefail
@@ -34,9 +36,11 @@ CRON_LOG=/var/log/build-cities.log
 # Yearly refresh: 1st of January at 04:00 UTC. GeoNames publishes
 # updated country exports rolling through the year; once a year is
 # enough for a directory picker that resolves city centroids only.
-CRON_LINE="0 4 1 1 * docker exec ${CONTAINER} php bin/console app:build-cities --force >> ${CRON_LOG} 2>&1 # ${CRON_TAG}"
+# `--all` re-discovers the live ISO 3166-1 alpha-2 set so a new
+# country added by GeoNames is picked up automatically.
+CRON_LINE="0 4 1 1 * docker exec ${CONTAINER} php bin/console app:build-cities --all --force >> ${CRON_LOG} 2>&1 # ${CRON_TAG}"
 
-COUNTRIES_MODE=default
+COUNTRIES_MODE=all
 DO_MKDIR=1
 DO_BOOTSTRAP=1
 DO_CRON=1
@@ -44,7 +48,7 @@ DO_VERIFY=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --all)             COUNTRIES_MODE=all ;;
+    --default-set)     COUNTRIES_MODE=default ;;
     --skip-mkdir)      DO_MKDIR=0 ;;
     --skip-bootstrap)  DO_BOOTSTRAP=0 ;;
     --skip-cron)       DO_CRON=0 ;;
@@ -71,6 +75,8 @@ fi
 if [[ $DO_BOOTSTRAP -eq 1 ]]; then
   step "Bootstrapping city dataset (mode: ${COUNTRIES_MODE})"
   if [[ "$COUNTRIES_MODE" == "all" ]]; then
+    # ~250 files, several minutes on first run; subsequent runs skip
+    # already-built files unless --force is passed (annual cron only).
     docker exec "$CONTAINER" php bin/console app:build-cities --all
   else
     docker exec "$CONTAINER" php bin/console app:build-cities

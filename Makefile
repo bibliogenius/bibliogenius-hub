@@ -254,17 +254,14 @@ vps-setup:
 	@echo "Files uploaded. Next: make vps-init-secrets ENV=prod"
 
 # Bootstrap ADR-035 city dataset on the VPS host (idempotent).
-# Default set is European (FR, BE, CH, LU, CA); use setup-vps-cities-all for
-# every ISO 3166-1 alpha-2 file (~30 MB, several minutes).
+# Builds every ISO 3166-1 alpha-2 country GeoNames publishes (~250 files,
+# ~30 MB, several minutes on the first run). The yearly cron installed by
+# the script auto-refreshes with --force. For ad-hoc small builds during
+# dev, run the script directly with --default-set.
 .PHONY: setup-vps-cities
 setup-vps-cities:
 	$(VPS_SCP) scripts/setup-cities.sh $(VPS_HOST):$(VPS_DIR)/scripts/setup-cities.sh
 	$(VPS_SSH) "chmod +x $(VPS_DIR)/scripts/setup-cities.sh && bash $(VPS_DIR)/scripts/setup-cities.sh"
-
-.PHONY: setup-vps-cities-all
-setup-vps-cities-all:
-	$(VPS_SCP) scripts/setup-cities.sh $(VPS_HOST):$(VPS_DIR)/scripts/setup-cities.sh
-	$(VPS_SSH) "chmod +x $(VPS_DIR)/scripts/setup-cities.sh && bash $(VPS_DIR)/scripts/setup-cities.sh --all"
 
 .PHONY: vps-logs
 vps-logs:
