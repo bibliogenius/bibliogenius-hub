@@ -24,6 +24,7 @@
 # Usage (on the VPS, or remotely via the Makefile target):
 #   bash setup-cities.sh                 # all countries (default)
 #   bash setup-cities.sh --default-set   # small dev set (FR/BE/CH/LU/CA)
+#   bash setup-cities.sh --rebuild       # --force regen (e.g. ADR-036 schema bump)
 #   bash setup-cities.sh --skip-bootstrap --skip-verify  # cron only
 
 set -euo pipefail
@@ -45,10 +46,12 @@ DO_MKDIR=1
 DO_BOOTSTRAP=1
 DO_CRON=1
 DO_VERIFY=1
+FORCE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --default-set)     COUNTRIES_MODE=default ;;
+    --rebuild)         FORCE=1 ;;
     --skip-mkdir)      DO_MKDIR=0 ;;
     --skip-bootstrap)  DO_BOOTSTRAP=0 ;;
     --skip-cron)       DO_CRON=0 ;;
@@ -73,14 +76,13 @@ if [[ $DO_MKDIR -eq 1 ]]; then
 fi
 
 if [[ $DO_BOOTSTRAP -eq 1 ]]; then
-  step "Bootstrapping city dataset (mode: ${COUNTRIES_MODE})"
-  if [[ "$COUNTRIES_MODE" == "all" ]]; then
-    # ~250 files, several minutes on first run; subsequent runs skip
-    # already-built files unless --force is passed (annual cron only).
-    docker exec "$CONTAINER" php bin/console app:build-cities --all
-  else
-    docker exec "$CONTAINER" php bin/console app:build-cities
-  fi
+  step "Bootstrapping city dataset (mode: ${COUNTRIES_MODE}, force=${FORCE})"
+  ARGS=()
+  [[ "$COUNTRIES_MODE" == "all" ]] && ARGS+=(--all)
+  [[ $FORCE -eq 1 ]] && ARGS+=(--force)
+  # ~250 files, several minutes on first run; subsequent runs skip
+  # already-built files unless --rebuild is passed (e.g. schema bump).
+  docker exec "$CONTAINER" php bin/console app:build-cities "${ARGS[@]}"
 fi
 
 if [[ $DO_CRON -eq 1 ]]; then
