@@ -223,12 +223,20 @@ push-vps:
 
 .PHONY: deploy-vps
 deploy-vps: build-vps push-vps
+	@echo "Syncing infra files to VPS (compose + deploy script)..."
+	$(VPS_SCP) docker-compose.vps.yml $(VPS_HOST):$(VPS_DIR)/docker-compose.vps.yml
+	$(VPS_SCP) scripts/vps-deploy.sh $(VPS_HOST):$(VPS_DIR)/scripts/vps-deploy.sh
+	$(VPS_SSH) "chmod +x $(VPS_DIR)/scripts/vps-deploy.sh"
 	@echo "Deploying production to VPS (secrets from Scaleway Secret Manager)..."
 	$(VPS_SSH) "bash $(VPS_DIR)/scripts/vps-deploy.sh prod"
 	@$(MAKE) test
 
 .PHONY: deploy-vps-dev
 deploy-vps-dev: build-vps push-vps
+	@echo "Syncing infra files to VPS (compose + deploy script)..."
+	$(VPS_SCP) docker-compose.vps.yml $(VPS_HOST):$(VPS_DIR)/docker-compose.vps.yml
+	$(VPS_SCP) scripts/vps-deploy.sh $(VPS_HOST):$(VPS_DIR)/scripts/vps-deploy.sh
+	$(VPS_SSH) "chmod +x $(VPS_DIR)/scripts/vps-deploy.sh"
 	@echo "Deploying staging to VPS (secrets from Scaleway Secret Manager)..."
 	$(VPS_SSH) "bash $(VPS_DIR)/scripts/vps-deploy.sh staging"
 	@$(MAKE) test-dev
