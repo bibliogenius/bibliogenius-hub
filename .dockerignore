@@ -19,6 +19,11 @@ Caddyfile.container.vps
 scripts/
 *.md
 
+# ADR-035: city files are runtime data on the host bind mount, never
+# baked into the image. A local dev who built them via app:build-cities
+# would otherwise leak stale snapshots into every prod image.
+public/static/cities/*.json.gz
+
 # IDE
 .idea
 .vscode
