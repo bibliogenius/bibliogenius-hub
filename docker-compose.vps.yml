@@ -22,7 +22,7 @@ services:
       - hub_prod_var:/app/var
       # ADR-035: city dataset shared across environments. Host bind so
       # files survive image rebuilds and a yearly cron on the VPS host
-      # can refresh them with `docker exec hub-prod app:build-cities --force`.
+      # can refresh them with `docker exec hub-prod php bin/console app:build-cities --force`.
       # `mkdir -p /var/lib/bibliogenius/cities` once on the host before
       # the first compose up.
       - /var/lib/bibliogenius/cities:/app/public/static/cities
