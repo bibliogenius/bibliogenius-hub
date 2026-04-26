@@ -253,6 +253,19 @@ vps-setup:
 	$(VPS_SSH) "chmod +x $(VPS_DIR)/scripts/vps-deploy.sh"
 	@echo "Files uploaded. Next: make vps-init-secrets ENV=prod"
 
+# Bootstrap ADR-035 city dataset on the VPS host (idempotent).
+# Default set is European (FR, BE, CH, LU, CA); use setup-vps-cities-all for
+# every ISO 3166-1 alpha-2 file (~30 MB, several minutes).
+.PHONY: setup-vps-cities
+setup-vps-cities:
+	$(VPS_SCP) scripts/setup-cities.sh $(VPS_HOST):$(VPS_DIR)/scripts/setup-cities.sh
+	$(VPS_SSH) "chmod +x $(VPS_DIR)/scripts/setup-cities.sh && bash $(VPS_DIR)/scripts/setup-cities.sh"
+
+.PHONY: setup-vps-cities-all
+setup-vps-cities-all:
+	$(VPS_SCP) scripts/setup-cities.sh $(VPS_HOST):$(VPS_DIR)/scripts/setup-cities.sh
+	$(VPS_SSH) "chmod +x $(VPS_DIR)/scripts/setup-cities.sh && bash $(VPS_DIR)/scripts/setup-cities.sh --all"
+
 .PHONY: vps-logs
 vps-logs:
 	$(VPS_SSH) "cd $(VPS_DIR) && docker compose logs -f hub-prod --tail 100"
