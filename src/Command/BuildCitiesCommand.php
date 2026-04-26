@@ -77,6 +77,7 @@ class BuildCitiesCommand extends Command
     private const COL_FEATURE_CLASS = 6;
     private const COL_FEATURE_CODE = 7;
     private const COL_ADMIN1 = 10;
+    private const COL_ADMIN2 = 11;
 
     private readonly HttpClientInterface $http;
     private readonly ?Connection $connection;
@@ -159,6 +160,18 @@ class BuildCitiesCommand extends Command
         $baseUrl = rtrim((string) ($input->getOption('base-url') ?? self::GEONAMES_BASE_URL), '/');
         $totals = ['ok' => 0, 'skipped' => 0, 'failed' => 0, 'rows_kept' => 0];
 
+        // ADR-036: load the admin1 / admin2 code-to-name lookup tables once
+        // before the country loop so each row can be enriched in memory
+        // without an extra network round trip per country. A failure here
+        // aborts before any country file is touched (atomicity).
+        try {
+            [$admin1Map, $admin2Map] = $this->loadAdminMaps($baseUrl, $io);
+        } catch (\Throwable $e) {
+            $io->error('Could not load GeoNames admin code tables: '.$e->getMessage());
+
+            return Command::FAILURE;
+        }
+
         foreach ($countries as $cc) {
             $cc = strtoupper($cc);
             $outFile = sprintf('%s/%s.json.gz', rtrim($outputDir, '/'), $cc);
@@ -170,7 +183,7 @@ class BuildCitiesCommand extends Command
             }
 
             try {
-                $kept = $this->buildOne($cc, $outFile, $baseUrl, $io);
+                $kept = $this->buildOne($cc, $outFile, $baseUrl, $admin1Map, $admin2Map, $io);
                 ++$totals['ok'];
                 $totals['rows_kept'] += $kept;
             } catch (\Throwable $e) {
@@ -290,9 +303,18 @@ class BuildCitiesCommand extends Command
     /**
      * Build a single country's `.json.gz`. Returns the number of populated
      * places kept after filtering. Throws on any I/O or HTTP error.
+     *
+     * @param array<string, string> $admin1Map composite-key map (e.g. "FR.11" => "Île-de-France")
+     * @param array<string, string> $admin2Map composite-key map (e.g. "FR.11.92" => "Hauts-de-Seine")
      */
-    private function buildOne(string $cc, string $outFile, string $baseUrl, SymfonyStyle $io): int
-    {
+    private function buildOne(
+        string $cc,
+        string $outFile,
+        string $baseUrl,
+        array $admin1Map,
+        array $admin2Map,
+        SymfonyStyle $io,
+    ): int {
         $tmpDir = sys_get_temp_dir().'/build-cities-'.bin2hex(random_bytes(4));
         if (!mkdir($tmpDir, 0700, true) && !is_dir($tmpDir)) {
             throw new \RuntimeException('Cannot create scratch dir '.$tmpDir);
@@ -319,7 +341,7 @@ class BuildCitiesCommand extends Command
             }
 
             try {
-                [$kept, $dropped] = $this->streamFilter($txtPath, $gz);
+                [$kept, $dropped] = $this->streamFilter($txtPath, $gz, $cc, $admin1Map, $admin2Map);
             } catch (\Throwable $e) {
                 @gzclose($gz);
                 @unlink($tmpOut);
@@ -392,19 +414,29 @@ class BuildCitiesCommand extends Command
 
     /**
      * Read the GeoNames text dump line by line, filter to populated-place
-     * feature codes, and emit each kept row as JSON directly into the
-     * gzip stream. Memory usage stays flat (one row at a time) so this
-     * scales to multi-million-line inputs (CN, IN) without bumping
-     * memory_limit. The output format is identical to the old in-memory
-     * encoder: a top-level JSON array of [id, name, admin1, lat, lon]
-     * arrays.
+     * feature codes, resolve admin1 / admin2 names from the lookup tables,
+     * and emit each kept row as JSON directly into the gzip stream.
+     * Memory usage stays flat (one row at a time) so this scales to
+     * multi-million-line inputs (CN, IN) without bumping memory_limit.
      *
-     * @param resource $gz gzopen handle, caller is responsible for closing
+     * Output format (ADR-036): top-level JSON array of arrays where each
+     * inner array is `[id, name, admin1_code, admin1_name, admin2_code,
+     * admin2_name, lat, lon]`. Empty strings for admin levels GeoNames
+     * does not provide for that row.
+     *
+     * @param resource              $gz        gzopen handle, caller closes
+     * @param array<string, string> $admin1Map keys "country.admin1"
+     * @param array<string, string> $admin2Map keys "country.admin1.admin2"
      *
      * @return array{0: int, 1: int} [kept, dropped]
      */
-    private function streamFilter(string $txtPath, $gz): array
-    {
+    private function streamFilter(
+        string $txtPath,
+        $gz,
+        string $cc,
+        array $admin1Map,
+        array $admin2Map,
+    ): array {
         $keep = array_flip(self::KEEP_FEATURE_CODES);
         $kept = 0;
         $dropped = 0;
@@ -423,7 +455,8 @@ class BuildCitiesCommand extends Command
         try {
             while (($line = fgets($fh)) !== false) {
                 $cols = explode("\t", rtrim($line, "\r\n"));
-                if (\count($cols) < 11) {
+                // ADR-036 needs admin2 (col 11), so 12 columns minimum.
+                if (\count($cols) < 12) {
                     continue;
                 }
                 if ($cols[self::COL_FEATURE_CLASS] !== 'P') {
@@ -433,10 +466,21 @@ class BuildCitiesCommand extends Command
                     ++$dropped;
                     continue;
                 }
+                $admin1Code = $cols[self::COL_ADMIN1];
+                $admin2Code = $cols[self::COL_ADMIN2];
+                $admin1Name = ($admin1Code !== '')
+                    ? ($admin1Map[$cc.'.'.$admin1Code] ?? '')
+                    : '';
+                $admin2Name = ($admin1Code !== '' && $admin2Code !== '')
+                    ? ($admin2Map[$cc.'.'.$admin1Code.'.'.$admin2Code] ?? '')
+                    : '';
                 $row = [
                     (int) $cols[self::COL_ID],
                     $cols[self::COL_NAME],
-                    $cols[self::COL_ADMIN1],
+                    $admin1Code,
+                    $admin1Name,
+                    $admin2Code,
+                    $admin2Name,
                     round((float) $cols[self::COL_LAT], 4),
                     round((float) $cols[self::COL_LON], 4),
                 ];
@@ -456,6 +500,72 @@ class BuildCitiesCommand extends Command
         }
 
         return [$kept, $dropped];
+    }
+
+    /**
+     * Download admin1CodesASCII.txt + admin2Codes.txt from GeoNames once
+     * per run and parse them into associative arrays the per-country
+     * loop can look up by composite key. Both files are tiny enough to
+     * fit in memory (~150 KB and ~4 MB raw respectively).
+     *
+     * @return array{0: array<string, string>, 1: array<string, string>}
+     */
+    private function loadAdminMaps(string $baseUrl, SymfonyStyle $io): array
+    {
+        $tmpDir = sys_get_temp_dir().'/build-cities-admin-'.bin2hex(random_bytes(4));
+        if (!mkdir($tmpDir, 0700, true) && !is_dir($tmpDir)) {
+            throw new \RuntimeException('Cannot create scratch dir '.$tmpDir);
+        }
+
+        try {
+            $io->writeln('Loading GeoNames admin code lookups...');
+            $admin1Path = $tmpDir.'/admin1CodesASCII.txt';
+            $admin2Path = $tmpDir.'/admin2Codes.txt';
+            $this->download($baseUrl.'/admin1CodesASCII.txt', $admin1Path);
+            $this->download($baseUrl.'/admin2Codes.txt', $admin2Path);
+            $admin1Map = $this->parseAdminFile($admin1Path);
+            $admin2Map = $this->parseAdminFile($admin2Path);
+            $io->writeln(sprintf(
+                '  <info>loaded %d admin1 entries, %d admin2 entries</info>',
+                \count($admin1Map),
+                \count($admin2Map),
+            ));
+
+            return [$admin1Map, $admin2Map];
+        } finally {
+            $this->rmrf($tmpDir);
+        }
+    }
+
+    /**
+     * Parse a GeoNames admin codes file (tab-separated: code, utf8 name,
+     * ascii name, geonameId). Returns a map of code => utf8 name. The
+     * UTF-8 second column carries the localized name with accents
+     * ("Île-de-France"); we deliberately skip the ASCII third column
+     * because the picker already has its own diacritic-fold for search.
+     *
+     * @return array<string, string>
+     */
+    private function parseAdminFile(string $path): array
+    {
+        $map = [];
+        $fh = fopen($path, 'rb');
+        if ($fh === false) {
+            throw new \RuntimeException('Cannot read '.$path);
+        }
+        try {
+            while (($line = fgets($fh)) !== false) {
+                $cols = explode("\t", rtrim($line, "\r\n"));
+                if (\count($cols) < 2 || $cols[0] === '') {
+                    continue;
+                }
+                $map[$cols[0]] = $cols[1];
+            }
+        } finally {
+            fclose($fh);
+        }
+
+        return $map;
     }
 
     private function rmrf(string $dir): void
