@@ -305,22 +305,34 @@ class BuildCitiesCommand extends Command
             $txtPath = $tmpDir.'/'.$cc.'.txt';
             $this->extract($zipPath, $cc.'.txt', $txtPath);
 
-            [$rows, $kept, $dropped] = $this->parseAndFilter($txtPath);
-
-            $json = json_encode($rows, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-            // Level 9 (max compression): the file is built once a year and
-            // shipped to thousands of clients, so an extra second of CPU
-            // here saves bandwidth on every download.
-            $gz = gzencode($json, 9);
+            // Stream parse + gzip write so memory stays flat regardless of
+            // input size. CN/IN/RU/BR have hundreds of thousands of
+            // populated places, accumulating them in a PHP array before
+            // json_encode would blow the 128 MB cli memory_limit.
+            // Level 9 max compression: built once a year, served to
+            // thousands of clients — extra CPU here saves bandwidth on
+            // every download.
+            $tmpOut = $outFile.'.tmp';
+            $gz = gzopen($tmpOut, 'wb9');
             if ($gz === false) {
-                throw new \RuntimeException('gzencode failed');
+                throw new \RuntimeException('Cannot open '.$tmpOut.' for writing');
             }
+
+            try {
+                [$kept, $dropped] = $this->streamFilter($txtPath, $gz);
+            } catch (\Throwable $e) {
+                @gzclose($gz);
+                @unlink($tmpOut);
+                throw $e;
+            }
+
+            if (gzclose($gz) === -1) {
+                @unlink($tmpOut);
+                throw new \RuntimeException('gzclose failed for '.$tmpOut);
+            }
+
             // Atomic write so a crash mid-write never leaves a half-file
             // behind that nginx/Caddy would happily serve.
-            $tmpOut = $outFile.'.tmp';
-            if (file_put_contents($tmpOut, $gz, LOCK_EX) === false) {
-                throw new \RuntimeException('Write failed: '.$tmpOut);
-            }
             rename($tmpOut, $outFile);
 
             $io->writeln(sprintf(
@@ -379,19 +391,35 @@ class BuildCitiesCommand extends Command
     }
 
     /**
-     * @return array{0: list<array{0:int,1:string,2:string,3:float,4:float}>, 1: int, 2: int}
+     * Read the GeoNames text dump line by line, filter to populated-place
+     * feature codes, and emit each kept row as JSON directly into the
+     * gzip stream. Memory usage stays flat (one row at a time) so this
+     * scales to multi-million-line inputs (CN, IN) without bumping
+     * memory_limit. The output format is identical to the old in-memory
+     * encoder: a top-level JSON array of [id, name, admin1, lat, lon]
+     * arrays.
+     *
+     * @param resource $gz gzopen handle, caller is responsible for closing
+     *
+     * @return array{0: int, 1: int} [kept, dropped]
      */
-    private function parseAndFilter(string $txtPath): array
+    private function streamFilter(string $txtPath, $gz): array
     {
         $keep = array_flip(self::KEEP_FEATURE_CODES);
-        $rows = [];
         $kept = 0;
         $dropped = 0;
+        $first = true;
 
         $fh = fopen($txtPath, 'rb');
         if ($fh === false) {
             throw new \RuntimeException('Cannot read '.$txtPath);
         }
+
+        if (gzwrite($gz, '[') === 0) {
+            fclose($fh);
+            throw new \RuntimeException('gzwrite failed (open bracket)');
+        }
+
         try {
             while (($line = fgets($fh)) !== false) {
                 $cols = explode("\t", rtrim($line, "\r\n"));
@@ -405,20 +433,29 @@ class BuildCitiesCommand extends Command
                     ++$dropped;
                     continue;
                 }
-                $rows[] = [
+                $row = [
                     (int) $cols[self::COL_ID],
                     $cols[self::COL_NAME],
                     $cols[self::COL_ADMIN1],
                     round((float) $cols[self::COL_LAT], 4),
                     round((float) $cols[self::COL_LON], 4),
                 ];
+                $json = json_encode($row, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+                if (gzwrite($gz, ($first ? '' : ',').$json) === 0) {
+                    throw new \RuntimeException('gzwrite failed mid-stream');
+                }
+                $first = false;
                 ++$kept;
             }
         } finally {
             fclose($fh);
         }
 
-        return [$rows, $kept, $dropped];
+        if (gzwrite($gz, ']') === 0) {
+            throw new \RuntimeException('gzwrite failed (close bracket)');
+        }
+
+        return [$kept, $dropped];
     }
 
     private function rmrf(string $dir): void
