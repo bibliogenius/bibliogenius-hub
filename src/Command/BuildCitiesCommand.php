@@ -56,7 +56,7 @@ class BuildCitiesCommand extends Command
     /**
      * GeoNames feature codes for populated places we surface in the picker.
      * Drops PPLW (destroyed), PPLQ (abandoned), PPLH (historical), and
-     * PPLX (sub-sections of populated places — would inflate the file
+     * PPLX (sub-sections of populated places - would inflate the file
      * with arrondissement-level entries that ADR-035 §1 rejects).
      */
     private const KEEP_FEATURE_CODES = [
@@ -94,7 +94,7 @@ class BuildCitiesCommand extends Command
         ]);
         // Optional: when wired up by Symfony DI, the run is logged to
         // hub_events so the admin dashboard can show "last refresh: N
-        // days ago" — main signal that the yearly cron is still alive.
+        // days ago" - main signal that the yearly cron is still alive.
         // Tests construct without DI and skip the logging.
         $this->connection = $connection;
     }
@@ -195,7 +195,7 @@ class BuildCitiesCommand extends Command
 
     /**
      * Record a marker event so the admin dashboard can display the age of
-     * the last successful refresh — primary way to detect a broken yearly
+     * the last successful refresh - primary way to detect a broken yearly
      * cron on the VPS host. Direct insert (vs HubEventLogger) because the
      * logger sanitizes context to an allowlist that would strip our totals.
      */
@@ -249,7 +249,7 @@ class BuildCitiesCommand extends Command
 
     /**
      * Return every ISO 3166-1 alpha-2 code GeoNames publishes a file for.
-     * Parses the directory listing rather than hard-coding a list — that
+     * Parses the directory listing rather than hard-coding a list - that
      * way the next ISO addition does not silently disappear.
      */
     private function fetchAllCountryCodes(SymfonyStyle $io): array

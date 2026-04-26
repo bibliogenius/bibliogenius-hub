@@ -55,7 +55,7 @@ final class DirectoryServiceListFilterTest extends TestCase
     public function testListDirectoryWithoutCityIdPassesNull(): void
     {
         // ADR-035 Phase 2: callers that do not need the city filter must
-        // still produce the same result as before Phase 2 — null is the
+        // still produce the same result as before Phase 2 - null is the
         // explicit "no filter" sentinel both in the controller and here.
         $this->profileRepository
             ->expects(self::once())

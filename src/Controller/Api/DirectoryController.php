@@ -954,7 +954,7 @@ class DirectoryController extends AbstractController
 
     /**
      * Normalizes an incoming app_version value for logging/persistence.
-     * Mirrors the stricter validation in DirectoryService::applyProfileData —
+     * Mirrors the stricter validation in DirectoryService::applyProfileData -
      * returns null on anything unrecognized to avoid leaking injection attempts
      * into hub_events.context or registration_failures.app_version.
      */

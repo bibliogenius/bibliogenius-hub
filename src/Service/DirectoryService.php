@@ -234,7 +234,7 @@ class DirectoryService
             }
         }
         // Avatar config: stored as opaque JSON string (max 2 KB).
-        // Hub does not interpret it — just passes it through to peers.
+        // Hub does not interpret it - just passes it through to peers.
         if (array_key_exists('avatar_config', $data)) {
             $ac = $data['avatar_config'];
             if ($ac === null) {

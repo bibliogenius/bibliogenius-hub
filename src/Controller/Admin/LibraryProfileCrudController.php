@@ -81,7 +81,7 @@ class LibraryProfileCrudController extends AbstractCrudController
         // CityRepository lives in Flutter, so admins see the integer id).
         // A null cell means the user has not opted in to share their city.
         yield IntegerField::new('locationCityId', 'City (GeoNames id)')
-            ->formatValue(fn($value) => $value ?? '—');
+            ->formatValue(fn($value) => $value ?? '-');
         yield BooleanField::new('isListed', 'Listed')
             ->renderAsSwitch(false);
         yield BooleanField::new('requiresApproval', 'Approval')
@@ -100,7 +100,7 @@ class LibraryProfileCrudController extends AbstractCrudController
             ->setFormTypeOption('disabled', true);
         yield TextField::new('appVersion', 'App Version')
             ->setFormTypeOption('disabled', true)
-            ->formatValue(fn($value) => $value ?: '—');
+            ->formatValue(fn($value) => $value ?: '-');
         yield DateTimeField::new('lastSeenAt', 'Last Seen');
         yield DateTimeField::new('createdAt', 'Created')
             ->hideOnIndex();
