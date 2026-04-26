@@ -84,8 +84,8 @@ echo "    Generated with restricted permissions (600)"
 # --- Pull and restart container ---
 echo "==> Pulling latest image and restarting ${SERVICE}..."
 cd "$DEPLOY_DIR"
-docker compose pull "$SERVICE"
-docker compose up -d "$SERVICE"
+docker compose -f docker-compose.vps.yml pull "$SERVICE"
+docker compose -f docker-compose.vps.yml up -d "$SERVICE"
 
 # --- Cleanup secrets file ---
 echo "==> Cleaning up secrets file..."
@@ -107,7 +107,7 @@ if echo "$HEALTH" | grep -q '"status"'; then
     echo "$HEALTH" | python3 -m json.tool 2>/dev/null || echo "$HEALTH"
 else
     echo "==> WARNING: Health check failed. Check logs:"
-    echo "    docker compose logs ${SERVICE} --tail 50"
+    echo "    docker compose -f docker-compose.vps.yml logs ${SERVICE} --tail 50"
     exit 1
 fi
 

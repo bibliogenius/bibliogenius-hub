@@ -34,6 +34,20 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:vps
           platforms: linux/amd64
 
+      # Sync infra files (compose, deploy scripts) to the VPS BEFORE running
+      # the deploy script. Without this, edits to docker-compose.vps.yml or
+      # vps-deploy.sh in the repo never reach the VPS: the only thing the
+      # ssh-action below picks up is the new image tag in the registry.
+      - name: Sync infra files to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "docker-compose.vps.yml,scripts/vps-deploy.sh"
+          target: "/opt/hub/"
+          overwrite: true
+
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1
         with:
