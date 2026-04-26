@@ -271,6 +271,14 @@ setup-vps-cities:
 	$(VPS_SCP) scripts/setup-cities.sh $(VPS_HOST):$(VPS_DIR)/scripts/setup-cities.sh
 	$(VPS_SSH) "chmod +x $(VPS_DIR)/scripts/setup-cities.sh && bash $(VPS_DIR)/scripts/setup-cities.sh"
 
+# Force regen of the entire city dataset, e.g. after a schema bump
+# (ADR-036). Equivalent to setup-vps-cities + --force on the underlying
+# build command. Touches all ~250 files; expect 5-10 min runtime.
+.PHONY: setup-vps-cities-rebuild
+setup-vps-cities-rebuild:
+	$(VPS_SCP) scripts/setup-cities.sh $(VPS_HOST):$(VPS_DIR)/scripts/setup-cities.sh
+	$(VPS_SSH) "chmod +x $(VPS_DIR)/scripts/setup-cities.sh && bash $(VPS_DIR)/scripts/setup-cities.sh --rebuild"
+
 .PHONY: vps-logs
 vps-logs:
 	$(VPS_SSH) "cd $(VPS_DIR) && docker compose logs -f hub-prod --tail 100"
