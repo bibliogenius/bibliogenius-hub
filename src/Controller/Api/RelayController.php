@@ -121,13 +121,19 @@ class RelayController extends AbstractController
             );
         }
 
-        // 5. Check message count limit
+        // 5. Enforce the per-mailbox cap with FIFO eviction (LRU semantics).
+        //    Rationale: rejecting in 429 stranded depositors when an owner
+        //    stopped polling, while the queue contained increasingly stale
+        //    messages. Evicting the oldest keeps the cap stable and
+        //    guarantees the owner sees the most recent messages on return.
         $count = $this->messageRepository->countByMailbox($uuid);
         if ($count >= self::MAX_MESSAGES_PER_MAILBOX) {
-            return $this->json(
-                ['error' => sprintf('Mailbox full (%d messages max)', self::MAX_MESSAGES_PER_MAILBOX)],
-                Response::HTTP_TOO_MANY_REQUESTS,
-            );
+            $toEvict = $count - self::MAX_MESSAGES_PER_MAILBOX + 1;
+            $evicted = $this->messageRepository->deleteOldest($uuid, $toEvict);
+            $this->eventLogger->info('relay', 'oldest messages evicted to enforce cap', [
+                'mailbox' => $uuid,
+                'evicted' => $evicted,
+            ]);
         }
 
         // 6. Store blob

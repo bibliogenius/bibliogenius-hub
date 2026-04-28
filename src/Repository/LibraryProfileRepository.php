@@ -49,6 +49,7 @@ class LibraryProfileRepository extends ServiceEntityRepository
     ): array {
         $qb = $this->createQueryBuilder('p')
             ->where('p.isListed = :listed')
+            ->andWhere('p.bookCount > 0')
             ->setParameter('listed', true)
             ->orderBy('p.lastSeenAt', 'DESC')
             ->setMaxResults($limit)
@@ -76,8 +77,9 @@ class LibraryProfileRepository extends ServiceEntityRepository
     }
 
     /**
-     * Deletes stale profiles: book_count = 0 AND last_seen_at IS NULL.
-     * Also cleans up associated follows and cached catalogs.
+     * Deletes stale profiles: 0 books, dormant for 7+ days, no relay mailbox,
+     * and no social follows. Cascades to follows, catalogs, borrow_requests,
+     * and the relay mailbox + messages.
      *
      * @return int Number of profiles deleted
      */
@@ -85,14 +87,16 @@ class LibraryProfileRepository extends ServiceEntityRepository
     {
         $conn = $this->getEntityManager()->getConnection();
 
-        // Find stale node IDs: 0 books, never seen or not seen in 24h,
-        // created more than 24h ago, AND no follow relationships.
-        // This guarantees zero user impact.
+        // Stale = empty AND dormant >= 7 days AND created >= 7 days ago AND no
+        // mailbox AND no follows. The mailbox guard spares installs that
+        // completed onboarding (auto-setup creates one on cold start) even if
+        // the user has not added a book yet.
         $staleIds = $conn->fetchFirstColumn(
             "SELECT p.node_id FROM library_profiles p
              WHERE p.book_count = 0
-               AND (p.last_seen_at IS NULL OR p.last_seen_at < NOW() - INTERVAL '24 hours')
-               AND p.created_at < NOW() - INTERVAL '24 hours'
+               AND (p.last_seen_at IS NULL OR p.last_seen_at < NOW() - INTERVAL '7 days')
+               AND p.created_at < NOW() - INTERVAL '7 days'
+               AND p.relay_mailbox_id IS NULL
                AND NOT EXISTS (SELECT 1 FROM follows f WHERE f.follower_node_id = p.node_id OR f.followed_node_id = p.node_id)"
         );
 

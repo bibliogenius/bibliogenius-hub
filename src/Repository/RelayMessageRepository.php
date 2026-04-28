@@ -40,4 +40,33 @@ class RelayMessageRepository extends ServiceEntityRepository
             ->getQuery()
             ->getSingleScalarResult();
     }
+
+    /**
+     * Drops the [$count] oldest messages of [$uuid] (FIFO eviction).
+     * Used by the deposit path to enforce the per-mailbox cap with LRU
+     * semantics: when the cap is reached, the oldest message is evicted
+     * to make room for the incoming one. Returns rows actually deleted.
+     */
+    public function deleteOldest(string $uuid, int $count): int
+    {
+        if ($count <= 0) {
+            return 0;
+        }
+        // Subquery on PK (id ascending = oldest first) to bound the DELETE
+        // strictly. The sub-SELECT runs in the same transaction so a
+        // concurrent deposit cannot widen our victim set.
+        $sql = 'DELETE FROM relay_messages WHERE id IN ('
+             . 'SELECT id FROM relay_messages '
+             . 'WHERE mailbox_uuid = :uuid '
+             . 'ORDER BY id ASC LIMIT :limit'
+             . ')';
+        return (int) $this->getEntityManager()
+            ->getConnection()
+            ->executeStatement($sql, [
+                'uuid' => $uuid,
+                'limit' => $count,
+            ], [
+                'limit' => \PDO::PARAM_INT,
+            ]);
+    }
 }

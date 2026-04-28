@@ -7,6 +7,7 @@ namespace App\Tests\Unit\Command;
 use App\Command\PruneCommand;
 use App\Repository\Deposit404LogRepository;
 use App\Repository\InviteTokenRepository;
+use App\Repository\LibraryProfileRepository;
 use App\Service\DirectoryService;
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
@@ -28,6 +29,7 @@ final class PruneCommandTest extends TestCase
         $inviteRepo = $this->createStub(InviteTokenRepository::class);
         $deposit404Repo = $this->createStub(Deposit404LogRepository::class);
         $directoryService = $this->createStub(DirectoryService::class);
+        $profileRepo = $this->createStub(LibraryProfileRepository::class);
 
         // DELETE counts: relay_messages, relay_mailboxes (2 calls), registration_failures, hub_events TTL
         // pruneHubEvents also does fetchOne + optional cap DELETE; mock count <= MAX to skip cap.
@@ -43,6 +45,9 @@ final class PruneCommandTest extends TestCase
         $conn->method('fetchOne')->willReturn(500); // hub_events count, below cap
         $inviteRepo->method('deleteExpired')->willReturn(6);
         $deposit404Repo->method('pruneOlderThanDays')->willReturn(9);
+        // Cached-catalogs prune: 12 expired rows dropped. Mirrors the audit
+        // finding of 18/61 expired rows that motivated wiring this in.
+        $profileRepo->method('pruneExpiredCatalogs')->willReturn(12);
         // Orphan-cover sweep (ADR-033): 2 files deleted across all nodes.
         $directoryService->method('pruneOrphanCoversForAllNodes')->willReturn(2);
 
@@ -57,7 +62,7 @@ final class PruneCommandTest extends TestCase
                 }),
             );
 
-        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService);
+        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo);
         $tester->execute([]);
         $tester->assertCommandIsSuccessful();
 
@@ -71,8 +76,8 @@ final class PruneCommandTest extends TestCase
         $this->assertArrayHasKey('total_deleted', $context);
         $this->assertArrayHasKey('per_table', $context);
 
-        // 10 + (3+2) + 6 + 7 + 4 + 9 + 2 = 43
-        $this->assertSame(43, $context['total_deleted']);
+        // 10 + (3+2) + 6 + 7 + 4 + 9 + 12 + 2 = 55
+        $this->assertSame(55, $context['total_deleted']);
         $this->assertSame(
             [
                 'relay_messages' => 10,
@@ -81,6 +86,7 @@ final class PruneCommandTest extends TestCase
                 'registration_failures' => 7,
                 'hub_events' => 4,
                 'deposit_404_log' => 9,
+                'cached_catalogs' => 12,
                 'orphan_covers' => 2,
             ],
             $context['per_table'],
@@ -93,18 +99,20 @@ final class PruneCommandTest extends TestCase
         $inviteRepo = $this->createStub(InviteTokenRepository::class);
         $deposit404Repo = $this->createStub(Deposit404LogRepository::class);
         $directoryService = $this->createStub(DirectoryService::class);
+        $profileRepo = $this->createStub(LibraryProfileRepository::class);
 
         $conn->method('executeStatement')->willReturn(0);
         $conn->method('fetchOne')->willReturn(0);
         $inviteRepo->method('deleteExpired')->willReturn(0);
         $deposit404Repo->method('pruneOlderThanDays')->willReturn(0);
+        $profileRepo->method('pruneExpiredCatalogs')->willReturn(0);
         $directoryService->method('pruneOrphanCoversForAllNodes')->willReturn(0);
 
         $conn->expects($this->once())
             ->method('insert')
             ->willThrowException(new \RuntimeException('DB unavailable'));
 
-        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService);
+        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo);
         $tester->execute([]);
 
         // Prune itself succeeded; observability failure is best-effort only.
@@ -121,11 +129,13 @@ final class PruneCommandTest extends TestCase
         $inviteRepo = $this->createStub(InviteTokenRepository::class);
         $deposit404Repo = $this->createStub(Deposit404LogRepository::class);
         $directoryService = $this->createStub(DirectoryService::class);
+        $profileRepo = $this->createStub(LibraryProfileRepository::class);
 
         $conn->method('executeStatement')->willReturn(0);
         $conn->method('fetchOne')->willReturn(0);
         $inviteRepo->method('deleteExpired')->willReturn(0);
         $deposit404Repo->method('pruneOlderThanDays')->willReturn(0);
+        $profileRepo->method('pruneExpiredCatalogs')->willReturn(0);
         $directoryService->method('pruneOrphanCoversForAllNodes')
             ->willThrowException(new \RuntimeException('disk I/O'));
 
@@ -140,7 +150,7 @@ final class PruneCommandTest extends TestCase
                 }),
             );
 
-        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService);
+        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo);
         $tester->execute([]);
         $tester->assertCommandIsSuccessful();
 
@@ -149,13 +159,56 @@ final class PruneCommandTest extends TestCase
         $this->assertSame(0, $context['per_table']['orphan_covers']);
     }
 
+    public function testCachedCatalogsStepReportsCount(): void
+    {
+        // Guards the wiring shipped to fix the production audit finding of
+        // 18/61 expired cached_catalogs rows. If pruneExpiredCatalogs stops
+        // being called, the per_table key disappears and the cache resumes
+        // its slow drift back toward unbounded growth.
+        $conn = $this->createMock(Connection::class);
+        $inviteRepo = $this->createStub(InviteTokenRepository::class);
+        $deposit404Repo = $this->createStub(Deposit404LogRepository::class);
+        $directoryService = $this->createStub(DirectoryService::class);
+        $profileRepo = $this->createMock(LibraryProfileRepository::class);
+
+        $conn->method('executeStatement')->willReturn(0);
+        $conn->method('fetchOne')->willReturn(0);
+        $inviteRepo->method('deleteExpired')->willReturn(0);
+        $deposit404Repo->method('pruneOlderThanDays')->willReturn(0);
+        $directoryService->method('pruneOrphanCoversForAllNodes')->willReturn(0);
+        $profileRepo->expects($this->once())
+            ->method('pruneExpiredCatalogs')
+            ->willReturn(18);
+
+        $insertArgs = null;
+        $conn->expects($this->once())
+            ->method('insert')
+            ->with(
+                $this->equalTo('hub_events'),
+                $this->callback(function (array $data) use (&$insertArgs) {
+                    $insertArgs = $data;
+                    return true;
+                }),
+            );
+
+        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo);
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+
+        $this->assertNotNull($insertArgs);
+        $context = json_decode($insertArgs['context'], true);
+        $this->assertSame(18, $context['per_table']['cached_catalogs']);
+        $this->assertStringContainsString('cached_catalogs', $tester->getDisplay());
+    }
+
     private function buildCommandTester(
         Connection $conn,
         InviteTokenRepository $inviteRepo,
         Deposit404LogRepository $deposit404Repo,
         DirectoryService $directoryService,
+        LibraryProfileRepository $profileRepo,
     ): CommandTester {
-        $command = new PruneCommand($conn, $inviteRepo, $deposit404Repo, $directoryService);
+        $command = new PruneCommand($conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo);
         $app = new Application();
         $app->add($command);
 

@@ -6,6 +6,7 @@ namespace App\Command;
 
 use App\Repository\Deposit404LogRepository;
 use App\Repository\InviteTokenRepository;
+use App\Repository\LibraryProfileRepository;
 use App\Service\DirectoryService;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -24,6 +25,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *   registration_failures - TTL 90 days (audit trail)
  *   hub_events            - TTL 30 days + cap 1000 rows
  *   deposit_404_log       - TTL 30 days (aggregated, so cap is implicit)
+ *   cached_catalogs       - per-row expires_at (ADR-027 catalog cache)
  *   orphan_covers         - catalog-driven filesystem sweep (ADR-033)
  */
 #[AsCommand(
@@ -45,6 +47,7 @@ class PruneCommand extends Command
         private readonly InviteTokenRepository $inviteTokenRepository,
         private readonly Deposit404LogRepository $deposit404LogRepository,
         private readonly DirectoryService $directoryService,
+        private readonly LibraryProfileRepository $profileRepository,
     ) {
         parent::__construct();
     }
@@ -61,6 +64,7 @@ class PruneCommand extends Command
             'registration_failures' => $this->pruneRegistrationFailures($io),
             'hub_events' => $this->pruneHubEvents($io),
             'deposit_404_log' => $this->pruneDeposit404Log($io),
+            'cached_catalogs' => $this->pruneCachedCatalogs($io),
             'orphan_covers' => $this->pruneOrphanCovers($io),
         ];
         $total = array_sum($perTable);
@@ -184,6 +188,23 @@ class PruneCommand extends Command
     {
         $deleted = $this->deposit404LogRepository->pruneOlderThanDays(self::DEPOSIT_404_LOG_TTL_DAYS);
         $io->writeln(sprintf('  deposit_404_log  (%d-day TTL): <info>%d deleted</info>', self::DEPOSIT_404_LOG_TTL_DAYS, $deleted));
+
+        return $deleted;
+    }
+
+    /**
+     * Drops cached_catalogs rows whose per-row expires_at is in the past.
+     * Backstop for the in-process probabilistic cleanup
+     * (DirectoryService::probabilisticCleanup): on a low-write hub the 1/50
+     * roll rarely fires and expired rows accumulate. Production audit on
+     * 2026-04-28 found 18/61 rows past their expires_at, the oldest by 4
+     * days. This nightly prune guarantees an upper bound regardless of
+     * write traffic.
+     */
+    private function pruneCachedCatalogs(SymfonyStyle $io): int
+    {
+        $deleted = $this->profileRepository->pruneExpiredCatalogs(new \DateTimeImmutable());
+        $io->writeln(sprintf('  cached_catalogs  (per-row expires_at): <info>%d deleted</info>', $deleted));
 
         return $deleted;
     }
