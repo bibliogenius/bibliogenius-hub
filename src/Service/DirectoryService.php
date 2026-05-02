@@ -39,6 +39,14 @@ class DirectoryService
     private const RECOVERY_CODE_LENGTH = 12;
 
     /**
+     * BCrypt cost factor for recovery_code_hash (KAN-286).
+     * Recovery codes carry ~2^59 entropy so 2^12 ≈ 4096 iterations already
+     * blow well past the GPU brute-force budget while staying under ~250ms
+     * per hash on production hardware (registration + recovery only).
+     */
+    private const RECOVERY_HASH_BCRYPT_COST = 12;
+
+    /**
      * Safety guard for orphan-cover GC (ADR-033): skip if removing the
      * orphans would wipe >= this fraction of files on disk for the node.
      * Protects against mass-deletion if a client pushes a corrupted catalog.
@@ -96,7 +104,7 @@ class DirectoryService
                 $writeToken,
                 $this->sanitizeString($data['display_name'] ?? '', 255)
             );
-            $profile->setRecoveryCodeHash(hash('sha256', $recoveryCode));
+            $profile->setRecoveryCodeHash($this->hashRecoveryCode($recoveryCode));
             $this->applyProfileData($profile, $data, callerNodeId: $nodeId);
             $this->entityManager->persist($profile);
             $this->entityManager->flush();
@@ -361,9 +369,12 @@ class DirectoryService
         }
 
         // Recovery succeeded: rotate both write_token and recovery_code.
+        // The new BCrypt hash written below subsumes the legacy-SHA-256
+        // upgrade flagged by recoveryCodeNeedsRehash() (KAN-286), so no
+        // separate migration step is needed on this code path.
         $newWriteToken = $profile->resetWriteToken();
         $newRecoveryCode = $this->generateRecoveryCode();
-        $profile->setRecoveryCodeHash(hash('sha256', $newRecoveryCode));
+        $profile->setRecoveryCodeHash($this->hashRecoveryCode($newRecoveryCode));
         $profile->touchLastSeen();
         $this->entityManager->flush();
 
@@ -1045,6 +1056,11 @@ class DirectoryService
             $code .= $alphabet[random_int(0, $max)];
         }
         return $code;
+    }
+
+    private function hashRecoveryCode(string $code): string
+    {
+        return password_hash($code, PASSWORD_BCRYPT, ['cost' => self::RECOVERY_HASH_BCRYPT_COST]);
     }
 
     private function sanitizeString(string $value, int $maxLength): string

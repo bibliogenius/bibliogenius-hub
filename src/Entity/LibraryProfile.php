@@ -109,7 +109,14 @@ class LibraryProfile
     #[ORM\Column(type: 'text', nullable: true)]
     private ?string $avatarConfig = null;
 
-    /** SHA-256 hash of the one-time recovery code. Never exposed via API. */
+    /**
+     * BCrypt hash of the one-time recovery code (KAN-286). Legacy rows from
+     * before the migration may still hold a raw SHA-256 hex digest; the
+     * verify path accepts both formats and the service upgrades them on
+     * next successful use. Never exposed via API.
+     *
+     * Column length 64 fits both: BCrypt is 60 chars, SHA-256 hex is 64.
+     */
     #[ORM\Column(type: 'string', length: 64, nullable: true)]
     private ?string $recoveryCodeHash = null;
 
@@ -397,13 +404,45 @@ class LibraryProfile
         return $this->writeToken;
     }
 
-    /** Verifies a plaintext recovery code against the stored hash. */
+    /**
+     * Verifies a plaintext recovery code against the stored hash.
+     *
+     * Dual-format aware (KAN-286):
+     *   - BCrypt hash (current): delegate to password_verify (timing-safe).
+     *   - Legacy SHA-256 hex digest: timing-safe hash_equals fallback.
+     *
+     * Pure read: a successful match against a legacy hash does NOT mutate
+     * the entity. Callers must check recoveryCodeNeedsRehash() and persist
+     * a fresh BCrypt hash themselves so the upgrade window stays explicit.
+     */
     public function verifyRecoveryCode(string $code): bool
     {
         if ($this->recoveryCodeHash === null) {
             return false;
         }
-        return hash_equals($this->recoveryCodeHash, hash('sha256', $code));
+        if ($this->isLegacyRecoveryCodeHash()) {
+            return hash_equals($this->recoveryCodeHash, hash('sha256', $code));
+        }
+        return password_verify($code, $this->recoveryCodeHash);
+    }
+
+    /**
+     * Returns true when the stored hash is in the legacy SHA-256 format and
+     * should be upgraded to BCrypt on next successful verification (KAN-286).
+     */
+    public function recoveryCodeNeedsRehash(): bool
+    {
+        return $this->isLegacyRecoveryCodeHash();
+    }
+
+    /**
+     * Legacy SHA-256 digests are exactly 64 lowercase hex chars. BCrypt
+     * hashes always begin with $2y$/$2a$/$2b$, so the patterns never collide.
+     */
+    private function isLegacyRecoveryCodeHash(): bool
+    {
+        return $this->recoveryCodeHash !== null
+            && preg_match('/^[0-9a-f]{64}$/', $this->recoveryCodeHash) === 1;
     }
 
     /** Public profile data. Relay credentials and recovery hash are intentionally excluded (OWASP A01). */
