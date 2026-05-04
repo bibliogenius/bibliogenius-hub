@@ -16,6 +16,8 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use App\Service\HubEventLogger;
 use App\Service\SidecarNotifier;
+use Symfony\Component\RateLimiter\RateLimit;
+use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 use Symfony\Component\Routing\Attribute\Route;
 
 #[Route('/api/relay', name: 'api_relay_')]
@@ -32,6 +34,9 @@ class RelayController extends AbstractController
         private readonly RelayMessageRepository $messageRepository,
         private readonly HubEventLogger $eventLogger,
         private readonly Deposit404LogRepository $deposit404Log,
+        private readonly RateLimiterFactoryInterface $depositAnonLimiter,
+        private readonly RateLimiterFactoryInterface $mailboxCreateAnonLimiter,
+        private readonly RateLimiterFactoryInterface $collectAnonLimiter,
         private readonly ?SidecarNotifier $sidecarNotifier = null,
     ) {
     }
@@ -41,8 +46,13 @@ class RelayController extends AbstractController
      * No authentication required.
      */
     #[Route('/mailbox', name: 'create_mailbox', methods: ['POST'])]
-    public function createMailbox(): JsonResponse
+    public function createMailbox(Request $request): JsonResponse
     {
+        $rateLimit = $this->mailboxCreateAnonLimiter->create($this->clientIpKey($request))->consume();
+        if (!$rateLimit->isAccepted()) {
+            return $this->rateLimitedResponse($rateLimit);
+        }
+
         $uuid = self::generateUuidV4();
         $readToken = bin2hex(random_bytes(32));
         $writeToken = bin2hex(random_bytes(32));
@@ -78,6 +88,13 @@ class RelayController extends AbstractController
     {
         if (!self::isValidUuid($uuid)) {
             return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        // Rate limit BEFORE the DB lookup so spam with random valid UUIDs
+        // does not waste a SELECT and a deposit_404_log upsert per request.
+        $rateLimit = $this->depositAnonLimiter->create($this->clientIpKey($request))->consume();
+        if (!$rateLimit->isAccepted()) {
+            return $this->rateLimitedResponse($rateLimit);
         }
 
         // 1. Extract bearer token
@@ -176,6 +193,11 @@ class RelayController extends AbstractController
     {
         if (!self::isValidUuid($uuid)) {
             return $this->json(['error' => 'Mailbox not found'], Response::HTTP_NOT_FOUND);
+        }
+
+        $rateLimit = $this->collectAnonLimiter->create($this->clientIpKey($request))->consume();
+        if (!$rateLimit->isAccepted()) {
+            return $this->rateLimitedResponse($rateLimit);
         }
 
         // 1. Extract bearer token
@@ -349,6 +371,34 @@ class RelayController extends AbstractController
         }
 
         return $this->json(['message' => 'Mailbox deleted']);
+    }
+
+    /**
+     * Per-IP key used by every public limiter on this controller.
+     * `getClientIp()` honours `framework.trusted_proxies` and returns the
+     * real client behind Caddy. Falls back to a string sentinel so a missing
+     * IP collapses every anonymous caller into one shared bucket rather
+     * than blowing up `consume()` with a null key.
+     */
+    private function clientIpKey(Request $request): string
+    {
+        return $request->getClientIp() ?? 'unknown';
+    }
+
+    /**
+     * 429 with `Retry-After` (seconds) derived from the limiter's own clock,
+     * not a hardcoded constant - matches the actual time the bucket needs
+     * to refill one token.
+     */
+    private function rateLimitedResponse(RateLimit $rateLimit): JsonResponse
+    {
+        $retryAfter = max(1, $rateLimit->getRetryAfter()->getTimestamp() - time());
+
+        return $this->json(
+            ['error' => 'Rate limit exceeded'],
+            Response::HTTP_TOO_MANY_REQUESTS,
+            ['Retry-After' => (string) $retryAfter],
+        );
     }
 
     /**

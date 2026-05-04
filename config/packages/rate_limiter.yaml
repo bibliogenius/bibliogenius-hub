@@ -1,0 +1,24 @@
+# Per-IP rate limits on public relay endpoints.
+#
+# Policy: token_bucket. Rationale: lets a legitimate burst (e.g. catalog
+# rebuild dumping a handful of E2EE messages back-to-back) drain the bucket,
+# then throttles to the steady refill rate. A strict sliding window would
+# reject the 61st request even if the previous 60 were a legitimate burst.
+#
+# Storage: defaults to cache pool "cache.rate_limiter" which is filesystem-
+# backed (cache.app). Adequate for a single VPS deployment - if the hub ever
+# scales horizontally, switch the pool to redis here.
+framework:
+    rate_limiter:
+        deposit_anon:
+            policy: 'token_bucket'
+            limit: 60
+            rate: { interval: '1 minute', amount: 60 }
+        mailbox_create_anon:
+            policy: 'token_bucket'
+            limit: 10
+            rate: { interval: '1 minute', amount: 10 }
+        collect_anon:
+            policy: 'token_bucket'
+            limit: 120
+            rate: { interval: '1 minute', amount: 120 }
