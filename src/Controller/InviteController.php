@@ -181,14 +181,24 @@ class InviteController extends AbstractController
 
     /**
      * Generate a 12-char alphanumeric token from random bytes.
+     *
+     * Uses rejection sampling against the largest multiple of 62 below 256
+     * (= 248) so each char of the alphabet is equiprobable. A naive `% 62`
+     * over uniform 0..255 bytes would give indexes 0..7 a 5/256 chance vs
+     * 4/256 for the rest, costing ~0.8 bits of entropy.
      */
     private static function generateToken(): string
     {
         $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        $alphabetLen = strlen($chars);
+        $cutoff = intdiv(256, $alphabetLen) * $alphabetLen;
+
         $token = '';
-        $bytes = random_bytes(self::TOKEN_LENGTH);
-        for ($i = 0; $i < self::TOKEN_LENGTH; $i++) {
-            $token .= $chars[ord($bytes[$i]) % 62];
+        while (strlen($token) < self::TOKEN_LENGTH) {
+            $byte = ord(random_bytes(1));
+            if ($byte < $cutoff) {
+                $token .= $chars[$byte % $alphabetLen];
+            }
         }
 
         return $token;
