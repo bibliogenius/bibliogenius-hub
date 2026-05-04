@@ -109,10 +109,12 @@ test-relay:
 		RT=$$(echo "$$RELAY" | jq -r .read_token) && \
 		WT=$$(echo "$$RELAY" | jq -r .write_token) && \
 		echo "\n📨 2. Deposit blob (write_token):" && \
-		curl -sf -X POST $(HUB_URL)/api/relay/mailbox/$$UUID/messages \
+		DEPOSIT=$$(curl -sf -X POST $(HUB_URL)/api/relay/mailbox/$$UUID/messages \
 			-H "Authorization: Bearer $$WT" \
 			-H "Content-Type: application/octet-stream" \
-			-d '{"test":"e2ee relay"}' | jq . && \
+			-d '{"test":"e2ee relay"}') && \
+		echo "$$DEPOSIT" | jq . && \
+		MSG_ID=$$(echo "$$DEPOSIT" | jq -r .id) && \
 		echo "\n📥 3. Collect messages (read_token):" && \
 		curl -sf $(HUB_URL)/api/relay/mailbox/$$UUID/messages \
 			-H "Authorization: Bearer $$RT" | jq . && \
@@ -122,7 +124,7 @@ test-relay:
 			-H "Authorization: Bearer bad_token") && \
 		if [ "$$HTTP_CODE" = "401" ]; then echo "  401 Unauthorized ✅"; else echo "  Expected 401, got $$HTTP_CODE ❌"; exit 1; fi && \
 		echo "\n🗑️  5. Ack (delete) message:" && \
-		curl -sf -X DELETE $(HUB_URL)/api/relay/mailbox/$$UUID/messages/1 \
+		curl -sf -X DELETE $(HUB_URL)/api/relay/mailbox/$$UUID/messages/$$MSG_ID \
 			-H "Authorization: Bearer $$RT" | jq . && \
 		echo "\n📭 6. Verify empty after ack:" && \
 		MSGS=$$(curl -sf $(HUB_URL)/api/relay/mailbox/$$UUID/messages \
