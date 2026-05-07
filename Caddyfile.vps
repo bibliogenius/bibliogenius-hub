@@ -25,3 +25,31 @@ hub-dev.bibliogenius.org {
         reverse_proxy localhost:8081
     }
 }
+
+# Vitrine + blog statique (migré depuis GitHub Pages le 2026-05-07)
+# Contenu déployé via `make deploy` depuis bibliogenius-public/
+www.bibliogenius.org {
+    redir https://bibliogenius.org{uri} permanent
+}
+
+bibliogenius.org {
+    root * /var/www/bibliogenius.org
+    encode gzip zstd
+
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        -Server
+    }
+
+    @aasa path /.well-known/apple-app-site-association
+    header @aasa Content-Type application/json
+
+    @assetlinks path /.well-known/assetlinks.json
+    header @assetlinks Content-Type application/json
+
+    file_server
+}
