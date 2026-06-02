@@ -59,6 +59,7 @@ class DashboardController extends AbstractDashboardController
         // Kept out of the SQL block above because they rely on repository
         // methods that are unit-tested (shape of the SELECT is frozen).
         $orphanProfileRefs = $this->mailboxRepository->countProfilesWithOrphanMailbox();
+        $orphanMailboxRefs = $this->mailboxRepository->findProfilesWithOrphanMailbox();
         $sharedMailboxRefs = $this->mailboxRepository->findProfilesWithSharedMailbox();
 
         // Mailbox hijack attempts (ADR-031). 24h count comes from hub_events
@@ -180,6 +181,7 @@ class DashboardController extends AbstractDashboardController
             'pending_messages' => $pendingMessages,
             'stale_messages' => $staleMessages,
             'orphan_profile_refs' => $orphanProfileRefs,
+            'orphan_mailbox_refs' => $orphanMailboxRefs,
             'shared_mailbox_refs' => $sharedMailboxRefs,
             'hijack_attempts_24h' => $hijackAttempts24h,
             'hijack_offenders' => $hijackOffenders,

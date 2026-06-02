@@ -61,6 +61,32 @@ class RelayMailboxRepository extends ServiceEntityRepository
     }
 
     /**
+     * Return the profiles behind countProfilesWithOrphanMailbox(), with the
+     * columns an admin needs to act: which profile (node_id, display_name),
+     * which mailbox UUID is gone (relay_mailbox_id), and where to find it
+     * (relay_url, last_seen_at, app_version). Powers the dashboard drill-down
+     * so the orphan count is identifiable instead of an opaque number.
+     *
+     * @return array<array{node_id: string, display_name: string, relay_mailbox_id: string, relay_url: ?string, app_version: ?string, last_seen_at: ?string}>
+     */
+    public function findProfilesWithOrphanMailbox(): array
+    {
+        $conn = $this->getEntityManager()->getConnection();
+
+        return $conn->fetchAllAssociative(
+            "SELECT lp.node_id, lp.display_name, lp.relay_mailbox_id,
+                    lp.relay_url, lp.app_version, lp.last_seen_at
+             FROM library_profiles lp
+             WHERE lp.relay_mailbox_id IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM relay_mailboxes rm
+                   WHERE rm.uuid = lp.relay_mailbox_id
+               )
+             ORDER BY lp.last_seen_at DESC NULLS LAST, lp.node_id ASC"
+        );
+    }
+
+    /**
      * Return mailbox UUIDs referenced by more than one profile. This is a
      * hijack signal: under the current model, each profile should own its
      * own mailbox. A shared UUID indicates either a data migration artefact

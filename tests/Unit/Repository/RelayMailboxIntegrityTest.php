@@ -77,6 +77,48 @@ final class RelayMailboxIntegrityTest extends TestCase
         $this->assertSame([], $this->buildRepository($conn)->findProfilesWithSharedMailbox());
     }
 
+    public function testFindProfilesWithOrphanMailboxSelectsIdentifyingColumns(): void
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->expects($this->once())
+            ->method('fetchAllAssociative')
+            ->with($this->callback(function (string $sql): bool {
+                // Must select the columns that let an admin identify the
+                // exact profile and the gone mailbox UUID, scoped to the
+                // same orphan condition as the counter.
+                return str_contains($sql, 'node_id')
+                    && str_contains($sql, 'display_name')
+                    && str_contains($sql, 'relay_mailbox_id')
+                    && str_contains($sql, 'relay_mailbox_id IS NOT NULL')
+                    && str_contains($sql, 'NOT EXISTS')
+                    && str_contains($sql, 'relay_mailboxes');
+            }))
+            ->willReturn([
+                [
+                    'node_id' => 'node-a',
+                    'display_name' => 'Alice',
+                    'relay_mailbox_id' => 'gone-uuid',
+                    'relay_url' => 'https://hub.example',
+                    'app_version' => '0.9.0',
+                    'last_seen_at' => '2026-06-01 12:00:00',
+                ],
+            ]);
+
+        $result = $this->buildRepository($conn)->findProfilesWithOrphanMailbox();
+
+        $this->assertCount(1, $result);
+        $this->assertSame('gone-uuid', $result[0]['relay_mailbox_id']);
+        $this->assertSame('Alice', $result[0]['display_name']);
+    }
+
+    public function testFindProfilesWithOrphanMailboxReturnsEmptyWhenNone(): void
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->method('fetchAllAssociative')->willReturn([]);
+
+        $this->assertSame([], $this->buildRepository($conn)->findProfilesWithOrphanMailbox());
+    }
+
     /**
      * Callers (DashboardController) depend on these exact method names.
      * If either is renamed, the dashboard stats silently break.
@@ -85,6 +127,10 @@ final class RelayMailboxIntegrityTest extends TestCase
     {
         $this->assertTrue(
             method_exists(RelayMailboxRepository::class, 'countProfilesWithOrphanMailbox'),
+            'DashboardController depends on this method name',
+        );
+        $this->assertTrue(
+            method_exists(RelayMailboxRepository::class, 'findProfilesWithOrphanMailbox'),
             'DashboardController depends on this method name',
         );
         $this->assertTrue(
