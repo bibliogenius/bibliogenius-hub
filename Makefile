@@ -2,6 +2,9 @@
 
 # Load local environment variables if they exist
 -include .env.local
+# Maintainer-specific Make overrides (deploy targets, etc.) — untracked,
+# see Makefile.local.example.
+-include Makefile.local
 export
 
 # Configuration
@@ -208,10 +211,13 @@ dev:
 # VPS Deployment (Scaleway DEV1-S)
 # ---------------------------------------------------------------------------
 
-VPS_SSH  := ssh -F ~/.ssh/config/bibliogenius.config hub-vps
-VPS_SCP  := scp -F ~/.ssh/config/bibliogenius.config
-VPS_HOST := hub-vps
-VPS_DIR  := /opt/hub
+# Deploy targets are maintainer-specific. Override VPS_* in an untracked
+# Makefile.local (see Makefile.local.example) for your own infra. The defaults
+# below assume an SSH alias `hub-vps` defined in your ~/.ssh/config.
+VPS_HOST ?= hub-vps
+VPS_DIR  ?= /opt/hub
+VPS_SSH  ?= ssh $(VPS_HOST)
+VPS_SCP  ?= scp
 
 .PHONY: build-vps
 build-vps: build

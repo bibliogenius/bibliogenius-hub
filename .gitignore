@@ -25,3 +25,6 @@
 /phpunit.xml
 /.phpunit.cache/
 ###< phpunit/phpunit ###
+
+# Maintainer-specific Make overrides
+Makefile.local

@@ -1,0 +1,13 @@
+# Copy to `Makefile.local` (untracked) and set your own deploy target.
+# These override the generic defaults in the Makefile so `make deploy-*`,
+# `make logs-*`, `make status`, etc. reach YOUR infra.
+#
+# VPS_HOST / VPS_DIR default to `hub-vps` and `/opt/hub`; override if needed.
+# VPS_SSH / VPS_SCP default to plain `ssh hub-vps` / `scp`, which assume the
+# `hub-vps` alias is defined in your ~/.ssh/config. If you keep that alias in a
+# separate SSH config file, point to it here:
+
+# VPS_HOST := hub-vps
+# VPS_DIR  := /opt/hub
+# VPS_SSH  := ssh -F ~/.ssh/your-ssh-config hub-vps
+# VPS_SCP  := scp -F ~/.ssh/your-ssh-config
