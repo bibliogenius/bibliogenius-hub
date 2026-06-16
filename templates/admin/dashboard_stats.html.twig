@@ -654,8 +654,8 @@
             </td>
             <td><strong>{{ mb.msg_count }}</strong></td>
             <td>
-                <div>{{ mb.oldest_msg|date('d/m/Y') }}</div>
-                <div class="evt-date">{{ mb.oldest_msg|date('H:i') }}</div>
+                <div><time datetime="{{ mb.oldest_msg|date('c', 'UTC') }}" data-utc data-format="date">{{ mb.oldest_msg|date('d/m/Y', 'UTC') }}</time></div>
+                <div class="evt-date"><time datetime="{{ mb.oldest_msg|date('c', 'UTC') }}" data-utc data-format="time">{{ mb.oldest_msg|date('H:i', 'UTC') }}</time></div>
             </td>
             <td>
                 {% if age_hours > 168 %}
@@ -879,8 +879,8 @@
         {% for evt in recent_events %}
         <tr>
             <td style="white-space: nowrap;">
-                <div>{{ evt.created_at|date('d/m/Y') }}</div>
-                <div class="evt-date">{{ evt.created_at|date('H:i:s') }}</div>
+                <div><time datetime="{{ evt.created_at|date('c', 'UTC') }}" data-utc data-format="date">{{ evt.created_at|date('d/m/Y', 'UTC') }}</time></div>
+                <div class="evt-date"><time datetime="{{ evt.created_at|date('c', 'UTC') }}" data-utc data-format="time">{{ evt.created_at|date('H:i:s', 'UTC') }}</time></div>
             </td>
             <td>
                 {% if evt.level == 'error' %}
