@@ -1,0 +1,10 @@
+{#
+  DateTime field rendered in the visitor's local timezone.
+  The server value is UTC; we emit the ISO-8601 instant and label the fallback
+  "UTC". public/static/js/local-time.js rewrites it to the browser's local time.
+#}
+{% if field.value is null %}
+    —
+{% else %}
+    <time datetime="{{ field.value|date('c', 'UTC') }}" data-utc>{{ field.value|date('Y-m-d H:i:s', 'UTC') }} UTC</time>
+{% endif %}

@@ -101,9 +101,11 @@ class LibraryProfileCrudController extends AbstractCrudController
         yield TextField::new('appVersion', 'App Version')
             ->setFormTypeOption('disabled', true)
             ->formatValue(fn($value) => $value ?: '-');
-        yield DateTimeField::new('lastSeenAt', 'Last Seen');
+        yield DateTimeField::new('lastSeenAt', 'Last Seen')
+            ->setTemplatePath('admin/field/local_datetime.html.twig');
         yield DateTimeField::new('createdAt', 'Created')
-            ->hideOnIndex();
+            ->hideOnIndex()
+            ->setTemplatePath('admin/field/local_datetime.html.twig');
 
         // Security: never expose writeToken or x25519PublicKey in the admin
     }

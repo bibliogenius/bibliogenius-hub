@@ -7,6 +7,7 @@ use App\Repository\RelayMailboxRepository;
 use App\Service\HubEventLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminDashboard;
+use EasyCorp\Bundle\EasyAdminBundle\Config\Assets;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Dashboard;
 use EasyCorp\Bundle\EasyAdminBundle\Config\MenuItem;
 use EasyCorp\Bundle\EasyAdminBundle\Controller\AbstractDashboardController;
@@ -230,6 +231,13 @@ class DashboardController extends AbstractDashboardController
     {
         return Dashboard::new()
             ->setTitle('BiblioGenius Hub');
+    }
+
+    public function configureAssets(): Assets
+    {
+        // Rewrites every [data-utc] timestamp to the admin's local timezone.
+        return Assets::new()
+            ->addJsFile('static/js/local-time.js');
     }
 
     public function configureMenuItems(): iterable

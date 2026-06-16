@@ -514,7 +514,7 @@
             <td><code class="mono">{{ row.relay_mailbox_id }}</code></td>
             <td>{{ row.relay_url ?: '—' }}</td>
             <td>{{ row.app_version ?: 'unknown' }}</td>
-            <td>{{ row.last_seen_at ?: 'never' }}</td>
+            <td>{% if row.last_seen_at %}<time datetime="{{ row.last_seen_at|date('c', 'UTC') }}" data-utc>{{ row.last_seen_at|date('Y-m-d H:i:s', 'UTC') }} UTC</time>{% else %}never{% endif %}</td>
         </tr>
         {% endfor %}
     </tbody>
@@ -570,7 +570,7 @@
             <td><code class="mono">{{ row.node_id|slice(0, 24) }}...</code></td>
             <td>{{ row.display_name }}</td>
             <td class="db-size-val"><strong>{{ row.hijack_attempts_total }}</strong></td>
-            <td>{{ row.last_seen_at ? row.last_seen_at : 'never' }}</td>
+            <td>{% if row.last_seen_at %}<time datetime="{{ row.last_seen_at|date('c', 'UTC') }}" data-utc>{{ row.last_seen_at|date('Y-m-d H:i:s', 'UTC') }} UTC</time>{% else %}never{% endif %}</td>
         </tr>
         {% endfor %}
     </tbody>
