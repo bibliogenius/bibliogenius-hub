@@ -228,6 +228,14 @@ class DirectoryController extends AbstractController
     {
         $profile = $this->requireAuth($request);
         if ($profile instanceof JsonResponse) {
+            // DEBUG (catalog desync investigation): a catalog push that fails
+            // auth is otherwise invisible (fingers_crossed only logs 5xx). Log
+            // a token fingerprint (never the token) to correlate a library.
+            $tok = $this->extractBearerToken($request);
+            $this->directoryService->logCatalogEvent('catalog_push_debug', 'warning', 'auth_failed', [
+                'status' => $profile->getStatusCode(),
+                'token_fp' => $tok !== null ? substr(hash('sha256', $tok), 0, 12) : null,
+            ]);
             return $profile;
         }
 
@@ -273,6 +281,11 @@ class DirectoryController extends AbstractController
             $status = str_contains($e->getMessage(), 'catalog_hash')
                 ? Response::HTTP_BAD_REQUEST
                 : Response::HTTP_REQUEST_ENTITY_TOO_LARGE;
+            $this->directoryService->logCatalogEvent('catalog_push_debug', 'warning', 'rejected', [
+                'node_id' => substr($profile->getNodeId(), 0, 12),
+                'status' => $status,
+                'reason' => substr($e->getMessage(), 0, 120),
+            ]);
             return $this->error($e->getMessage(), $status);
         }
 
@@ -295,6 +308,41 @@ class DirectoryController extends AbstractController
             $json->headers->set('ETag', '"'.$result->catalog->getCatalogHash().'"');
         }
         return $json;
+    }
+
+    /**
+     * DEBUG (catalog desync investigation): client-side beacon. When the
+     * device's catalog sync fails before/at the push (e.g. a local DB error),
+     * the request never reaches `pushCatalog`, so it is invisible server-side.
+     * This lets the client self-report (node_id + phase + error) into
+     * hub_events so the failure surfaces in DB backups without the device log.
+     * Auth-gated by write_token like the push itself; never mutates state.
+     */
+    #[Route('/catalog/diag', name: 'catalog_diag', methods: ['POST'])]
+    public function pushCatalogDiag(Request $request): JsonResponse|Response
+    {
+        $profile = $this->requireAuth($request);
+        if ($profile instanceof JsonResponse) {
+            return $profile;
+        }
+
+        $data = $this->parseJson($request) ?? [];
+        $phase = is_string($data['phase'] ?? null) ? substr($data['phase'], 0, 40) : 'unknown';
+        $ok = (bool) ($data['ok'] ?? false);
+        $detail = is_string($data['detail'] ?? null) ? substr($data['detail'], 0, 300) : null;
+
+        $this->directoryService->logCatalogEvent(
+            'catalog_sync_diag',
+            $ok ? 'info' : 'warning',
+            $ok ? 'sync_ok' : 'sync_failed',
+            [
+                'node_id' => substr($profile->getNodeId(), 0, 12),
+                'phase' => $phase,
+                'detail' => $detail,
+            ],
+        );
+
+        return new Response(null, Response::HTTP_NO_CONTENT);
     }
 
     #[Route('/{nodeId}/catalog', name: 'catalog_get', methods: ['GET', 'HEAD'])]

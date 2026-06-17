@@ -628,6 +628,27 @@ class DirectoryService
         }
     }
 
+    /**
+     * DEBUG instrumentation: append a row to hub_events so catalog-push
+     * activity is observable in DB backups. Needed because Symfony's
+     * fingers_crossed handler only emits 5xx requests and Caddy access
+     * logging is disabled, so successful / 401 catalog pushes are otherwise
+     * invisible. Best-effort: never throws into the caller.
+     */
+    public function logCatalogEvent(string $channel, string $level, string $message, array $context): void
+    {
+        try {
+            $this->entityManager->getConnection()->insert('hub_events', [
+                'level' => $level,
+                'channel' => $channel,
+                'message' => $message,
+                'context' => json_encode($context, JSON_UNESCAPED_UNICODE),
+            ]);
+        } catch (\Throwable) {
+            // Observability must never break the caller.
+        }
+    }
+
     private function applyBookCount(LibraryProfile $profile, string $isbnPayload, ?int $bookCount): void
     {
         // Prefer the total count sent by the client (includes books without
