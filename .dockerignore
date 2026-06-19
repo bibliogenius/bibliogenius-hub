@@ -19,6 +19,12 @@ Caddyfile.container.vps
 scripts/
 *.md
 
+# Built fresh inside the image: vendor via `composer install` from the
+# committed composer.lock, var/ via mkdir in the Dockerfile. Never copy the
+# host's (macOS-built) vendor/ or local var/ into a linux/amd64 prod image.
+/vendor/
+/var/
+
 # ADR-035: city files are runtime data on the host bind mount, never
 # baked into the image. A local dev who built them via app:build-cities
 # would otherwise leak stale snapshots into every prod image.
