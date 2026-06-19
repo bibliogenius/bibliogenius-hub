@@ -1,7 +1,8 @@
 # Dev image for local work on the hub (composer install + migrations at
 # container start, bind-mount of the source tree, no production caching).
 # The prod image lives in Dockerfile and bakes vendor/ at build time.
-FROM dunglas/frankenphp:latest-php8.3
+# Pinned to match prod (Dockerfile). Bump both together.
+FROM dunglas/frankenphp:1.12.4-php8.3
 
 RUN apt-get update && apt-get install -y \
     git \

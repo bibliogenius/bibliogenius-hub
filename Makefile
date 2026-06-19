@@ -71,7 +71,7 @@ login:
 .PHONY: build
 build:
 	@echo "Building image for $(PLATFORM)..."
-	docker build --platform=$(PLATFORM) --build-arg APP_VERSION=$(VERSION) -t $(REGISTRY)/$(IMAGE_NAME):latest .
+	docker build --pull --platform=$(PLATFORM) --build-arg APP_VERSION=$(VERSION) -t $(REGISTRY)/$(IMAGE_NAME):latest .
 
 # Push to registry
 .PHONY: push

@@ -1,4 +1,6 @@
-FROM dunglas/frankenphp:latest-php8.3
+# Pinned for reproducible builds: FrankenPHP 1.12.4 (bundles Caddy 2.11.4
+# security fixes) on the PHP 8.3 line (8.3.30). Bump deliberately.
+FROM dunglas/frankenphp:1.12.4-php8.3
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -14,6 +16,10 @@ RUN install-php-extensions \
     pgsql \
     intl \
     opcache
+
+# Production OPcache tuning (prod image only; dev keeps timestamp validation).
+# zz- prefix loads it after the extension's own conf.d file so it wins.
+COPY docker/opcache-prod.ini /usr/local/etc/php/conf.d/zz-opcache-prod.ini
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
