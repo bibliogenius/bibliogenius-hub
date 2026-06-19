@@ -22,6 +22,14 @@ VERSION := $(shell git describe --tags --always 2>/dev/null || echo "dev")
 help:
 	@echo "BiblioGenius Hub Deployment Commands"
 	@echo ""
+	@echo "Local development (Docker stack on http://localhost:8082):"
+	@echo "  make up           - Start the local stack (postgres + hub)"
+	@echo "  make up-build     - Start and rebuild the hub image"
+	@echo "  make down         - Stop the local stack (ARGS=-v wipes volumes)"
+	@echo "  make logs         - Follow hub container logs"
+	@echo "  make shell        - Shell into the hub container"
+	@echo "  make phpunit      - Run PHPUnit (ARGS=<path> to scope)"
+	@echo ""
 	@echo "  make build        - Build Docker image for Scaleway"
 	@echo "  make push         - Push image to Scaleway registry"
 	@echo "  make deploy       - Deploy container to Scaleway"
@@ -202,6 +210,40 @@ deploy-sidecar: build-sidecar push-sidecar
 # ---------------------------------------------------------------------------
 # Local development
 # ---------------------------------------------------------------------------
+
+DEV_COMPOSE := docker compose -f docker-compose.dev.yml
+
+# Start the local Docker stack (postgres + hub on http://localhost:8082).
+.PHONY: up
+up:
+	$(DEV_COMPOSE) up -d
+
+# Same as up, but rebuild the hub image first (use after Dockerfile.dev or
+# dependency changes).
+.PHONY: up-build
+up-build:
+	$(DEV_COMPOSE) up -d --build
+
+# Stop the local stack (add ARGS=-v to also wipe the DB + vendor volumes).
+.PHONY: down
+down:
+	$(DEV_COMPOSE) down $(ARGS)
+
+# Follow the hub container logs.
+.PHONY: logs
+logs:
+	$(DEV_COMPOSE) logs -f hub
+
+# Open a shell inside the hub container.
+.PHONY: shell
+shell:
+	$(DEV_COMPOSE) exec hub bash
+
+# Run the PHPUnit suite inside the hub container (ARGS forwards extra args,
+# e.g. make phpunit ARGS=tests/Unit/Repository).
+.PHONY: phpunit
+phpunit:
+	$(DEV_COMPOSE) exec hub vendor/bin/phpunit $(ARGS)
 
 .PHONY: dev
 dev:
