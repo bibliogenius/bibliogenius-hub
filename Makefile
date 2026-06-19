@@ -37,7 +37,8 @@ help:
 	@echo "  make login        - Login to Scaleway registry"
 	@echo "  make status       - Check container status"
 	@echo "  make test         - Test deployed endpoints"
-	@echo "  make test-relay   - Test relay endpoints (E2EE mailbox)"
+	@echo "  make test-relay   - Test relay endpoints on staging (E2EE mailbox)"
+	@echo "  make test-relay-prod - Same round-trip against production"
 	@echo "  make test-all     - Run all tests"
 	@echo ""
 	@echo "Staging (hub-dev on Scaleway):"
@@ -109,39 +110,53 @@ test:
 	@curl -s $(HUB_URL)/api/discovery/peers
 	@echo "\n✅ All endpoints tested"
 
-# Test relay endpoints (E2EE blind mailbox)
+# Test relay endpoints (E2EE blind mailbox).
+# Defaults to STAGING so the round-trip never pollutes prod. The test also
+# deletes its own mailbox (step 7), so even on prod it leaves no residue.
+# Run against prod explicitly with `make test-relay-prod`.
+RELAY_URL ?= $(HUB_DEV_URL)
+
 .PHONY: test-relay
 test-relay:
-	@echo "Testing relay endpoints on $(HUB_URL)..."
+	@echo "Testing relay endpoints on $(RELAY_URL)..."
 	@echo "\n📬 1. Create mailbox:"
-	@RELAY=$$(curl -sf -X POST $(HUB_URL)/api/relay/mailbox) && \
+	@RELAY=$$(curl -sf -X POST $(RELAY_URL)/api/relay/mailbox) && \
 		echo "$$RELAY" | jq . && \
 		UUID=$$(echo "$$RELAY" | jq -r .uuid) && \
 		RT=$$(echo "$$RELAY" | jq -r .read_token) && \
 		WT=$$(echo "$$RELAY" | jq -r .write_token) && \
 		echo "\n📨 2. Deposit blob (write_token):" && \
-		DEPOSIT=$$(curl -sf -X POST $(HUB_URL)/api/relay/mailbox/$$UUID/messages \
+		DEPOSIT=$$(curl -sf -X POST $(RELAY_URL)/api/relay/mailbox/$$UUID/messages \
 			-H "Authorization: Bearer $$WT" \
 			-H "Content-Type: application/octet-stream" \
 			-d '{"test":"e2ee relay"}') && \
 		echo "$$DEPOSIT" | jq . && \
 		MSG_ID=$$(echo "$$DEPOSIT" | jq -r .id) && \
 		echo "\n📥 3. Collect messages (read_token):" && \
-		curl -sf $(HUB_URL)/api/relay/mailbox/$$UUID/messages \
+		curl -sf $(RELAY_URL)/api/relay/mailbox/$$UUID/messages \
 			-H "Authorization: Bearer $$RT" | jq . && \
 		echo "\n🔒 4. Reject bad token:" && \
 		HTTP_CODE=$$(curl -s -o /dev/null -w "%{http_code}" \
-			$(HUB_URL)/api/relay/mailbox/$$UUID/messages \
+			$(RELAY_URL)/api/relay/mailbox/$$UUID/messages \
 			-H "Authorization: Bearer bad_token") && \
 		if [ "$$HTTP_CODE" = "401" ]; then echo "  401 Unauthorized ✅"; else echo "  Expected 401, got $$HTTP_CODE ❌"; exit 1; fi && \
 		echo "\n🗑️  5. Ack (delete) message:" && \
-		curl -sf -X DELETE $(HUB_URL)/api/relay/mailbox/$$UUID/messages/$$MSG_ID \
+		curl -sf -X DELETE $(RELAY_URL)/api/relay/mailbox/$$UUID/messages/$$MSG_ID \
 			-H "Authorization: Bearer $$RT" | jq . && \
 		echo "\n📭 6. Verify empty after ack:" && \
-		MSGS=$$(curl -sf $(HUB_URL)/api/relay/mailbox/$$UUID/messages \
+		MSGS=$$(curl -sf $(RELAY_URL)/api/relay/mailbox/$$UUID/messages \
 			-H "Authorization: Bearer $$RT" | jq '.messages | length') && \
 		if [ "$$MSGS" = "0" ]; then echo "  0 messages ✅"; else echo "  Expected 0, got $$MSGS ❌"; exit 1; fi && \
+		echo "\n🧹 7. Cleanup (delete the test mailbox, no prod residue):" && \
+		curl -sf -X DELETE $(RELAY_URL)/api/relay/mailbox/$$UUID \
+			-H "Authorization: Bearer $$RT" | jq . && \
 		echo "\n✅ All relay tests passed!"
+
+# Same round-trip, explicitly against production. Safe to run (step 7 deletes
+# the test mailbox), but kept as a separate, intentional target.
+.PHONY: test-relay-prod
+test-relay-prod:
+	@$(MAKE) test-relay RELAY_URL=$(HUB_URL)
 
 # Run all tests
 .PHONY: test-all
