@@ -19,7 +19,6 @@
         "symfony/framework-bundle": "^7.1",
         "symfony/http-client": "^7.1",
         "symfony/maker-bundle": "^1.52",
-        "symfony/mcp-bundle": "@dev",
         "symfony/monolog-bundle": "^4.0",
         "symfony/rate-limiter": "^7.1",
         "symfony/runtime": "^7.1",

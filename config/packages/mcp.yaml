@@ -1,3 +1,0 @@
-mcp:
-    client_transports:
-        stdio: true
