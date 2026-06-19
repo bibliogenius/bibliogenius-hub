@@ -6,6 +6,7 @@ namespace App\Repository;
 
 use App\Entity\RelayMessage;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
+use Doctrine\DBAL\ParameterType;
 use Doctrine\Persistence\ManagerRegistry;
 
 /**
@@ -66,7 +67,9 @@ class RelayMessageRepository extends ServiceEntityRepository
                 'uuid' => $uuid,
                 'limit' => $count,
             ], [
-                'limit' => \PDO::PARAM_INT,
+                // Doctrine DBAL 4 rejects raw \PDO::PARAM_* ints in the types
+                // map (TypeError in ExpandArrayParameters). Use the enum.
+                'limit' => ParameterType::INTEGER,
             ]);
     }
 }
