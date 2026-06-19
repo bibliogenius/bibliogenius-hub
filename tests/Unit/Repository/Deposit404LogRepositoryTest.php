@@ -6,6 +6,7 @@ namespace App\Tests\Unit\Repository;
 
 use App\Repository\Deposit404LogRepository;
 use Doctrine\DBAL\Connection;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -22,6 +23,9 @@ use PHPUnit\Framework\TestCase;
  *  - A DB failure in recordHit() MUST be swallowed so a logging issue can
  *    never turn a 404 response into a 500.
  */
+// Several tests configure stub-only collaborators (Connection used via
+// willReturn, never verified); opt out of PHPUnit 12.5's no-expectations notice.
+#[AllowMockObjectsWithoutExpectations]
 final class Deposit404LogRepositoryTest extends TestCase
 {
     private const UUID = '2c418b23-00ba-449e-89ad-0a956478d0ae';

@@ -14,6 +14,7 @@ use App\Service\DirectoryService;
 use App\Service\HubEventLogger;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
@@ -28,6 +29,9 @@ use PHPUnit\Framework\TestCase;
  *   - Mismatched owner + shadow mode: log + bump counter, profile changes allowed.
  *   - Counter is incremented on the caller's profile, not the victim's.
  */
+// Shared EM/Connection/repository/logger doubles: some tests set expectations,
+// others use them as pure stubs. Opt out of PHPUnit 12.5's no-expectations notice.
+#[AllowMockObjectsWithoutExpectations]
 final class DirectoryServiceMailboxOwnershipTest extends TestCase
 {
     private const MAILBOX_ID = '11111111-2222-3333-4444-555555555555';

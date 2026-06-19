@@ -12,6 +12,7 @@ use App\Repository\RelayMailboxRepository;
 use App\Service\DirectoryService;
 use App\Service\HubEventLogger;
 use Doctrine\ORM\EntityManagerInterface;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
@@ -26,6 +27,9 @@ use PHPUnit\Framework\TestCase;
  *   - recoverProfile rejects a wrong code without rotating anything
  *   - recoverProfile returns null when the profile is unknown
  */
+// Shared EM/repository doubles: some tests set expectations, others use them
+// as pure stubs. Opt out of PHPUnit 12.5's no-expectations notice.
+#[AllowMockObjectsWithoutExpectations]
 final class DirectoryServiceRecoveryTest extends TestCase
 {
     private EntityManagerInterface&MockObject $em;

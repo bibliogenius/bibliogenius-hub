@@ -7,6 +7,7 @@ namespace App\Tests\Unit\Repository;
 use App\Repository\RelayMailboxRepository;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -15,6 +16,9 @@ use PHPUnit\Framework\TestCase;
  * on this repository. Guarantees that deleteWithMessages() exists and
  * wraps the two DELETEs in a transaction that rolls back on failure.
  */
+// Partial repository double + stub-only EM (no expectations on either);
+// opt out of PHPUnit 12.5's no-expectations notice.
+#[AllowMockObjectsWithoutExpectations]
 final class RelayMailboxRepositoryDeleteTest extends TestCase
 {
     private const UUID = '5048d99b-cd0d-4fea-9fb0-6e5db1e9e848';

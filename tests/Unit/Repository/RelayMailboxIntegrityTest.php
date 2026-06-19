@@ -7,6 +7,7 @@ namespace App\Tests\Unit\Repository;
 use App\Repository\RelayMailboxRepository;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -15,6 +16,9 @@ use PHPUnit\Framework\TestCase;
  * because the counters feed an admin alert. A silent change of WHERE
  * clause would mask orphan references or hijack signals.
  */
+// Uses partial repository doubles + stub-only EM/Connection (no expectations);
+// opt out of PHPUnit 12.5's no-expectations notice.
+#[AllowMockObjectsWithoutExpectations]
 final class RelayMailboxIntegrityTest extends TestCase
 {
     public function testCountProfilesWithOrphanMailboxReturnsIntFromFetchOne(): void

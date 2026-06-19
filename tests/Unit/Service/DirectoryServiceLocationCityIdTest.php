@@ -12,6 +12,7 @@ use App\Repository\RelayMailboxRepository;
 use App\Service\DirectoryService;
 use App\Service\HubEventLogger;
 use Doctrine\ORM\EntityManagerInterface;
+use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -24,6 +25,9 @@ use PHPUnit\Framework\TestCase;
  *   - Non-positive integers are normalized to null (no FK validation by design)
  *   - toPublicArray surfaces the field
  */
+// Shared EM/repository doubles: some tests set expectations (flush), others
+// use them as pure stubs. Opt out of PHPUnit 12.5's no-expectations notice.
+#[AllowMockObjectsWithoutExpectations]
 final class DirectoryServiceLocationCityIdTest extends TestCase
 {
     private EntityManagerInterface $em;
