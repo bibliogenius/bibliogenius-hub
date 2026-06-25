@@ -36,3 +36,9 @@ services:
             $jiraProjectKey: '%env(JIRA_PROJECT_KEY)%'
             $jiraEmail: '%env(JIRA_EMAIL)%'
             $jiraApiToken: '%env(JIRA_API_TOKEN)%'
+
+    # Account E2EE sync (ADR-043): opaque session bearer tokens live in a
+    # dedicated cache pool (only their SHA-256 hashes are stored).
+    App\Service\AccountAuthService:
+        arguments:
+            $sessionCache: '@account.session.cache'

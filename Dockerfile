@@ -10,12 +10,15 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install PHP extensions
+# sodium: Ed25519 verification for account E2EE sync auth (ADR-043). Made
+# explicit for reproducible builds rather than relying on the base image.
 RUN install-php-extensions \
     pdo \
     pdo_pgsql \
     pgsql \
     intl \
-    opcache
+    opcache \
+    sodium
 
 # Production OPcache tuning (prod image only; dev keeps timestamp validation).
 # zz- prefix loads it after the extension's own conf.d file so it wins.

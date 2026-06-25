@@ -15,5 +15,11 @@ framework:
         #app: cache.adapter.apcu
 
         # Namespaced pools use the above "app" backend by default
-        #pools:
-            #my.dedicated.cache: null
+        pools:
+            # Opaque session bearer tokens for account E2EE sync (ADR-043).
+            # Only token SHA-256 hashes are stored; eviction = forced re-login.
+            # Filesystem-backed like cache.app today; switch to redis here if
+            # the hub ever scales horizontally.
+            account.session.cache:
+                adapter: cache.app
+                default_lifetime: 1800

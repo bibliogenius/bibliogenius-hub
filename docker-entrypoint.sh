@@ -115,6 +115,24 @@ php /app/bin/console dbal:run-sql "UPDATE relay_mailboxes rm SET owner_node_id =
 php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS deposit_404_log (mailbox_uuid VARCHAR(36) NOT NULL, hour_bucket TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, count INTEGER NOT NULL DEFAULT 1, first_seen TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), last_seen TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), PRIMARY KEY (mailbox_uuid, hour_bucket))" --env=$ENV --no-interaction || echo "WARNING: deposit_404_log creation failed"
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_deposit_404_log_hour_bucket ON deposit_404_log (hour_bucket DESC)" --env=$ENV --no-interaction || true
 
+# Account E2EE sync store (Version20260625120000 - ADR-043, ST-04)
+# Blind per-account blob store. Mirrors the Doctrine migration; idempotent.
+# Lanes keyed by (account_id, opaque_id, device_id), rewritten in place.
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS accounts (account_id VARCHAR(64) NOT NULL, email VARCHAR(255) NOT NULL, account_salt VARCHAR(64) NOT NULL, kdf_params TEXT NOT NULL, account_auth_pk VARCHAR(64) NOT NULL, auth_verifier_hash VARCHAR(128) NOT NULL, schema_version INTEGER NOT NULL, auth_method VARCHAR(32) NOT NULL, aead_alg VARCHAR(32) NOT NULL, descriptor_sig VARCHAR(128) NOT NULL, change_counter BIGINT NOT NULL DEFAULT 0, quota_bytes_used BIGINT NOT NULL DEFAULT 0, quota_bytes_limit BIGINT DEFAULT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), PRIMARY KEY (account_id), CONSTRAINT uniq_accounts_email UNIQUE (email))" --env=$ENV --no-interaction || echo "WARNING: accounts creation failed"
+
+php /app/bin/console dbal:run-sql "CREATE SEQUENCE IF NOT EXISTS account_entities_change_seq" --env=$ENV --no-interaction || true
+
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS account_entities (account_id VARCHAR(64) NOT NULL, opaque_id VARCHAR(64) NOT NULL, device_id VARCHAR(64) NOT NULL, change_seq BIGINT NOT NULL, deleted BOOLEAN NOT NULL DEFAULT FALSE, size_bucket INTEGER NOT NULL, blob BYTEA DEFAULT NULL, received_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), tombstoned_at TIMESTAMP(0) WITHOUT TIME ZONE DEFAULT NULL, PRIMARY KEY (account_id, opaque_id, device_id), CONSTRAINT fk_account_entities_account FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE)" --env=$ENV --no-interaction || echo "WARNING: account_entities creation failed"
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_account_entities_cursor ON account_entities (account_id, change_seq)" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_account_entities_tomb ON account_entities (tombstoned_at)" --env=$ENV --no-interaction || true
+
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS wrapped_account_keys (account_id VARCHAR(64) NOT NULL, kind VARCHAR(16) NOT NULL, blob BYTEA NOT NULL, updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), PRIMARY KEY (account_id, kind), CONSTRAINT fk_wrapped_keys_account FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE)" --env=$ENV --no-interaction || echo "WARNING: wrapped_account_keys creation failed"
+
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS account_device_registry (account_id VARCHAR(64) NOT NULL, blob BYTEA NOT NULL, registry_seq BIGINT NOT NULL DEFAULT 0, updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), PRIMARY KEY (account_id), CONSTRAINT fk_device_registry_account FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE)" --env=$ENV --no-interaction || echo "WARNING: account_device_registry creation failed"
+
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS account_auth_challenges (id SERIAL NOT NULL, account_id VARCHAR(64) NOT NULL, challenge VARCHAR(64) NOT NULL, purpose VARCHAR(16) NOT NULL, expires_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, PRIMARY KEY (id), CONSTRAINT fk_auth_chal_account FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE)" --env=$ENV --no-interaction || echo "WARNING: account_auth_challenges creation failed"
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_account_auth_chal_expires ON account_auth_challenges (expires_at)" --env=$ENV --no-interaction || true
+
 # Clear and warm up cache
 php /app/bin/console cache:clear --env=$ENV --no-debug || true
 php /app/bin/console cache:warmup --env=$ENV || true

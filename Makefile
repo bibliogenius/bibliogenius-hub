@@ -260,6 +260,14 @@ shell:
 phpunit:
 	$(DEV_COMPOSE) exec hub vendor/bin/phpunit $(ARGS)
 
+# Behavioral end-to-end smoke for the account E2EE sync store (ADR-043),
+# run in the dev container against the live hub (needs ext-sodium + the DB).
+# Creates a throwaway account exercising signup/login/push/pull/registry and
+# deletes it at the end. The account-sync counterpart of `make test-relay`.
+.PHONY: test-account
+test-account:
+	$(DEV_COMPOSE) exec -T hub php tests/Smoke/account_sync_smoke.php
+
 .PHONY: dev
 dev:
 	symfony server:start

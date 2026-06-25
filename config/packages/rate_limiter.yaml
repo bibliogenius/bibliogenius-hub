@@ -22,3 +22,36 @@ framework:
             policy: 'token_bucket'
             limit: 120
             rate: { interval: '1 minute', amount: 120 }
+
+        # Account E2EE sync (ADR-043). The *_anon limiters key on client IP
+        # (pre-auth endpoints); push/pull key on the authenticated account id.
+        # keybundle is intentionally tight: it gates the wrapped-key download
+        # against enumeration/scraping.
+        account_signup_anon:
+            policy: 'token_bucket'
+            limit: 10
+            rate: { interval: '1 hour', amount: 10 }
+        account_bootstrap_anon:
+            policy: 'token_bucket'
+            limit: 30
+            rate: { interval: '1 minute', amount: 30 }
+        account_challenge_anon:
+            policy: 'token_bucket'
+            limit: 60
+            rate: { interval: '1 minute', amount: 60 }
+        account_login_anon:
+            policy: 'token_bucket'
+            limit: 60
+            rate: { interval: '1 minute', amount: 60 }
+        account_keybundle_anon:
+            policy: 'token_bucket'
+            limit: 10
+            rate: { interval: '1 minute', amount: 10 }
+        account_push:
+            policy: 'token_bucket'
+            limit: 120
+            rate: { interval: '1 minute', amount: 120 }
+        account_pull:
+            policy: 'token_bucket'
+            limit: 120
+            rate: { interval: '1 minute', amount: 120 }
