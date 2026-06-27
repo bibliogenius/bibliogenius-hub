@@ -243,7 +243,8 @@ class AccountSyncController extends AbstractController
     /**
      * Probabilistic maintenance (~1% on write), like the relay. Best-effort:
      * tombstone GC, expired-challenge GC, and the per-account quota recompute.
-     * The quota counter is a non-enforced hook (ST-06/ST-08), so refreshing it
+     * The quota counter is a non-enforced hook (reserved for future quota
+     * enforcement), so refreshing it
      * here rather than on every push avoids a full per-account blob scan on the
      * hot path.
      */

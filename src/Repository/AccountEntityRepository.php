@@ -120,7 +120,7 @@ class AccountEntityRepository extends ServiceEntityRepository
     /**
      * Recompute the account's stored-bytes quota counter from the live blobs.
      * Accurate (one aggregate query) rather than a drifting running total; the
-     * quota is a hook for ST-06/ST-08, not enforced here.
+     * quota is a hook reserved for future quota enforcement, not enforced here.
      */
     public function recomputeQuotaBytes(string $accountId): int
     {
