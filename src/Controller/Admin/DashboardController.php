@@ -3,6 +3,7 @@
 namespace App\Controller\Admin;
 
 use App\Repository\Deposit404LogRepository;
+use App\Repository\DirectoryHealthRepository;
 use App\Repository\RelayMailboxRepository;
 use App\Service\HubEventLogger;
 use Doctrine\ORM\EntityManagerInterface;
@@ -23,6 +24,9 @@ class DashboardController extends AbstractDashboardController
         private readonly RelayMailboxRepository $mailboxRepository,
         private readonly HubEventLogger $eventLogger,
         private readonly Deposit404LogRepository $deposit404Log,
+        private readonly DirectoryHealthRepository $directoryHealth,
+        #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%env(int:default:catalog_coverage_alert_threshold_default:CATALOG_COVERAGE_ALERT_THRESHOLD)%')]
+        private readonly int $catalogCoverageAlertThreshold = 40,
     ) {
     }
 
@@ -79,6 +83,30 @@ class DashboardController extends AbstractDashboardController
              ORDER BY hijack_attempts_total DESC, last_seen_at DESC
              LIMIT 10',
         );
+
+        // Directory health (keep-alive invariants, ADR-027). Repository
+        // methods are unit-tested so the shape of each SELECT is frozen;
+        // all hub_events scans are bounded by created_at (indexed).
+        $catalogCoverageGaps = $this->directoryHealth->countCatalogCoverageGaps($now);
+        $catalogCoverageGapRows = $catalogCoverageGaps > 0
+            ? $this->directoryHealth->findCatalogCoverageGaps($now)
+            : [];
+        $placeholderLeaks24h = $this->directoryHealth->countPlaceholderLookups($now->modify('-24 hours'));
+        $ghostLookups7d = $this->directoryHealth->findGhostLookups($now->modify('-7 days'));
+
+        // Escalate a coverage regression into the errors tile and the
+        // log-based cron alerting, at most once per 24h. Evaluated at
+        // dashboard render time (same lifecycle as every tile above).
+        if (DirectoryHealthRepository::shouldEmitCoverageAlert(
+            $catalogCoverageGaps,
+            $this->catalogCoverageAlertThreshold,
+            $this->directoryHealth->lastCoverageAlertAt(),
+            $now,
+        )) {
+            $this->eventLogger->error('maintenance', 'catalog_coverage_degraded', [
+                'count' => $catalogCoverageGaps,
+            ]);
+        }
 
         // Event stats (24h).
         // deposit_404s comes from the dedicated aggregated counter, not hub_events:
@@ -186,6 +214,11 @@ class DashboardController extends AbstractDashboardController
             'shared_mailbox_refs' => $sharedMailboxRefs,
             'hijack_attempts_24h' => $hijackAttempts24h,
             'hijack_offenders' => $hijackOffenders,
+            'catalog_coverage_gaps' => $catalogCoverageGaps,
+            'catalog_coverage_gap_rows' => $catalogCoverageGapRows,
+            'catalog_coverage_alert_threshold' => $this->catalogCoverageAlertThreshold,
+            'placeholder_leaks_24h' => $placeholderLeaks24h,
+            'ghost_lookups_7d' => $ghostLookups7d,
             'deposit_404s' => $deposit404s,
             'recent_warnings' => $recentWarnings,
             'recent_errors' => $recentErrors,

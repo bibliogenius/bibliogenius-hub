@@ -577,6 +577,115 @@
 </table>
 {% endif %}
 
+{# — Directory Health (catalog keep-alive invariants, ADR-027) — #}
+<div class="section-title" style="margin-top: 24px;">Directory Health</div>
+<div class="stat-grid">
+
+    <div class="stat-card {{ catalog_coverage_gaps > 0 ? 'status-alert' : 'status-ok' }}">
+        <div class="stat-label">
+            Catalog Coverage
+            <i class="tip" data-tip="Alive libraries (seen <7 days, books >0) without a valid cached catalog (row absent or expired). Both keep-alive paths (client re-push + heartbeat TTL touch) should keep this at 0; a persistent count means clients on a pre-fix build. Alert threshold: {{ catalog_coverage_alert_threshold }} (CATALOG_COVERAGE_ALERT_THRESHOLD).">i</i>
+        </div>
+        <div class="stat-value">{{ catalog_coverage_gaps }}</div>
+        <div class="stat-sub">
+            {% if catalog_coverage_gaps > 0 %}
+                <span class="sub-alert">uncovered libraries, see below</span>
+            {% else %}
+                every alive library is cached
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="stat-card {{ placeholder_leaks_24h > 0 ? 'status-alert' : 'status-ok' }}">
+        <div class="stat-label">
+            Placeholder Leaks (24h)
+            <i class="tip" data-tip="Profile lookups that reached the hub with a locally fabricated peer_&lt;id&gt; node id. The client short-circuits these before any network call, so expected value is 0; anything above means a build without the guard is still in the wild.">i</i>
+        </div>
+        <div class="stat-value">{{ placeholder_leaks_24h }}</div>
+        <div class="stat-sub">
+            {% if placeholder_leaks_24h > 0 %}
+                <span class="sub-alert">pre-guard clients still active</span>
+            {% else %}
+                no placeholder reached the hub
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="stat-card {{ ghost_lookups_7d|length > 0 ? 'status-warn' : 'status-ok' }}">
+        <div class="stat-label">
+            Ghost Lookups (7d)
+            <i class="tip" data-tip="Node ids unknown to library_profiles, looked up more than once in 7 days (placeholders excluded). Usually a stale follow or invite link pointing at a deleted or regenerated profile.">i</i>
+        </div>
+        <div class="stat-value">{{ ghost_lookups_7d|length }}</div>
+        <div class="stat-sub">
+            {% if ghost_lookups_7d|length > 0 %}
+                <span class="sub-warn">stale references, see below</span>
+            {% else %}
+                no repeated unknown node ids
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+
+{% if catalog_coverage_gap_rows|length > 0 %}
+<div class="section-title" style="margin-top: 24px;">Uncovered Libraries (top 10 by book count)</div>
+<p class="section-legend">
+    Each row is an alive library with books whose <code>cached_catalogs</code> row is missing or expired,
+    so it is invisible in the directory fallback when offline. The <code>app version</code> column is the
+    main lead: builds predating the keep-alive fix never refresh their catalog TTL when the catalog is
+    unchanged. <strong>Action:</strong> if the version is old, the count resorbs itself once the client
+    updates; if a fixed client shows up here, investigate the push path.
+</p>
+<table class="hub-table" style="max-width: 920px;">
+    <thead>
+        <tr>
+            <th>Node ID</th>
+            <th>Display name</th>
+            <th style="text-align:right">Books</th>
+            <th>Last seen</th>
+            <th>App version</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in catalog_coverage_gap_rows %}
+        <tr>
+            <td><code class="mono">{{ row.node_id|slice(0, 24) }}...</code></td>
+            <td>{{ row.display_name }}</td>
+            <td class="db-size-val"><strong>{{ row.book_count }}</strong></td>
+            <td>{% if row.last_seen_at %}<time datetime="{{ row.last_seen_at|date('c', 'UTC') }}" data-utc>{{ row.last_seen_at|date('Y-m-d H:i:s', 'UTC') }} UTC</time>{% else %}never{% endif %}</td>
+            <td>{{ row.app_version ?: 'unknown' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+{% if ghost_lookups_7d|length > 0 %}
+<div class="section-title" style="margin-top: 24px;">Ghost Lookups (unknown node ids, 7d)</div>
+<p class="section-legend">
+    Node ids repeatedly queried against the directory but absent from <code>library_profiles</code>.
+    <strong>Action:</strong> a high count on one id usually means peers hold a stale follow to a
+    deleted or regenerated profile; the affected users can re-invite each other to refresh it.
+</p>
+<table class="hub-table" style="max-width: 620px;">
+    <thead>
+        <tr>
+            <th>Node ID</th>
+            <th style="text-align:right">Lookups</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in ghost_lookups_7d %}
+        <tr>
+            <td><code class="mono">{{ row.node_id|slice(0, 40) }}</code></td>
+            <td class="db-size-val"><strong>{{ row.lookup_count }}</strong></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
 {# — Health — #}
 <div class="section-title" style="margin-top: 24px;">Health</div>
 <div class="stat-grid">

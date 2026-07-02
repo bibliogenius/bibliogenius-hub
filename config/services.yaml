@@ -5,6 +5,12 @@ parameters:
     # ownership check logs hijack attempts without blocking. Flip to "1" via the
     # MAILBOX_OWNERSHIP_ENFORCED env var after the 72h shadow window.
     mailbox_ownership_enforced_default: '0'
+    # Catalog-coverage alert threshold: alive libraries with books but no
+    # valid cached catalog. Baseline is ~31 while the fleet picks up the
+    # keep-alive fix and should shrink toward 0; the default only fires on
+    # a regression above that baseline. Override via the
+    # CATALOG_COVERAGE_ALERT_THRESHOLD env var (lower it as the fleet heals).
+    catalog_coverage_alert_threshold_default: '40'
 
 services:
     _defaults:
