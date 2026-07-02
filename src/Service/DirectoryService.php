@@ -119,6 +119,19 @@ class DirectoryService
 
         $this->applyProfileData($existing, $data, callerNodeId: $existing->getNodeId());
         $existing->touchLastSeen();
+
+        // An authenticated profile heartbeat proves the library is alive, so
+        // extend the TTL of its cached catalog in the same flush. Clients
+        // predating the keep-alive fix skip the unchanged-catalog push
+        // (ADR-027 fast path), leaving this heartbeat as the hub's only
+        // liveness signal: without the touch their catalogs expire while the
+        // profile stays listed. Touch only an existing row: creation belongs
+        // to the catalog push path, and public lookups must never bump TTLs.
+        $catalog = $this->entityManager->find(CachedCatalog::class, $existing->getNodeId());
+        if ($catalog !== null) {
+            $catalog->touchTtl();
+        }
+
         $this->entityManager->flush();
 
         return ['profile' => $existing, 'write_token' => null, 'recovery_code' => null];
