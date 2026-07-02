@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Command;
 
 use App\Repository\Deposit404LogRepository;
+use App\Repository\DirectoryHealthRepository;
 use App\Repository\InviteTokenRepository;
 use App\Repository\LibraryProfileRepository;
 use App\Service\DirectoryService;
+use App\Service\HubEventLogger;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -48,6 +50,10 @@ class PruneCommand extends Command
         private readonly Deposit404LogRepository $deposit404LogRepository,
         private readonly DirectoryService $directoryService,
         private readonly LibraryProfileRepository $profileRepository,
+        private readonly DirectoryHealthRepository $directoryHealth,
+        private readonly HubEventLogger $eventLogger,
+        #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%env(int:default:catalog_coverage_alert_threshold_default:CATALOG_COVERAGE_ALERT_THRESHOLD)%')]
+        private readonly int $catalogCoverageAlertThreshold = 40,
     ) {
         parent::__construct();
     }
@@ -71,9 +77,46 @@ class PruneCommand extends Command
 
         $this->logPruneRun($total, $perTable, $io);
 
+        $this->checkCatalogCoverage($io);
+
         $io->success(sprintf('Done — %d rows deleted.', $total));
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Directory-health invariant check (ADR-027 keep-alive chain): the
+     * dashboard evaluates it on render only, so this nightly pass makes the
+     * coverage alert autonomous; the 24h dedup inside shouldEmitCoverageAlert
+     * makes the double evaluation harmless. Runs after pruneCachedCatalogs so
+     * the gap count reflects the post-prune state. Best-effort: a monitoring
+     * failure must never fail the prune itself.
+     */
+    private function checkCatalogCoverage(SymfonyStyle $io): void
+    {
+        try {
+            $now = new \DateTimeImmutable();
+            $gaps = $this->directoryHealth->countCatalogCoverageGaps($now);
+
+            if (DirectoryHealthRepository::shouldEmitCoverageAlert(
+                $gaps,
+                $this->catalogCoverageAlertThreshold,
+                $this->directoryHealth->lastCoverageAlertAt(),
+                $now,
+            )) {
+                $this->eventLogger->critical('maintenance', 'catalog_coverage_degraded', [
+                    'count' => $gaps,
+                ]);
+            }
+
+            $io->writeln(sprintf(
+                '  catalog coverage: <info>%d gap(s)</info> (alert threshold %d)',
+                $gaps,
+                $this->catalogCoverageAlertThreshold,
+            ));
+        } catch (\Throwable $e) {
+            $io->warning(sprintf('Catalog coverage check failed: %s', $e->getMessage()));
+        }
     }
 
     /**

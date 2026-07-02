@@ -6,9 +6,11 @@ namespace App\Tests\Unit\Command;
 
 use App\Command\PruneCommand;
 use App\Repository\Deposit404LogRepository;
+use App\Repository\DirectoryHealthRepository;
 use App\Repository\InviteTokenRepository;
 use App\Repository\LibraryProfileRepository;
 use App\Service\DirectoryService;
+use App\Service\HubEventLogger;
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Application;
@@ -21,6 +23,10 @@ use Symfony\Component\Console\Tester\CommandTester;
  * total_deleted + per_table. If this insert disappears, the dashboard tile
  * goes permanently stale and a broken VPS cron becomes invisible again.
  */
+// The coverage-check tests configure stub-only collaborators (health repo
+// via willReturn, never verified); opt out of PHPUnit 12.5's
+// no-expectations notice.
+#[\PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations]
 final class PruneCommandTest extends TestCase
 {
     public function testExecuteInsertsPruneRunEventWithCorrectPayload(): void
@@ -201,14 +207,129 @@ final class PruneCommandTest extends TestCase
         $this->assertStringContainsString('cached_catalogs', $tester->getDisplay());
     }
 
+    public function testCoverageAlertEmittedAboveThresholdViaCritical(): void
+    {
+        // The nightly run is what makes the coverage alert autonomous: it
+        // must page through the critical level (the only one the cron log
+        // alerter greps for), not through error().
+        [$conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo] = $this->quietCollaborators();
+
+        $health = $this->createMock(DirectoryHealthRepository::class);
+        $health->method('countCatalogCoverageGaps')->willReturn(50);
+        $health->method('lastCoverageAlertAt')->willReturn(null);
+
+        $eventLogger = $this->createMock(HubEventLogger::class);
+        $eventLogger->expects($this->once())
+            ->method('critical')
+            ->with('maintenance', 'catalog_coverage_degraded', ['count' => 50]);
+        $eventLogger->expects($this->never())->method('error');
+
+        $tester = $this->buildCommandTester(
+            $conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo,
+            directoryHealth: $health,
+            eventLogger: $eventLogger,
+            catalogCoverageAlertThreshold: 40,
+        );
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+        $this->assertStringContainsString('catalog coverage', $tester->getDisplay());
+    }
+
+    public function testCoverageAlertDeduplicatedByRecentEmission(): void
+    {
+        // Same gap count, but an alert already went out 1h ago (e.g. from a
+        // dashboard render): the nightly pass must stay silent.
+        [$conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo] = $this->quietCollaborators();
+
+        $health = $this->createMock(DirectoryHealthRepository::class);
+        $health->method('countCatalogCoverageGaps')->willReturn(50);
+        $health->method('lastCoverageAlertAt')->willReturn(new \DateTimeImmutable('-1 hour'));
+
+        $eventLogger = $this->createMock(HubEventLogger::class);
+        $eventLogger->expects($this->never())->method('critical');
+
+        $tester = $this->buildCommandTester(
+            $conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo,
+            directoryHealth: $health,
+            eventLogger: $eventLogger,
+            catalogCoverageAlertThreshold: 40,
+        );
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+    }
+
+    public function testCoverageCheckFailureDoesNotBreakCommand(): void
+    {
+        // Monitoring is secondary: a DB error in the health check must not
+        // abort the prune (its primary job) nor fail the cron.
+        [$conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo] = $this->quietCollaborators();
+
+        $health = $this->createMock(DirectoryHealthRepository::class);
+        $health->method('countCatalogCoverageGaps')
+            ->willThrowException(new \RuntimeException('DB unavailable'));
+
+        $eventLogger = $this->createMock(HubEventLogger::class);
+        $eventLogger->expects($this->never())->method('critical');
+
+        $tester = $this->buildCommandTester(
+            $conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo,
+            directoryHealth: $health,
+            eventLogger: $eventLogger,
+        );
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+        $this->assertStringContainsString('Catalog coverage check failed', $tester->getDisplay());
+    }
+
+    /**
+     * Collaborators for tests that only exercise the coverage check: every
+     * prune step is stubbed to a no-op so the command runs end to end.
+     *
+     * @return array{Connection, InviteTokenRepository, Deposit404LogRepository, DirectoryService, LibraryProfileRepository}
+     */
+    private function quietCollaborators(): array
+    {
+        $conn = $this->createStub(Connection::class);
+        $conn->method('executeStatement')->willReturn(0);
+        $conn->method('fetchOne')->willReturn(0);
+
+        $inviteRepo = $this->createStub(InviteTokenRepository::class);
+        $inviteRepo->method('deleteExpired')->willReturn(0);
+
+        $deposit404Repo = $this->createStub(Deposit404LogRepository::class);
+        $deposit404Repo->method('pruneOlderThanDays')->willReturn(0);
+
+        $directoryService = $this->createStub(DirectoryService::class);
+        $directoryService->method('pruneOrphanCoversForAllNodes')->willReturn(0);
+
+        $profileRepo = $this->createStub(LibraryProfileRepository::class);
+        $profileRepo->method('pruneExpiredCatalogs')->willReturn(0);
+
+        return [$conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo];
+    }
+
     private function buildCommandTester(
         Connection $conn,
         InviteTokenRepository $inviteRepo,
         Deposit404LogRepository $deposit404Repo,
         DirectoryService $directoryService,
         LibraryProfileRepository $profileRepo,
+        ?DirectoryHealthRepository $directoryHealth = null,
+        ?HubEventLogger $eventLogger = null,
+        int $catalogCoverageAlertThreshold = 40,
     ): CommandTester {
-        $command = new PruneCommand($conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo);
+        $command = new PruneCommand(
+            $conn,
+            $inviteRepo,
+            $deposit404Repo,
+            $directoryService,
+            $profileRepo,
+            // Stub health: 0 gaps, never alerted; below any threshold, so
+            // legacy tests keep exercising the prune steps alert-free.
+            $directoryHealth ?? $this->createStub(DirectoryHealthRepository::class),
+            $eventLogger ?? $this->createStub(HubEventLogger::class),
+            $catalogCoverageAlertThreshold,
+        );
         $app = new Application();
         $app->add($command);
 

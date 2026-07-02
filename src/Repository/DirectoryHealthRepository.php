@@ -26,7 +26,7 @@ use Doctrine\DBAL\Connection;
  * HubEventLogger, so all aggregates stay trivial at dashboard-render time.
  * Follows the plain-Connection pattern of Deposit404LogRepository.
  */
-final class DirectoryHealthRepository
+class DirectoryHealthRepository
 {
     /**
      * LIKE pattern matching a JSON context whose node_id is a client-side

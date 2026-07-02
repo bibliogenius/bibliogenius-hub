@@ -95,15 +95,16 @@ class DashboardController extends AbstractDashboardController
         $ghostLookups7d = $this->directoryHealth->findGhostLookups($now->modify('-7 days'));
 
         // Escalate a coverage regression into the errors tile and the
-        // log-based cron alerting, at most once per 24h. Evaluated at
-        // dashboard render time (same lifecycle as every tile above).
+        // log-based cron alerting, at most once per 24h. Also evaluated
+        // nightly by app:db:prune so the alert fires even when nobody
+        // opens the dashboard; the 24h dedup makes both paths idempotent.
         if (DirectoryHealthRepository::shouldEmitCoverageAlert(
             $catalogCoverageGaps,
             $this->catalogCoverageAlertThreshold,
             $this->directoryHealth->lastCoverageAlertAt(),
             $now,
         )) {
-            $this->eventLogger->error('maintenance', 'catalog_coverage_degraded', [
+            $this->eventLogger->critical('maintenance', 'catalog_coverage_degraded', [
                 'count' => $catalogCoverageGaps,
             ]);
         }

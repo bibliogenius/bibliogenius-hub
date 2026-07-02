@@ -49,6 +49,19 @@ class HubEventLogger
         $this->logger->error("[$channel] $message", $context);
     }
 
+    /**
+     * Critical: stored in DB as an error row (so it counts in the dashboard
+     * errors tile) but emitted to Monolog at critical (level 500), the level
+     * the host-side cron alerter (scripts/alert_critical_logs.sh) greps for.
+     * Use for invariant violations that must page even when nobody is
+     * watching the dashboard; error() stays at level 400 and never pages.
+     */
+    public function critical(string $channel, string $message, array $context = []): void
+    {
+        $this->write('error', $channel, $message, $context);
+        $this->logger->critical("[$channel] $message", $context);
+    }
+
     private function write(string $level, string $channel, string $message, array $context): void
     {
         try {
