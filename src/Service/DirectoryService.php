@@ -539,9 +539,15 @@ class DirectoryService
             if (!is_array($entry)) {
                 continue;
             }
-            $bookId = $entry['book_id'] ?? null;
+            // Current clients key covers by the owner's book uuid, sent as
+            // `book_uuid`; catalogs from pre-uuid clients carried an integer
+            // `book_id`. Both generations coexist in cached_catalogs, and
+            // covers on disk are named by whichever id uploaded them.
+            $bookId = $entry['book_uuid'] ?? $entry['book_id'] ?? null;
             if (is_int($bookId) && $bookId > 0) {
-                $keep[$bookId] = true;
+                $keep[(string) $bookId] = true;
+            } elseif (is_string($bookId) && self::isUuidBookId($bookId)) {
+                $keep[strtolower($bookId)] = true;
             }
         }
 
@@ -562,11 +568,10 @@ class DirectoryService
         $orphans = [];
         foreach ($files as $file) {
             $basename = basename($file, '.jpg');
-            if (!ctype_digit($basename)) {
-                continue; // ignore non-numeric filenames, not ours
+            if (!ctype_digit($basename) && !self::isUuidBookId($basename)) {
+                continue; // neither an integer nor a uuid cover name, not ours
             }
-            $bookId = (int) $basename;
-            if (!isset($keep[$bookId])) {
+            if (!isset($keep[strtolower($basename)])) {
                 $orphans[] = $file;
             }
         }
@@ -600,6 +605,19 @@ class DirectoryService
             ]);
         }
         return $deleted;
+    }
+
+    /**
+     * True for a canonical 36-char hyphenated uuid (the shape clients use to
+     * key cover files since the uuid primary-key migration). Deliberately
+     * strict so the GC never claims arbitrary filenames as its own.
+     */
+    private static function isUuidBookId(string $value): bool
+    {
+        return preg_match(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i',
+            $value,
+        ) === 1;
     }
 
     /**

@@ -87,6 +87,26 @@ final class DirectoryServiceCoverGcTest extends TestCase
         return $path;
     }
 
+    private function putNamedCover(string $basename): string
+    {
+        $path = $this->nodeDir . '/' . $basename . '.jpg';
+        file_put_contents($path, 'jpeg');
+        return $path;
+    }
+
+    /**
+     * Catalog payload as pushed by post-uuid clients: the owner book id is a
+     * uuid string carried under `book_uuid` (never `book_id`, which pre-uuid
+     * followers declare as int and would fail their whole decode on).
+     */
+    private function uuidCatalogPayload(array $bookUuids): string
+    {
+        return json_encode(array_map(
+            fn(string $uuid) => ['isbn' => "isbn-$uuid", 'book_uuid' => $uuid, 'title' => "T$uuid"],
+            $bookUuids,
+        ), JSON_UNESCAPED_UNICODE);
+    }
+
     private function buildProfile(): LibraryProfile
     {
         return new LibraryProfile(self::NODE_ID, 'write-tok', 'Test Library');
@@ -144,6 +164,49 @@ final class DirectoryServiceCoverGcTest extends TestCase
         self::assertSame(1, $context['deleted_count']);
         self::assertSame(4, $context['disk_count']);
         self::assertSame('push', $context['trigger']);
+    }
+
+    public function testUuidKeyedCatalogDrivesGcAndIgnoresForeignFiles(): void
+    {
+        $profile = $this->buildProfile();
+        $keptA = '0197f2a4-1111-7222-8333-444455556666';
+        $keptUpper = '0197F2A4-AAAA-7BBB-8CCC-DDDDEEEEFFFF'; // uppercase file, lowercase catalog
+        $orphanUuid = '0197f2a4-9999-7999-8999-999999999999';
+        $this->putNamedCover($keptA);
+        $this->putNamedCover($keptUpper);
+        $this->putNamedCover($orphanUuid);
+        $this->putCover(7); // legacy numeric cover no longer referenced
+        $this->putNamedCover('not-a-managed-name'); // never GC'd
+        $this->putCover(3); // still referenced by a legacy int entry
+
+        $this->em->method('find')->willReturn(null);
+        $this->connection->expects($this->once())
+            ->method('insert')
+            ->willReturnCallback(function (string $table, array $row): int {
+                return 1;
+            });
+
+        // Mixed-generation payload: two uuid entries + one legacy int entry.
+        $entries = array_merge(
+            json_decode($this->uuidCatalogPayload([$keptA, strtolower($keptUpper)]), true),
+            json_decode($this->catalogPayload([3]), true),
+        );
+
+        $this->service->pushCatalog(
+            $profile,
+            '["isbn-a","isbn-b","isbn-3"]',
+            json_encode($entries, JSON_UNESCAPED_UNICODE),
+            bookCount: 3,
+            catalogHash: self::VALID_HASH,
+        );
+
+        // 6 files, 2 orphans (33% < 50% threshold): only the orphans go.
+        self::assertFileExists($this->nodeDir . '/' . $keptA . '.jpg');
+        self::assertFileExists($this->nodeDir . '/' . $keptUpper . '.jpg');
+        self::assertFileExists($this->nodeDir . '/3.jpg');
+        self::assertFileExists($this->nodeDir . '/not-a-managed-name.jpg');
+        self::assertFileDoesNotExist($this->nodeDir . '/' . $orphanUuid . '.jpg');
+        self::assertFileDoesNotExist($this->nodeDir . '/7.jpg');
     }
 
     public function testSkipsWhenCatalogPayloadIsNull(): void
