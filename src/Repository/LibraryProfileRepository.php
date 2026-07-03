@@ -13,6 +13,13 @@ use Doctrine\Persistence\ManagerRegistry;
  */
 class LibraryProfileRepository extends ServiceEntityRepository
 {
+    /**
+     * A profile seen within this window is considered active and keeps its
+     * cached catalog even past the row's own expires_at (see
+     * pruneExpiredCatalogs).
+     */
+    private const OWNER_INACTIVITY_DAYS = 30;
+
     public function __construct(ManagerRegistry $registry)
     {
         parent::__construct($registry, LibraryProfile::class);
@@ -151,16 +158,34 @@ class LibraryProfileRepository extends ServiceEntityRepository
     }
 
     /**
-     * Prunes expired cached_catalogs rows. Called probabilistically on writes
-     * to avoid a dedicated cron dependency on the hub.
+     * Prunes expired cached_catalogs rows, but only when the owning profile
+     * is itself inactive (last_seen_at older than the inactivity window,
+     * NULL, or profile gone). Clients up to 1.0.x skip the catalog re-push
+     * when their library is unchanged, so an active device can sit behind an
+     * expired row forever; deleting it would break the directory catalog
+     * fallback for every peer while the owner is still around. The catalog
+     * of an active profile is kept past expires_at and refreshed by the next
+     * real push. Called probabilistically on writes and by the nightly prune
+     * command.
      */
     public function pruneExpiredCatalogs(\DateTimeImmutable $now): int
     {
+        $activeCutoff = $now->modify(sprintf('-%d days', self::OWNER_INACTIVITY_DAYS));
+
         return $this->getEntityManager()
             ->getConnection()
             ->executeStatement(
-                'DELETE FROM cached_catalogs WHERE expires_at < :now',
-                ['now' => $now->format('Y-m-d H:i:s')]
+                'DELETE FROM cached_catalogs
+                  WHERE expires_at < :now
+                    AND NOT EXISTS (
+                        SELECT 1 FROM library_profiles lp
+                         WHERE lp.node_id = cached_catalogs.node_id
+                           AND lp.last_seen_at >= :activeCutoff
+                    )',
+                [
+                    'now' => $now->format('Y-m-d H:i:s'),
+                    'activeCutoff' => $activeCutoff->format('Y-m-d H:i:s'),
+                ]
             );
     }
 }
