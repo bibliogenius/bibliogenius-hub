@@ -25,6 +25,14 @@ if ! command -v scw &> /dev/null; then
     exit 1
 fi
 
+# ListSecrets requires project_id or organization_id since 2026-07-15,
+# and the CLI does not fill it from the config for this command.
+PROJECT_ID=$(scw config get default-project-id)
+if [ -z "$PROJECT_ID" ]; then
+    echo "ERROR: no default-project-id in scw config. Run: scw init"
+    exit 1
+fi
+
 create_secret() {
     local name="$1"
     local description="$2"
@@ -35,7 +43,7 @@ create_secret() {
 
     # Get or create the secret, capture its ID
     local secret_id
-    secret_id=$(scw secret secret list name="${full_name}" -o json 2>/dev/null | jq -r '.[0].id // empty')
+    secret_id=$(scw secret secret list name="${full_name}" project-id="${PROJECT_ID}" -o json 2>/dev/null | jq -r '.[0].id // empty')
 
     if [ -n "$secret_id" ]; then
         echo "    Secret exists (${secret_id}). Will create new version..."
@@ -72,6 +80,6 @@ create_secret "jira-api-token" "Jira API token for hub integration"
 echo "==> All secrets initialized for ${ENV}"
 echo ""
 echo "Next steps:"
-echo "  1. Verify: scw secret secret list | grep ${SECRET_PREFIX}"
+echo "  1. Verify: scw secret secret list project-id=${PROJECT_ID} | grep ${SECRET_PREFIX}"
 echo "  2. Test access: scw secret version access-by-name secret-name=${SECRET_PREFIX}-health-token revision=latest raw=true"
 echo "  3. Deploy: make deploy-vps (or deploy-vps-dev for staging)"
