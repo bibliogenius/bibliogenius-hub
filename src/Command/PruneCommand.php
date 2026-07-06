@@ -8,6 +8,7 @@ use App\Repository\Deposit404LogRepository;
 use App\Repository\DirectoryHealthRepository;
 use App\Repository\InviteTokenRepository;
 use App\Repository\LibraryProfileRepository;
+use App\Repository\RelayMailboxRepository;
 use App\Service\DirectoryService;
 use App\Service\HubEventLogger;
 use Doctrine\DBAL\Connection;
@@ -50,6 +51,7 @@ class PruneCommand extends Command
         private readonly Deposit404LogRepository $deposit404LogRepository,
         private readonly DirectoryService $directoryService,
         private readonly LibraryProfileRepository $profileRepository,
+        private readonly RelayMailboxRepository $relayMailboxRepository,
         private readonly DirectoryHealthRepository $directoryHealth,
         private readonly HubEventLogger $eventLogger,
         #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%env(int:default:catalog_coverage_alert_threshold_default:CATALOG_COVERAGE_ALERT_THRESHOLD)%')]
@@ -171,6 +173,14 @@ class PruneCommand extends Command
             ),
         );
         $io->writeln(sprintf('  relay_mailboxes  (%d-day TTL): <info>%d deleted</info>', self::RELAY_MAILBOX_TTL_DAYS, $deleted));
+
+        // The profile side of the reference is soft (no FK): clear the
+        // relay_mailbox_id of profiles whose mailbox was just deleted (or
+        // vanished earlier), otherwise they pile up as orphan references on
+        // the dashboard and never qualify for purgeStaleProfiles. Not counted
+        // in the return value: these are cleared references, not deleted rows.
+        $cleared = $this->relayMailboxRepository->clearDanglingProfileReferences();
+        $io->writeln(sprintf('  profile mailbox refs (dangling): <info>%d cleared</info>', $cleared));
 
         return $deleted;
     }

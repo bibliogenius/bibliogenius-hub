@@ -157,6 +157,31 @@ class RelayMailboxRepository extends ServiceEntityRepository
     }
 
     /**
+     * Null out library_profiles.relay_mailbox_id references whose mailbox no
+     * longer exists. The reference is soft (no FK), so the 90-day mailbox TTL
+     * prune leaves it dangling: the profile then counts as an "orphan mailbox
+     * reference" on the dashboard and, worse, dodges purgeStaleProfiles, whose
+     * stale-profile guard requires relay_mailbox_id IS NULL. Clearing the
+     * reference is safe for active clients: they recreate the mailbox on
+     * collect 404 and republish the new UUID at the next keep-alive.
+     *
+     * @return int number of profiles whose dangling reference was cleared
+     */
+    public function clearDanglingProfileReferences(): int
+    {
+        $conn = $this->getEntityManager()->getConnection();
+
+        return (int) $conn->executeStatement(
+            "UPDATE library_profiles SET relay_mailbox_id = NULL
+             WHERE relay_mailbox_id IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM relay_mailboxes rm
+                   WHERE rm.uuid = library_profiles.relay_mailbox_id
+               )"
+        );
+    }
+
+    /**
      * Delete a specific mailbox and its messages by UUID.
      */
     public function deleteWithMessages(string $uuid): void

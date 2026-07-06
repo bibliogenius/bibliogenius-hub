@@ -124,6 +124,66 @@ final class RelayMailboxIntegrityTest extends TestCase
     }
 
     /**
+     * The repair side of countProfilesWithOrphanMailbox: the UPDATE must be
+     * scoped so that, by construction,
+     *   - a profile with a dangling reference gets relay_mailbox_id = NULL
+     *     (matches: IS NOT NULL and the mailbox is gone),
+     *   - a profile referencing an existing mailbox is left intact
+     *     (NOT EXISTS fails, row not matched),
+     *   - a profile with a NULL reference is left intact
+     *     (IS NOT NULL guard, row not matched).
+     * A mailbox pruned by TTL in the same run is already deleted when this
+     * fires, so its reference goes from dangling to NULL in a single run.
+     */
+    public function testClearDanglingProfileReferencesNullsOnlyDanglingRefs(): void
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->expects($this->once())
+            ->method('executeStatement')
+            ->with($this->callback(function (string $sql): bool {
+                return str_contains($sql, 'UPDATE library_profiles')
+                    && str_contains($sql, 'SET relay_mailbox_id = NULL')
+                    && str_contains($sql, 'relay_mailbox_id IS NOT NULL')
+                    && str_contains($sql, 'NOT EXISTS')
+                    && str_contains($sql, 'relay_mailboxes')
+                    && str_contains($sql, 'rm.uuid = library_profiles.relay_mailbox_id');
+            }))
+            ->willReturn(2);
+
+        $result = $this->buildRepository($conn)->clearDanglingProfileReferences();
+
+        $this->assertSame(2, $result);
+    }
+
+    public function testClearDanglingProfileReferencesReturnsZeroWhenNoneDangling(): void
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->method('executeStatement')->willReturn(0);
+
+        $this->assertSame(0, $this->buildRepository($conn)->clearDanglingProfileReferences());
+    }
+
+    /**
+     * The UPDATE must stay scoped to relay_mailbox_id: the client refreshes
+     * write_token / relay_url / relay_write_token on its own (mailbox
+     * recreation on collect 404, republish at keep-alive), so the repair
+     * must never touch those columns.
+     */
+    public function testClearDanglingProfileReferencesTouchesNoOtherColumn(): void
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->expects($this->once())
+            ->method('executeStatement')
+            ->with($this->callback(function (string $sql): bool {
+                return !str_contains($sql, 'write_token')
+                    && !str_contains($sql, 'relay_url');
+            }))
+            ->willReturn(0);
+
+        $this->buildRepository($conn)->clearDanglingProfileReferences();
+    }
+
+    /**
      * Callers (DashboardController) depend on these exact method names.
      * If either is renamed, the dashboard stats silently break.
      */

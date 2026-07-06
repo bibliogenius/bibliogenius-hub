@@ -9,6 +9,7 @@ use App\Repository\Deposit404LogRepository;
 use App\Repository\DirectoryHealthRepository;
 use App\Repository\InviteTokenRepository;
 use App\Repository\LibraryProfileRepository;
+use App\Repository\RelayMailboxRepository;
 use App\Service\DirectoryService;
 use App\Service\HubEventLogger;
 use Doctrine\DBAL\Connection;
@@ -207,6 +208,49 @@ final class PruneCommandTest extends TestCase
         $this->assertStringContainsString('cached_catalogs', $tester->getDisplay());
     }
 
+    public function testDanglingMailboxReferencesClearedOnEveryRun(): void
+    {
+        // The mailbox TTL prune leaves soft references dangling in
+        // library_profiles (no FK); each run must clear them so pruned
+        // mailboxes do not accumulate as dashboard orphan references and
+        // the affected profiles stay eligible for purgeStaleProfiles. The
+        // cleared count is logged but must NOT inflate total_deleted:
+        // references are nulled, not rows deleted.
+        [$conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo] = $this->quietCollaborators();
+
+        $relayMailboxRepo = $this->createMock(RelayMailboxRepository::class);
+        $relayMailboxRepo->expects($this->once())
+            ->method('clearDanglingProfileReferences')
+            ->willReturn(34);
+
+        $insertArgs = null;
+        $conn = $this->createMock(Connection::class);
+        $conn->method('executeStatement')->willReturn(0);
+        $conn->method('fetchOne')->willReturn(0);
+        $conn->method('insert')
+            ->with(
+                $this->equalTo('hub_events'),
+                $this->callback(function (array $data) use (&$insertArgs) {
+                    $insertArgs = $data;
+                    return true;
+                }),
+            );
+
+        $tester = $this->buildCommandTester(
+            $conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo,
+            relayMailboxRepo: $relayMailboxRepo,
+        );
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+
+        $this->assertStringContainsString('34 cleared', $tester->getDisplay());
+
+        $this->assertNotNull($insertArgs);
+        $context = json_decode($insertArgs['context'], true);
+        $this->assertSame(0, $context['total_deleted']);
+        $this->assertSame(0, $context['per_table']['relay_mailboxes']);
+    }
+
     public function testCoverageAlertEmittedAboveThresholdViaCritical(): void
     {
         // The nightly run is what makes the coverage alert autonomous: it
@@ -317,13 +361,20 @@ final class PruneCommandTest extends TestCase
         ?DirectoryHealthRepository $directoryHealth = null,
         ?HubEventLogger $eventLogger = null,
         int $catalogCoverageAlertThreshold = 40,
+        ?RelayMailboxRepository $relayMailboxRepo = null,
     ): CommandTester {
+        if ($relayMailboxRepo === null) {
+            $relayMailboxRepo = $this->createStub(RelayMailboxRepository::class);
+            $relayMailboxRepo->method('clearDanglingProfileReferences')->willReturn(0);
+        }
+
         $command = new PruneCommand(
             $conn,
             $inviteRepo,
             $deposit404Repo,
             $directoryService,
             $profileRepo,
+            $relayMailboxRepo,
             // Stub health: 0 gaps, never alerted; below any threshold, so
             // legacy tests keep exercising the prune steps alert-free.
             $directoryHealth ?? $this->createStub(DirectoryHealthRepository::class),

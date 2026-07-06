@@ -438,6 +438,12 @@ class RelayController extends AbstractController
             $conn->executeStatement(
                 sprintf("DELETE FROM relay_mailboxes WHERE last_accessed IS NULL AND created_at < NOW() - INTERVAL '%d days'", self::MAILBOX_TTL_DAYS),
             );
+
+            // Mailbox deletion above strands library_profiles.relay_mailbox_id
+            // (soft reference, no FK): clear the dangling references so the
+            // profiles neither surface as orphan references on the dashboard
+            // nor dodge the stale-profile purge.
+            $this->mailboxRepository->clearDanglingProfileReferences();
         } catch (\Throwable) {
             // Cleanup is best-effort
         }
