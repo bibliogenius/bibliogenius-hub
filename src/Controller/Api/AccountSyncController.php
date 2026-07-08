@@ -8,6 +8,7 @@ use App\Entity\AccountEntity;
 use App\Repository\AccountAuthChallengeRepository;
 use App\Repository\AccountDeviceRegistryRepository;
 use App\Repository\AccountEntityRepository;
+use App\Repository\AccountRepository;
 use App\Service\AccountAuthService;
 use App\Service\HubEventLogger;
 use Doctrine\ORM\EntityManagerInterface;
@@ -39,10 +40,21 @@ class AccountSyncController extends AbstractController
     private const PULL_PAGE_LIMIT = 200;
     private const TOMBSTONE_BLOB_TTL_DAYS = 7;
     private const TOMBSTONE_ROW_TTL_DAYS = 90;
+    // Per-account storage cap when accounts.quota_bytes_limit is NULL (the
+    // ADR-043 quota hook, enforced since 2026-07). Deliberately generous
+    // (about two orders of magnitude above a typical library including
+    // covers) so legitimate sync never hits it: it exists to bound hosting
+    // cost abuse (opaque_ids are client-minted, so lane count is otherwise
+    // unbounded). Raise a specific account via accounts.quota_bytes_limit.
+    private const DEFAULT_QUOTA_BYTES = 512 * 1024 * 1024;
+    // Emit a warning event when usage crosses this share of the limit, so
+    // dashboard monitoring sees an account coming BEFORE any push is refused.
+    private const QUOTA_WARN_RATIO = 0.8;
 
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly AccountEntityRepository $lanes,
+        private readonly AccountRepository $accounts,
         private readonly AccountDeviceRegistryRepository $deviceRegistry,
         private readonly AccountAuthChallengeRepository $challenges,
         private readonly AccountAuthService $auth,
@@ -97,11 +109,64 @@ class AccountSyncController extends AbstractController
             $lanes[] = $parsed;
         }
 
+        // Storage quota gate: only pushes that ADD ciphertext are gated; a
+        // tombstone-only batch always passes so an over-quota account can
+        // still free space (never lock an account out of shrinking).
+        $addsData = false;
+        foreach ($lanes as $lane) {
+            if ($lane['blob'] !== null) {
+                $addsData = true;
+                break;
+            }
+        }
+        $quota = $addsData ? $this->quotaState($accountId) : null;
+        if ($quota !== null && $quota['used'] >= $quota['limit']) {
+            $this->eventLogger->warning('account_sync', 'push rejected: storage quota exceeded', [
+                'account_id' => substr($accountId, 0, 12),
+                'used_bytes' => $quota['used'],
+                'limit_bytes' => $quota['limit'],
+            ]);
+
+            return $this->json(
+                [
+                    'error' => 'Storage quota exceeded',
+                    'quota_bytes_used' => $quota['used'],
+                    'quota_bytes_limit' => $quota['limit'],
+                ],
+                Response::HTTP_INSUFFICIENT_STORAGE,
+            );
+        }
+
         try {
             $high = $this->lanes->pushLanes($accountId, $deviceId, $lanes);
         } catch (\Throwable $e) {
             $this->eventLogger->error('account_sync', 'push failed', ['reason' => $e->getMessage()]);
             return $this->json(['error' => 'Failed to store lanes'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        // Keep the quota counter fresh: one aggregate per accepted push bounds
+        // counter drift to a single batch (the old probabilistic refresh in
+        // maybeMaintain let an abuser overshoot by ~100 pushes). Best-effort
+        // but never silent: the counter self-heals on the next push.
+        try {
+            $newBytes = $this->lanes->recomputeQuotaBytes($accountId);
+            // Warn once per THRESHOLD CROSSING, not on every push above it:
+            // an account hovering above the warn line syncs continuously and
+            // would otherwise flood hub_events with hundreds of events a day.
+            if ($quota !== null) {
+                $warnAt = (int) round($quota['limit'] * self::QUOTA_WARN_RATIO);
+                if ($quota['used'] < $warnAt && $newBytes >= $warnAt) {
+                    $this->eventLogger->warning('account_sync', 'account approaching storage quota', [
+                        'account_id' => substr($accountId, 0, 12),
+                        'used_bytes' => $newBytes,
+                        'limit_bytes' => $quota['limit'],
+                    ]);
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->eventLogger->warning('account_sync', 'quota recompute failed', [
+                'reason' => $e->getMessage(),
+            ]);
         }
 
         $this->maybeMaintain($accountId);
@@ -253,8 +318,39 @@ class AccountSyncController extends AbstractController
         if (random_int(0, 99) === 0) {
             $this->lanes->gcTombstones(self::TOMBSTONE_BLOB_TTL_DAYS, self::TOMBSTONE_ROW_TTL_DAYS);
             $this->challenges->gcExpired();
+            // Quota recompute moved to the push path (every accepted push);
+            // this occasional pass only reconciles after tombstone GC frees
+            // blobs without a subsequent push.
             $this->lanes->recomputeQuotaBytes($accountId);
         }
+    }
+
+    /**
+     * Read the account's storage quota counters: the quota_bytes_used counter
+     * and the effective limit (accounts.quota_bytes_limit, or
+     * DEFAULT_QUOTA_BYTES when NULL).
+     *
+     * Returns null when the account cannot be resolved. Fail-open by design:
+     * the quota bounds hosting-cost abuse, it must never break a legitimate
+     * sync because of a transient lookup failure.
+     *
+     * @return array{used: int, limit: int}|null
+     */
+    private function quotaState(string $accountId): ?array
+    {
+        try {
+            $account = $this->accounts->findOneBy(['accountId' => $accountId]);
+        } catch (\Throwable) {
+            return null;
+        }
+        if ($account === null) {
+            return null;
+        }
+
+        return [
+            'used' => $account->getQuotaBytesUsed(),
+            'limit' => $account->getQuotaBytesLimit() ?? self::DEFAULT_QUOTA_BYTES,
+        ];
     }
 
     /**
