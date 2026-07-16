@@ -695,25 +695,37 @@ class DirectoryService
     }
 
     /**
-     * Returns the cached catalog for a library if the requester is allowed to see it.
+     * Whether the requester is allowed to read this library's catalog.
      *
      * Access rules:
-     *   - requires_approval=false OR is_listed=false: accessible to any authenticated user
+     *   - requires_approval=false OR is_listed=false: accessible to any requester
      *     (non-listed libraries use nodeId knowledge as implicit authorization)
      *   - requires_approval=true AND is_listed=true: requester must have an active follow
      */
-    public function getCatalog(LibraryProfile $profile, ?LibraryProfile $requesterProfile): ?CachedCatalog
+    public function canReadCatalog(LibraryProfile $profile, ?LibraryProfile $requesterProfile): bool
     {
         // Non-listed libraries: nodeId knowledge is sufficient (not discoverable in directory)
         if (!$profile->isRequiresApproval() || !$profile->isListed()) {
-            return $this->entityManager->find(CachedCatalog::class, $profile->getNodeId());
+            return true;
         }
 
         if ($requesterProfile === null) {
-            return null;
+            return false;
         }
 
-        if (!$this->followRepository->isActiveFollower($requesterProfile->getNodeId(), $profile->getNodeId())) {
+        return $this->followRepository->isActiveFollower($requesterProfile->getNodeId(), $profile->getNodeId());
+    }
+
+    /**
+     * Returns the cached catalog for a library if the requester is allowed to see it.
+     *
+     * Returns null both when access is denied and when no catalog is stored
+     * (expired or never pushed); callers needing to distinguish the two use
+     * [canReadCatalog] first.
+     */
+    public function getCatalog(LibraryProfile $profile, ?LibraryProfile $requesterProfile): ?CachedCatalog
+    {
+        if (!$this->canReadCatalog($profile, $requesterProfile)) {
             return null;
         }
 

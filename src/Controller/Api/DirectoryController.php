@@ -354,7 +354,7 @@ class DirectoryController extends AbstractController
 
         $profile = $this->profileRepository->findByNodeId($nodeId);
         if ($profile === null) {
-            return $this->error('Library not found.', Response::HTTP_NOT_FOUND);
+            return $this->error('Library not found.', Response::HTTP_NOT_FOUND, 'not_found');
         }
 
         // Auth: always attempt (required for non-listed or approval-required libraries)
@@ -363,17 +363,31 @@ class DirectoryController extends AbstractController
 
         // Non-listed libraries are hidden from unauthenticated requests
         if (!$profile->isListed() && $requester === null) {
-            return $this->error('Library not found.', Response::HTTP_NOT_FOUND);
+            return $this->error('Library not found.', Response::HTTP_NOT_FOUND, 'not_found');
         }
 
         $catalog = $this->directoryService->getCatalog($profile, $requester);
 
         if ($catalog === null) {
+            // Denial and absence are distinct outcomes: a requester without
+            // an active follow gets 'follow_required' (actionable: request
+            // access), while an authorized requester hitting an expired or
+            // never-pushed catalog gets 'catalog_unavailable' (actionable:
+            // wait for the owner to reconnect). Clients branch on the 'code'
+            // field. The access re-check runs only on this rare error branch,
+            // so the served path costs a single follow lookup.
+            if (!$this->directoryService->canReadCatalog($profile, $requester)) {
+                return $this->error(
+                    'Access requires an active follow relationship.',
+                    Response::HTTP_FORBIDDEN,
+                    'follow_required'
+                );
+            }
+
             return $this->error(
-                $profile->isRequiresApproval()
-                    ? 'Access requires an active follow relationship.'
-                    : 'Catalog not available.',
-                Response::HTTP_FORBIDDEN
+                'Catalog not available.',
+                Response::HTTP_FORBIDDEN,
+                'catalog_unavailable'
             );
         }
 
@@ -1017,9 +1031,20 @@ class DirectoryController extends AbstractController
             : null;
     }
 
-    private function error(string $message, int $status): JsonResponse
+    /**
+     * When $code is provided it is returned as a machine-readable 'code'
+     * field so clients can branch on the reason without parsing the
+     * human-oriented message (e.g. 'follow_required' vs 'catalog_unavailable'
+     * on the catalog endpoint).
+     */
+    private function error(string $message, int $status, ?string $code = null): JsonResponse
     {
-        return $this->json(['error' => $message], $status);
+        $payload = ['error' => $message];
+        if ($code !== null) {
+            $payload['code'] = $code;
+        }
+
+        return $this->json($payload, $status);
     }
 
     /**
