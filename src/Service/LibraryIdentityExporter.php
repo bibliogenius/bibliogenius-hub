@@ -149,6 +149,7 @@ final class LibraryIdentityExporter
         $withoutTitle = 0;
         $withoutAuthor = 0;
         $withoutCover = 0;
+        $withoutIsbn = 0;
         $criticalSamples = [];
         $minorSamples = [];
         $catalogIsbns = [];
@@ -158,9 +159,12 @@ final class LibraryIdentityExporter
                 continue;
             }
 
-            $isbn = is_string($entry['isbn'] ?? null) ? $entry['isbn'] : null;
-            if ($isbn !== null && $isbn !== '') {
+            $isbn = is_string($entry['isbn'] ?? null) ? trim($entry['isbn']) : '';
+            if ($isbn !== '') {
                 $catalogIsbns[$isbn] = true;
+            } else {
+                // Legitimate: a hand-entered book need not have an ISBN.
+                $withoutIsbn++;
             }
 
             $missing = [];
@@ -179,7 +183,7 @@ final class LibraryIdentityExporter
                 continue;
             }
 
-            $sample = ['isbn' => $isbn, 'missing' => $missing];
+            $sample = ['isbn' => $isbn === '' ? null : $isbn, 'missing' => $missing];
             $isCritical = array_intersect(self::CRITICAL_ENTRY_FIELDS, $missing) !== [];
 
             if ($isCritical && count($criticalSamples) < self::MAX_SAMPLES) {
@@ -191,9 +195,16 @@ final class LibraryIdentityExporter
 
         $samples = array_slice([...$criticalSamples, ...$minorSamples], 0, self::MAX_SAMPLES);
 
+        // Only a real ISBN can be orphaned. The legacy payload carries an empty
+        // string for every ISBN-less book, and counting those as "advertised
+        // but absent" turns an ordinary library into a false alarm.
         $orphanIsbns = [];
         foreach ($isbns as $isbn) {
-            if (is_string($isbn) && !isset($catalogIsbns[$isbn])) {
+            if (!is_string($isbn)) {
+                continue;
+            }
+            $isbn = trim($isbn);
+            if ($isbn !== '' && !isset($catalogIsbns[$isbn])) {
                 $orphanIsbns[] = $isbn;
             }
         }
@@ -209,6 +220,7 @@ final class LibraryIdentityExporter
             'entries_without_title' => $withoutTitle,
             'entries_without_author' => $withoutAuthor,
             'entries_without_cover' => $withoutCover,
+            'entries_without_isbn' => $withoutIsbn,
             'isbns_missing_from_catalog' => count($orphanIsbns),
             'isbns_missing_from_catalog_samples' => array_slice($orphanIsbns, 0, self::MAX_SAMPLES),
             'incomplete_samples' => $samples,

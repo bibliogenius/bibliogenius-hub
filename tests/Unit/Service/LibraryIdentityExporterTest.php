@@ -117,6 +117,37 @@ final class LibraryIdentityExporterTest extends TestCase
         self::assertSame(['title', 'author', 'cover_url'], $analysis['incomplete_samples'][1]['missing']);
     }
 
+    public function testEntriesWithoutIsbnAreCountedApartFromMissingOnes(): void
+    {
+        // A book with no ISBN is legitimate, and both payloads carry it as an
+        // empty string. Folding those into "advertised but absent from the
+        // catalog" turns an ordinary library into a false alarm.
+        $catalog = [
+            ['isbn' => '9780000000001', 'title' => 'Has an ISBN', 'author' => 'A', 'cover_url' => 'https://x/1.jpg'],
+            ['isbn' => '', 'title' => 'No ISBN', 'author' => 'B', 'cover_url' => 'https://x/2.jpg'],
+            ['title' => 'No ISBN key at all', 'author' => 'C', 'cover_url' => 'https://x/3.jpg'],
+        ];
+
+        $bundle = $this->buildExporter(
+            profile: $this->makeProfile(),
+            catalogRow: [
+                'isbn_payload' => json_encode(['9780000000001', '', '', '9780000000009']),
+                'catalog_payload' => json_encode($catalog),
+                'catalog_hash' => null,
+                'updated_at' => '2026-08-13 07:00:00',
+                'expires_at' => '2026-08-20 07:00:00',
+            ],
+        )->export(self::NODE_ID);
+
+        self::assertNotNull($bundle);
+        $analysis = $bundle['catalog'];
+
+        // Only the real orphan counts: one ISBN advertised, no catalog entry.
+        self::assertSame(1, $analysis['isbns_missing_from_catalog']);
+        self::assertSame(['9780000000009'], $analysis['isbns_missing_from_catalog_samples']);
+        self::assertSame(2, $analysis['entries_without_isbn']);
+    }
+
     public function testMissingTitlesOutrankMissingCoversInTheSample(): void
     {
         // A cover-less book is ordinary; a title-less one is the bug. With a
