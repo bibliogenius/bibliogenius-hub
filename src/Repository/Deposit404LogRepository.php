@@ -67,6 +67,21 @@ class Deposit404LogRepository
     }
 
     /**
+     * Total 404 hits recorded for one mailbox, all buckets. Sums the `count`
+     * column for the same reason countSince() does: one row covers a whole
+     * hour of hits.
+     */
+    public function countByMailbox(string $mailboxUuid): int
+    {
+        $result = $this->connection->fetchOne(
+            'SELECT SUM(count) FROM deposit_404_log WHERE mailbox_uuid = ?',
+            [$mailboxUuid],
+        );
+
+        return $result === null || $result === false ? 0 : (int) $result;
+    }
+
+    /**
      * Nightly cleanup. Keeps the table bounded independently of the rest
      * of the system: 6 noisy UUIDs * 24 buckets/day * 30 days = ~4k rows
      * worst case, with a TTL-enforced floor.

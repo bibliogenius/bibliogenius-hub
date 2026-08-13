@@ -55,6 +55,34 @@ final class HubEventLoggerTest extends TestCase
         $this->assertSame(['count' => 42], json_decode($insertArgs['context'], true));
     }
 
+    public function testAuditPersistsAtInfoLevelSoDashboardTilesStayClean(): void
+    {
+        $insertArgs = null;
+        $conn = $this->createMock(Connection::class);
+        $conn->expects($this->once())
+            ->method('insert')
+            ->with(
+                $this->equalTo('hub_events'),
+                $this->callback(function (array $data) use (&$insertArgs) {
+                    $insertArgs = $data;
+                    return true;
+                }),
+            );
+
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects($this->once())->method('info');
+
+        (new HubEventLogger($conn, $logger))->audit('admin', 'library_export', ['node_id' => 'abc']);
+
+        self::assertNotNull($insertArgs);
+        // 'warning' or 'error' here would make a routine admin action show up
+        // in the dashboard alert tiles.
+        self::assertSame('info', $insertArgs['level']);
+        self::assertSame('admin', $insertArgs['channel']);
+        self::assertSame('library_export', $insertArgs['message']);
+        self::assertStringContainsString('abc', (string) $insertArgs['context']);
+    }
+
     public function testCriticalStillPagesWhenDbInsertFails(): void
     {
         $conn = $this->createMock(Connection::class);

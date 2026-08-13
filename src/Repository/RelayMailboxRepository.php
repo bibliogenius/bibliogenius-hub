@@ -24,6 +24,16 @@ class RelayMailboxRepository extends ServiceEntityRepository
     }
 
     /**
+     * The mailbox a node owns, which is not necessarily the one its profile
+     * advertises: a mismatch between the two is the shape of the orphan and
+     * shared mailbox anomalies the dashboard counts.
+     */
+    public function findByOwnerNodeId(string $nodeId): ?RelayMailbox
+    {
+        return $this->findOneBy(['ownerNodeId' => $nodeId]);
+    }
+
+    /**
      * Count mailboxes not referenced by any library profile.
      */
     public function countOrphans(): int

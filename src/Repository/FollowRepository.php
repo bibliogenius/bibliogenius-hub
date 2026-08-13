@@ -90,4 +90,22 @@ class FollowRepository extends ServiceEntityRepository
             'status'         => Follow::STATUS_ACTIVE,
         ]) !== null;
     }
+
+    /**
+     * Every follow edge touching a node, in either direction and whatever the
+     * status. Unlike findFollowing() and findActiveFollowers(), which serve the
+     * UI and therefore hide rejected and blocked rows, this is for diagnosis:
+     * a rejection is often the answer to "why does this peer see nothing".
+     *
+     * @return Follow[]
+     */
+    public function findAllInvolving(string $nodeId): array
+    {
+        return $this->createQueryBuilder('f')
+            ->where('f.followerNodeId = :node OR f.followedNodeId = :node')
+            ->setParameter('node', $nodeId)
+            ->orderBy('f.createdAt', 'DESC')
+            ->getQuery()
+            ->getResult();
+    }
 }

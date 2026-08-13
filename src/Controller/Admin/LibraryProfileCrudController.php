@@ -47,10 +47,21 @@ class LibraryProfileCrudController extends AbstractCrudController
             ->linkToCrudAction('purgeStale')
             ->createAsGlobalAction();
 
+        // Downloads everything the hub knows about one library, so diagnosing a
+        // single profile no longer means pulling a full database dump.
+        $exportBundle = Action::new('exportBundle', 'Export analysis')
+            ->setIcon('fa fa-download')
+            ->linkToUrl(fn(LibraryProfile $profile): string => $this->generateUrl(
+                'admin_export_library',
+                ['nodeId' => $profile->getNodeId()],
+            ));
+
         return $actions
             ->disable(Action::NEW, Action::EDIT)
             ->add(Crud::PAGE_INDEX, Action::DETAIL)
-            ->add(Crud::PAGE_INDEX, $purgeStale);
+            ->add(Crud::PAGE_INDEX, $purgeStale)
+            ->add(Crud::PAGE_INDEX, $exportBundle)
+            ->add(Crud::PAGE_DETAIL, $exportBundle);
     }
 
     public function purgeStale(AdminUrlGenerator $adminUrlGenerator): Response

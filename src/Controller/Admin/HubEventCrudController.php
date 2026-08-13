@@ -42,12 +42,14 @@ class HubEventCrudController extends AbstractCrudController
     {
         return $filters
             ->add(ChoiceFilter::new('level')->setChoices([
+                'Info' => 'info',
                 'Warning' => 'warning',
                 'Error' => 'error',
             ]))
             ->add(ChoiceFilter::new('channel')->setChoices([
                 'Relay' => 'relay',
                 'Directory' => 'directory',
+                'Admin' => 'admin',
             ]));
     }
 

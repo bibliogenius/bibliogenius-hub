@@ -62,6 +62,21 @@ class HubEventLogger
         $this->logger->critical("[$channel] $message", $context);
     }
 
+    /**
+     * Audit: stored in DB at level 'info' + stderr at info.
+     *
+     * For deliberate admin actions that must leave a trace without being
+     * mistaken for a problem: the dashboard tiles count level = 'warning' and
+     * level = 'error' only, so an audit row is visible in the events list and
+     * invisible to the alerting surfaces. info() alone would not do, it never
+     * reaches the database.
+     */
+    public function audit(string $channel, string $message, array $context = []): void
+    {
+        $this->write('info', $channel, $message, $context);
+        $this->logger->info("[$channel] $message", $context);
+    }
+
     private function write(string $level, string $channel, string $message, array $context): void
     {
         try {

@@ -74,6 +74,23 @@ class BorrowRequestRepository extends ServiceEntityRepository
     }
 
     /**
+     * Every borrow request touching a node, as requester or as lender, whatever
+     * the status. Diagnosis-only: the UI finders above filter to the pending
+     * rows a user can still act on.
+     *
+     * @return BorrowRequest[]
+     */
+    public function findAllInvolving(string $nodeId): array
+    {
+        return $this->createQueryBuilder('b')
+            ->where('b.requesterNodeId = :node OR b.lenderNodeId = :node')
+            ->setParameter('node', $nodeId)
+            ->orderBy('b.createdAt', 'DESC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * Prunes expired borrow requests.
      *
      * @return int Number of deleted rows
