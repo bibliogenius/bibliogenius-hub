@@ -9,6 +9,7 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Entity]
 #[ORM\Table(name: 'cached_catalogs')]
 #[ORM\Index(columns: ['expires_at'], name: 'idx_cached_catalogs_expires')]
+#[ORM\Index(columns: ['catalog_hash'], name: 'idx_cached_catalogs_hash')]
 class CachedCatalog
 {
     /**

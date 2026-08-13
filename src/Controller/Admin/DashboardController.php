@@ -92,6 +92,13 @@ class DashboardController extends AbstractDashboardController
             ? $this->directoryHealth->findCatalogCoverageGaps($now)
             : [];
         $placeholderLeaks24h = $this->directoryHealth->countPlaceholderLookups($now->modify('-24 hours'));
+
+        // One library published under several live node ids (ADR-055). The
+        // count is over hashes, the drill-down over the nodes behind them.
+        $duplicateLibraries = $this->directoryHealth->countDuplicateLiveLibraries($now);
+        $duplicateLibraryRows = $duplicateLibraries > 0
+            ? $this->directoryHealth->findDuplicateLiveLibraries($now)
+            : [];
         $ghostLookups7d = $this->directoryHealth->findGhostLookups($now->modify('-7 days'));
 
         // Escalate a coverage regression into the errors tile and the
@@ -106,6 +113,22 @@ class DashboardController extends AbstractDashboardController
         )) {
             $this->eventLogger->critical('maintenance', 'catalog_coverage_degraded', [
                 'count' => $catalogCoverageGaps,
+            ]);
+        }
+
+        // Audit trail for the duplicate case, at most once per 24h. Phase 1 is
+        // observation only: the event is what tells us, over the coming weeks,
+        // whether a single occurrence was an accident or a pattern worth a
+        // user-facing fix. Threshold 0: one duplicated catalog is the signal.
+        if (DirectoryHealthRepository::shouldEmitAlert(
+            $duplicateLibraries,
+            0,
+            $this->directoryHealth->lastDuplicateLibraryAlertAt(),
+            $now,
+        )) {
+            $this->eventLogger->warning('maintenance', 'duplicate_library_detected', [
+                'catalogs' => $duplicateLibraries,
+                'nodes' => count($duplicateLibraryRows),
             ]);
         }
 
@@ -216,6 +239,8 @@ class DashboardController extends AbstractDashboardController
             'hijack_attempts_24h' => $hijackAttempts24h,
             'hijack_offenders' => $hijackOffenders,
             'catalog_coverage_gaps' => $catalogCoverageGaps,
+            'duplicate_libraries' => $duplicateLibraries,
+            'duplicate_library_rows' => $duplicateLibraryRows,
             'catalog_coverage_gap_rows' => $catalogCoverageGapRows,
             'catalog_coverage_alert_threshold' => $this->catalogCoverageAlertThreshold,
             'placeholder_leaks_24h' => $placeholderLeaks24h,

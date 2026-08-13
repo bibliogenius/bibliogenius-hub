@@ -88,6 +88,10 @@ php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NO
 # catalog_hash on cached_catalogs (Version20260414120000 - ADR-027 diff-based push)
 php /app/bin/console dbal:run-sql "ALTER TABLE cached_catalogs ADD COLUMN IF NOT EXISTS catalog_hash VARCHAR(64) DEFAULT NULL" --env=$ENV --no-interaction || true
 
+# catalog_hash index on cached_catalogs (Version20260813120000 - ADR-055
+# duplicate-library detection groups live catalogs by hash).
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_cached_catalogs_hash ON cached_catalogs (catalog_hash)" --env=$ENV --no-interaction || true
+
 # app_version on profiles (Version20260415120000 - client version diagnostics)
 php /app/bin/console dbal:run-sql "ALTER TABLE library_profiles ADD COLUMN IF NOT EXISTS app_version VARCHAR(32) DEFAULT NULL" --env=$ENV --no-interaction || true
 

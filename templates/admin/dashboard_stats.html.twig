@@ -611,6 +611,21 @@
         </div>
     </div>
 
+    <div class="stat-card {{ duplicate_libraries > 0 ? 'status-warn' : 'status-ok' }}">
+        <div class="stat-label">
+            Duplicate Libraries
+            <i class="tip" data-tip="Catalogs published under two or more node ids that are BOTH alive (seen &lt;7 days, books &gt;0). The catalog_hash is the client-side digest of the whole payload, so equality means the same library book for book. Restoring a backup on a second device mints a new node id by design; only both nodes staying alive makes it a duplicate. Peers follow the oldest one and never see the newer.">i</i>
+        </div>
+        <div class="stat-value">{{ duplicate_libraries }}</div>
+        <div class="stat-sub">
+            {% if duplicate_libraries > 0 %}
+                <span class="sub-warn">same catalog on 2+ live nodes, see below</span>
+            {% else %}
+                no library published twice
+            {% endif %}
+        </div>
+    </div>
+
     <div class="stat-card {{ ghost_lookups_7d|length > 0 ? 'status-warn' : 'status-ok' }}">
         <div class="stat-label">
             Ghost Lookups (7d)
@@ -618,7 +633,46 @@
         </div>
         <div class="stat-value">{{ ghost_lookups_7d|length }}</div>
         <div class="stat-sub">
-            {% if ghost_lookups_7d|length > 0 %}
+            {% if duplicate_library_rows|length > 0 %}
+<div class="section-title" style="margin-top: 24px;">Duplicate Libraries (same catalog, several live nodes)</div>
+<p class="section-legend">
+    Rows are grouped by <code>catalog_hash</code>, oldest node first. The oldest is the identity peers
+    already follow, so the newer one is invisible to them: its owner sees an empty-looking network while
+    their books are served under the other node id. The usual cause is a backup restored on a second
+    device, which mints a fresh node id on purpose (two devices sharing one would fight over the same
+    relay mailbox and profile). <strong>Action for now: observe.</strong> This is phase 1 of ADR-055,
+    which exists to find out whether the case recurs before building anything user-facing; the answer
+    for the user is account sync (ADR-043/044), not a second directory identity.
+</p>
+<table class="hub-table" style="max-width: 1040px;">
+    <thead>
+        <tr>
+            <th>Catalog hash</th>
+            <th>Node ID</th>
+            <th>Display name</th>
+            <th style="text-align:right">Books</th>
+            <th>Created</th>
+            <th>Last seen</th>
+            <th>App version</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in duplicate_library_rows %}
+        <tr>
+            <td><code class="mono">{{ row.catalog_hash|slice(0, 12) }}...</code></td>
+            <td><code class="mono">{{ row.node_id|slice(0, 24) }}...</code></td>
+            <td>{{ row.display_name }}</td>
+            <td class="db-size-val"><strong>{{ row.book_count }}</strong></td>
+            <td><time datetime="{{ row.created_at|date('c', 'UTC') }}" data-utc>{{ row.created_at|date('Y-m-d', 'UTC') }}</time></td>
+            <td>{% if row.last_seen_at %}<time datetime="{{ row.last_seen_at|date('c', 'UTC') }}" data-utc>{{ row.last_seen_at|date('Y-m-d H:i:s', 'UTC') }} UTC</time>{% else %}never{% endif %}</td>
+            <td>{{ row.app_version ?: 'unknown' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+{% if ghost_lookups_7d|length > 0 %}
                 <span class="sub-warn">stale references, see below</span>
             {% else %}
                 no repeated unknown node ids

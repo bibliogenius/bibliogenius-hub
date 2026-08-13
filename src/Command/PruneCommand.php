@@ -80,10 +80,45 @@ class PruneCommand extends Command
         $this->logPruneRun($total, $perTable, $io);
 
         $this->checkCatalogCoverage($io);
+        $this->checkDuplicateLibraries($io);
 
         $io->success(sprintf('Done — %d rows deleted.', $total));
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Duplicate-library check (ADR-055 phase 1): one catalog published under
+     * two or more live node ids. Evaluated nightly for the same reason as the
+     * coverage check, so the audit trail builds up whether or not anyone opens
+     * the dashboard; that trail is the whole point of phase 1, which decides
+     * later whether the case deserves a user-facing fix. Best-effort: a
+     * monitoring failure must never fail the prune.
+     */
+    private function checkDuplicateLibraries(SymfonyStyle $io): void
+    {
+        try {
+            $now = new \DateTimeImmutable();
+            $duplicates = $this->directoryHealth->countDuplicateLiveLibraries($now);
+
+            if (DirectoryHealthRepository::shouldEmitAlert(
+                $duplicates,
+                0,
+                $this->directoryHealth->lastDuplicateLibraryAlertAt(),
+                $now,
+            )) {
+                $this->eventLogger->warning('maintenance', 'duplicate_library_detected', [
+                    'catalogs' => $duplicates,
+                ]);
+            }
+
+            $io->writeln(sprintf(
+                '  duplicate libraries: <info>%d catalog(s) on 2+ live nodes</info>',
+                $duplicates,
+            ));
+        } catch (\Throwable $e) {
+            $io->warning(sprintf('Duplicate library check failed: %s', $e->getMessage()));
+        }
     }
 
     /**

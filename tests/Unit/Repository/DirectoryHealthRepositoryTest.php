@@ -225,4 +225,109 @@ final class DirectoryHealthRepositoryTest extends TestCase
         $empty->method('fetchOne')->willReturn(null);
         $this->assertNull((new DirectoryHealthRepository($empty))->lastCoverageAlertAt());
     }
+
+    // -------------------------------------------------------------------
+    // Duplicate live libraries (same catalog on two node ids)
+    // -------------------------------------------------------------------
+
+    public function testCountDuplicateLiveLibrariesShape(): void
+    {
+        $capturedSql = null;
+        $capturedParams = null;
+
+        $conn = $this->createMock(Connection::class);
+        $conn->expects($this->once())
+            ->method('fetchOne')
+            ->willReturnCallback(function (string $sql, array $params) use (&$capturedSql, &$capturedParams) {
+                $capturedSql = $sql;
+                $capturedParams = $params;
+                return '2';
+            });
+
+        $count = (new DirectoryHealthRepository($conn))->countDuplicateLiveLibraries($this->now());
+
+        $this->assertSame(2, $count);
+        // Only hashes actually stored can be compared.
+        $this->assertStringContainsStringIgnoringCase('catalog_hash IS NOT NULL', $capturedSql);
+        // An empty library hashes to the same digest as any other empty one:
+        // without this guard every pair of fresh installs is a false positive.
+        $this->assertStringContainsStringIgnoringCase('book_count > 0', $capturedSql);
+        // Both nodes must be alive: replacing a lost phone leaves the old
+        // profile behind and must never be reported as a duplicate.
+        $this->assertStringContainsStringIgnoringCase('last_seen_at >= ?', $capturedSql);
+        $this->assertStringContainsStringIgnoringCase('HAVING COUNT(*) >= 2', $capturedSql);
+        // Liveness window: 7 days, bound as a parameter.
+        $this->assertSame(['2026-06-25 12:00:00'], $capturedParams);
+    }
+
+    public function testFindDuplicateLiveLibrariesShape(): void
+    {
+        $capturedSql = null;
+        $capturedParams = null;
+
+        $conn = $this->createMock(Connection::class);
+        $conn->expects($this->once())
+            ->method('fetchAllAssociative')
+            ->willReturnCallback(function (string $sql, array $params) use (&$capturedSql, &$capturedParams) {
+                $capturedSql = $sql;
+                $capturedParams = $params;
+                return [];
+            });
+
+        (new DirectoryHealthRepository($conn))->findDuplicateLiveLibraries($this->now());
+
+        // The drill-down must let an admin tell the two nodes apart and see
+        // which one the peers are following (the oldest).
+        foreach (['catalog_hash', 'node_id', 'display_name', 'book_count', 'created_at', 'last_seen_at', 'app_version'] as $column) {
+            $this->assertStringContainsStringIgnoringCase($column, $capturedSql);
+        }
+        // Same guards as the counter, plus a stable grouping order.
+        $this->assertStringContainsStringIgnoringCase('catalog_hash IS NOT NULL', $capturedSql);
+        $this->assertStringContainsStringIgnoringCase('book_count > 0', $capturedSql);
+        $this->assertStringContainsStringIgnoringCase('HAVING COUNT(*) >= 2', $capturedSql);
+        $this->assertStringContainsStringIgnoringCase('ORDER BY', $capturedSql);
+        $this->assertStringContainsStringIgnoringCase('LIMIT 20', $capturedSql);
+        // The window is bound twice: once for the outer rows, once for the
+        // grouping sub-select. Both must use the same instant.
+        $this->assertSame(['2026-06-25 12:00:00', '2026-06-25 12:00:00'], $capturedParams);
+    }
+
+    public function testDuplicateAlertFiresOnceThenDeduplicatesFor24Hours(): void
+    {
+        $now = $this->now();
+
+        // A single duplicated catalog is worth an event: phase 1 exists to
+        // find out whether the case recurs, so the threshold is 0.
+        $this->assertTrue(DirectoryHealthRepository::shouldEmitAlert(1, 0, null, $now));
+        $this->assertFalse(DirectoryHealthRepository::shouldEmitAlert(0, 0, null, $now));
+
+        $this->assertFalse(
+            DirectoryHealthRepository::shouldEmitAlert(1, 0, $now->modify('-1 hour'), $now),
+        );
+        $this->assertTrue(
+            DirectoryHealthRepository::shouldEmitAlert(1, 0, $now->modify('-24 hours'), $now),
+        );
+    }
+
+    public function testLastDuplicateAlertAtReadsTheMaintenanceMarker(): void
+    {
+        $capturedSql = null;
+        $capturedParams = null;
+
+        $conn = $this->createMock(Connection::class);
+        $conn->method('fetchOne')->willReturnCallback(
+            function (string $sql, array $params) use (&$capturedSql, &$capturedParams) {
+                $capturedSql = $sql;
+                $capturedParams = $params;
+                return '2026-07-01 09:30:00';
+            },
+        );
+
+        $at = (new DirectoryHealthRepository($conn))->lastDuplicateLibraryAlertAt();
+
+        $this->assertSame('2026-07-01 09:30:00', $at?->format('Y-m-d H:i:s'));
+        $this->assertStringContainsStringIgnoringCase("channel = 'maintenance'", $capturedSql);
+        // The marker name travels as a bound parameter, never interpolated.
+        $this->assertSame(['duplicate_library_detected'], $capturedParams);
+    }
 }
