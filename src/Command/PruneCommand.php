@@ -282,9 +282,10 @@ class PruneCommand extends Command
 
     /**
      * Drops cached_catalogs rows whose per-row expires_at is in the past AND
-     * whose owning profile has been inactive for 30+ days: 1.0.x clients skip
-     * the re-push of an unchanged catalog, so an active device can legitimately
-     * sit behind an expired row (see LibraryProfileRepository).
+     * whose owning profile has been inactive past the owner-inactivity window
+     * (365 days, see LibraryProfileRepository): 1.0.x clients skip the
+     * re-push of an unchanged catalog, so an active device can legitimately
+     * sit behind an expired row.
      * Backstop for the in-process probabilistic cleanup
      * (DirectoryService::probabilisticCleanup): on a low-write hub the 1/50
      * roll rarely fires and expired rows accumulate. Production audit on

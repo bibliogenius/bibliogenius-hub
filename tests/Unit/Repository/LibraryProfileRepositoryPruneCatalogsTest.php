@@ -67,9 +67,9 @@ final class LibraryProfileRepositoryPruneCatalogsTest extends TestCase
 
         self::assertSame('2026-07-03 10:00:00', $capturedParams['now']);
         self::assertSame(
-            '2026-06-03 10:00:00',
+            '2025-07-03 10:00:00',
             $capturedParams['activeCutoff'],
-            'inactivity window must be 30 days before the prune timestamp',
+            'inactivity window must be 365 days before the prune timestamp',
         );
     }
 

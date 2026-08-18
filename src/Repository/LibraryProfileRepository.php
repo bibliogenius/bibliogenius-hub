@@ -17,8 +17,15 @@ class LibraryProfileRepository extends ServiceEntityRepository
      * A profile seen within this window is considered active and keeps its
      * cached catalog even past the row's own expires_at (see
      * pruneExpiredCatalogs).
+     *
+     * One year, deliberately: personal libraries legitimately go dormant for
+     * months (a demo box, a device in a drawer), and dropping the catalog is
+     * what makes them unreachable for every peer (2026-08 incident: a device
+     * silent for 30 days lost its served catalog while its owner's other
+     * devices still wanted it). The hub cannot rebuild a dropped row; only a
+     * new client push can. Storage is bounded (2 MB per row).
      */
-    private const OWNER_INACTIVITY_DAYS = 30;
+    private const OWNER_INACTIVITY_DAYS = 365;
 
     public function __construct(ManagerRegistry $registry)
     {
