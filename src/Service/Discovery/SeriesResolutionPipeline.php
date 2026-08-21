@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Service\Discovery;
 
-use function Symfony\Component\String\u;
-
 /**
  * Series resolution internals (ADR-060 section 3.2), deliberately separate
  * from the controller and the cache (section 3.7 discipline: this is the
@@ -29,15 +27,11 @@ class SeriesResolutionPipeline
      */
     public const MAX_VOLUMES = 40;
 
-    /** Bound the neutral payload: up to this many editions per language. */
-    private const MAX_EDITIONS_PER_LANG = 2;
-
-    /** Bound the neutral payload: hard cap on editions per volume. */
-    private const MAX_EDITIONS_PER_VOLUME = 24;
-
     public function __construct(
         private readonly InventaireClient $inventaire,
         private readonly WikidataClient $wikidata,
+        private readonly EntityLookup $entities,
+        private readonly EditionResolver $editions,
     ) {
     }
 
@@ -114,7 +108,7 @@ class SeriesResolutionPipeline
         }
         usort($volumes, static fn (array $a, array $b): int => $a['ordinal'] <=> $b['ordinal']);
 
-        $this->attachEditions($volumes);
+        $this->editions->attachTo($volumes);
         foreach ($volumes as &$volume) {
             unset($volume['work_uri']);
         }
@@ -131,15 +125,14 @@ class SeriesResolutionPipeline
     }
 
     /**
-     * Normalized label form shared by the name tiebreaker: lowercase, fold
-     * diacritics, keep alphanumeric words joined by single spaces.
+     * Normalized label form used by the name tiebreaker: lowercase, fold
+     * diacritics, keep alphanumeric words joined by single spaces. The
+     * implementation lives in Labels, shared with the author lane; this
+     * entry point stays because the resolver tiebreaker reads it here.
      */
     public static function normalizeLabel(string $s): string
     {
-        $folded = u($s)->ascii()->lower()->toString();
-        $words = preg_split('/[^a-z0-9]+/', $folded, -1, PREG_SPLIT_NO_EMPTY);
-
-        return implode(' ', $words ?: []);
+        return Labels::normalize($s);
     }
 
     /**
@@ -214,115 +207,19 @@ class SeriesResolutionPipeline
                     $authors[] = $authorLabels[$authorUri];
                 }
             }
-            $dates = self::claimValues($work, 'wdt:P577');
             $langs = self::claimValues($work, 'wdt:P407');
             $ordinals = self::claimValues($work, 'wdt:P1545');
             $members[] = [
                 'work_uri' => $workUri,
                 'label' => self::pickLabel($work),
                 'ordinal' => $ordinals[0] ?? null,
-                'year' => isset($dates[0]) && preg_match('/^(\d{4})/', $dates[0], $m) === 1 ? (int) $m[1] : null,
+                'year' => Claims::year($work, 'wdt:P577'),
                 'authors' => $authors,
                 'original_lang' => isset($langs[0]) ? ($langCodes[$langs[0]] ?? null) : null,
             ];
         }
 
         return $members;
-    }
-
-    /**
-     * Fetch and attach language-neutral edition candidates (ISBN, language
-     * code, cover URL) per volume. Editions without a checksum-valid ISBN
-     * are useless to the client and skipped; editions are bounded per
-     * language and per volume to keep the pooled payload small.
-     *
-     * @param list<array<string, mixed>> $volumes modified in place
-     */
-    private function attachEditions(array &$volumes): void
-    {
-        $editionUrisByVolume = [];
-        $allEditionUris = [];
-        foreach ($volumes as $i => $volume) {
-            $uris = $this->inventaire->reverseClaims('wdt:P629', $volume['work_uri']);
-            $editionUrisByVolume[$i] = $uris;
-            $allEditionUris = array_merge($allEditionUris, $uris);
-        }
-        if ($allEditionUris === []) {
-            return;
-        }
-
-        // An edition claimed by several works of the same series is an
-        // omnibus or a box set: the sources link it to every work it
-        // contains. It is an edition of none of them individually, and
-        // offering it as "the missing volume N" would have the client
-        // import a box set under one volume's title. Dropped before the
-        // fetch, so it costs no outbound call either.
-        $shared = [];
-        foreach (array_count_values($allEditionUris) as $uri => $count) {
-            if ($count > 1) {
-                $shared[$uri] = true;
-            }
-        }
-        if ($shared !== []) {
-            foreach ($editionUrisByVolume as $i => $uris) {
-                $editionUrisByVolume[$i] = array_values(
-                    array_filter($uris, static fn (string $u): bool => !isset($shared[$u])),
-                );
-            }
-            $allEditionUris = array_filter(
-                $allEditionUris,
-                static fn (string $u): bool => !isset($shared[$u]),
-            );
-            if ($allEditionUris === []) {
-                return;
-            }
-        }
-
-        $editions = $this->inventaire->entitiesByUris(array_unique($allEditionUris));
-
-        $langUris = [];
-        foreach ($editions as $edition) {
-            if (is_array($edition)) {
-                $langUris = array_merge($langUris, self::claimValues($edition, 'wdt:P407'));
-            }
-        }
-        $langCodes = $this->languageCodes(array_unique($langUris));
-
-        foreach ($volumes as $i => &$volume) {
-            $perLang = [];
-            $kept = [];
-            foreach ($editionUrisByVolume[$i] as $editionUri) {
-                if (count($kept) >= self::MAX_EDITIONS_PER_VOLUME) {
-                    break;
-                }
-                $edition = $editions[$editionUri] ?? null;
-                if (!is_array($edition)) {
-                    continue;
-                }
-                $isbnValues = self::claimValues($edition, 'wdt:P212');
-                $isbn13 = isset($isbnValues[0]) ? Isbn::toIsbn13($isbnValues[0]) : null;
-                if ($isbn13 === null) {
-                    continue;
-                }
-                $editionLangs = self::claimValues($edition, 'wdt:P407');
-                $lang = isset($editionLangs[0]) ? ($langCodes[$editionLangs[0]] ?? null) : null;
-                $langKey = $lang ?? '?';
-                $perLang[$langKey] = ($perLang[$langKey] ?? 0) + 1;
-                if ($perLang[$langKey] > self::MAX_EDITIONS_PER_LANG) {
-                    continue;
-                }
-                $imageHashes = self::claimValues($edition, 'invp:P2');
-                $kept[] = [
-                    'isbn' => $isbn13,
-                    'lang' => $lang,
-                    'cover_url' => isset($imageHashes[0])
-                        ? 'https://inventaire.io/img/entities/' . $imageHashes[0]
-                        : null,
-                ];
-            }
-            $volume['editions'] = $kept;
-        }
-        unset($volume);
     }
 
     /** Label of a single entity (en, then fr, then any), or null. */
@@ -344,20 +241,7 @@ class SeriesResolutionPipeline
      */
     public function entityLabels(array $uris): array
     {
-        if ($uris === []) {
-            return [];
-        }
-        $labels = [];
-        foreach ($this->inventaire->entitiesByUris($uris) as $uri => $entity) {
-            if (is_array($entity)) {
-                $label = self::pickLabel($entity);
-                if ($label !== null) {
-                    $labels[$uri] = $label;
-                }
-            }
-        }
-
-        return $labels;
+        return $this->entities->labels($uris);
     }
 
     /**
@@ -369,21 +253,7 @@ class SeriesResolutionPipeline
      */
     private function languageCodes(array $uris): array
     {
-        if ($uris === []) {
-            return [];
-        }
-        $codes = [];
-        foreach ($this->inventaire->entitiesByUris($uris) as $uri => $entity) {
-            if (!is_array($entity)) {
-                continue;
-            }
-            $values = self::claimValues($entity, 'wdt:P218');
-            if (isset($values[0])) {
-                $codes[$uri] = strtolower($values[0]);
-            }
-        }
-
-        return $codes;
+        return $this->entities->languageCodes($uris);
     }
 
     /**
@@ -393,34 +263,13 @@ class SeriesResolutionPipeline
      */
     private static function claimValues(array $entity, string $property): array
     {
-        $values = $entity['claims'][$property] ?? [];
-        if (!is_array($values)) {
-            return [];
-        }
-
-        return array_values(array_filter($values, 'is_string'));
+        return Claims::values($entity, $property);
     }
 
     /** @param array<string, mixed> $entity */
     private static function pickLabel(array $entity): ?string
     {
-        $labels = $entity['labels'] ?? [];
-        if (!is_array($labels) || $labels === []) {
-            return null;
-        }
-        // 'mul' is Wikidata's multilingual code: a label identical across
-        // Latin-script languages now lives there ALONE, the per-language
-        // ones having been dropped. Without it, entities as central as the
-        // Harry Potter series fall through to the arbitrary first label
-        // below, which is whatever language sorts first.
-        foreach (['en', 'fr', 'mul'] as $lang) {
-            if (isset($labels[$lang]) && is_string($labels[$lang])) {
-                return $labels[$lang];
-            }
-        }
-        $first = reset($labels);
-
-        return is_string($first) ? $first : null;
+        return Labels::pick($entity);
     }
 
     /** Source ordinals like "3" are kept; "2.5" or "III" are not integers. */

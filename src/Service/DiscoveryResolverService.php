@@ -6,15 +6,18 @@ namespace App\Service;
 
 use App\Entity\DiscoveryCache;
 use App\Repository\DiscoveryCacheRepository;
+use App\Service\Discovery\AuthorResolutionPipeline;
 use App\Service\Discovery\DiscoveryBudgetExhaustedException;
 use App\Service\Discovery\DiscoverySourceException;
+use App\Service\Discovery\Labels;
 use App\Service\Discovery\SeriesResolutionPipeline;
 
 /**
  * External discovery resolver (ADR-060): pooled, anonymous resolution of
- * series membership. Owns the cache orchestration and the serve-time
- * language filtering; the resolution internals live in
- * Discovery\SeriesResolutionPipeline (section 3.7 discipline), the HTTP
+ * series membership and author bibliographies. Owns the cache
+ * orchestration and the serve-time language filtering; the resolution
+ * internals live in Discovery\SeriesResolutionPipeline and
+ * Discovery\AuthorResolutionPipeline (section 3.7 discipline), the HTTP
  * validation in DiscoveryController.
  *
  * Callable internally (not only through /api/discovery): the curated
@@ -47,6 +50,7 @@ class DiscoveryResolverService
         private readonly DiscoveryCacheRepository $cache,
         private readonly SeriesResolutionPipeline $pipeline,
         private readonly HubEventLogger $eventLogger,
+        private readonly AuthorResolutionPipeline $authorPipeline,
     ) {
     }
 
@@ -134,6 +138,82 @@ class DiscoveryResolverService
     }
 
     /**
+     * Resolve the author identified by [name], anchored by 1..3
+     * already-validated ISBN-13s of books the reader owns, and filter
+     * editions for the reader's language codes at serve time.
+     *
+     * Anchor first, name verified (ADR-060 section 3.2): an anchor gives
+     * the author ENTITY, and that entity's label must be the name the
+     * client asked about. Homonymy is where author completion humiliates
+     * itself, so a mismatch on every anchor shows nothing rather than
+     * someone else's bibliography.
+     *
+     * @param list<string> $isbn13s
+     * @param list<string> $langs
+     *
+     * @return array<string, mixed> the response envelope
+     */
+    public function resolveAuthor(string $name, array $isbn13s, array $langs): array
+    {
+        try {
+            $anyCandidate = false;
+            $verified = null;
+            foreach ($isbn13s as $isbn13) {
+                $candidates = $this->anchorAuthorCandidates($isbn13);
+                if ($candidates === []) {
+                    continue;
+                }
+                $anyCandidate = true;
+                $matching = array_values(array_filter(
+                    $candidates,
+                    static fn (array $c): bool => Labels::sameName($c['label'], $name),
+                ));
+                // Exactly one match is the only clear answer. Several
+                // entities carrying the same name are duplicates we cannot
+                // tell apart, so the next anchor gets its chance and an
+                // unresolved sweep ends as ambiguous.
+                if (count($matching) === 1) {
+                    $verified = $matching[0];
+                    break;
+                }
+            }
+
+            if ($verified === null) {
+                $status = $anyCandidate ? self::STATUS_AMBIGUOUS : self::STATUS_UNKNOWN;
+                $this->eventLogger->warning('discovery', 'author_' . $status, [
+                    'name' => $isbn13s[0] ?? '',
+                    'reason' => $anyCandidate ? 'name_not_verified' : 'no_anchor_resolved',
+                ]);
+
+                return ['status' => $status];
+            }
+
+            $payload = $this->authorPayload($verified['uri'], $verified['label']);
+        } catch (DiscoveryBudgetExhaustedException) {
+            $this->eventLogger->error('discovery', 'author_unavailable', [
+                'reason' => 'outbound_budget_exhausted',
+            ]);
+
+            return ['status' => self::STATUS_UNAVAILABLE];
+        } catch (DiscoverySourceException $e) {
+            $this->eventLogger->error('discovery', 'author_unavailable', [
+                'reason' => substr($e->getMessage(), 0, 100),
+            ]);
+
+            return ['status' => self::STATUS_UNAVAILABLE];
+        }
+
+        if ($payload === null) {
+            return ['status' => self::STATUS_UNKNOWN];
+        }
+
+        return [
+            'status' => self::STATUS_RESOLVED,
+            'author' => $this->filterAuthorForLangs($payload, $langs),
+        ];
+    }
+
+    /**
      * Candidate series URIs for one anchor, through the lookup-level cache.
      *
      * @return list<string>
@@ -201,6 +281,84 @@ class DiscoveryResolverService
     }
 
     /**
+     * Candidate author entities (uri and label) for one anchor, through
+     * the lookup-level cache. The label is cached with the uri so a warm
+     * anchor verifies the requested name without any outbound call.
+     *
+     * @return list<array{uri: string, label: string}>
+     */
+    private function anchorAuthorCandidates(string $isbn13): array
+    {
+        $row = $this->cache->findFresh(DiscoveryCache::KIND_AUTHOR_LOOKUP, $isbn13);
+        if ($row !== null) {
+            $cached = $row['payload']['authors'] ?? null;
+            if (!is_array($cached)) {
+                return [];
+            }
+            $candidates = [];
+            foreach ($cached as $entry) {
+                if (is_array($entry) && is_string($entry['uri'] ?? null) && is_string($entry['label'] ?? null)) {
+                    $candidates[] = ['uri' => $entry['uri'], 'label' => $entry['label']];
+                }
+            }
+
+            return $candidates;
+        }
+
+        $candidates = $this->authorPipeline->resolveAnchor($isbn13);
+        if ($candidates === []) {
+            $this->cache->put(DiscoveryCache::KIND_AUTHOR_LOOKUP, $isbn13, DiscoveryCache::STATUS_UNKNOWN, null, null);
+        } else {
+            $this->cache->put(
+                DiscoveryCache::KIND_AUTHOR_LOOKUP,
+                $isbn13,
+                DiscoveryCache::STATUS_RESOLVED,
+                ['authors' => $candidates],
+                null,
+            );
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * Entity-level bibliography through the pooled cache: every reader who
+     * likes this author shares one resolution per 30 days, whichever of
+     * their books anchored it.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function authorPayload(string $authorUri, string $label): ?array
+    {
+        $row = $this->cache->findFresh(DiscoveryCache::KIND_AUTHOR, $authorUri);
+        if ($row !== null) {
+            return $row['status'] === DiscoveryCache::STATUS_RESOLVED && is_array($row['payload'])
+                ? $row['payload']
+                : null;
+        }
+
+        $payload = $this->authorPipeline->resolveAuthorEntity($authorUri, $label);
+        if ($payload === null) {
+            $this->cache->put(DiscoveryCache::KIND_AUTHOR, $authorUri, DiscoveryCache::STATUS_UNKNOWN, null, null);
+            $this->eventLogger->warning('discovery', 'author_unknown', [
+                'name' => $authorUri,
+                'reason' => 'no_usable_works',
+            ]);
+
+            return null;
+        }
+        $this->cache->put(
+            DiscoveryCache::KIND_AUTHOR,
+            $authorUri,
+            DiscoveryCache::STATUS_RESOLVED,
+            $payload,
+            is_string($payload['source'] ?? null) ? $payload['source'] : null,
+        );
+
+        return $payload;
+    }
+
+    /**
      * Name tiebreaker between several legitimate candidates (a cycle and an
      * integrale): unique normalized-label equality wins, then unique
      * containment either way; anything less clear is ambiguous.
@@ -255,6 +413,125 @@ class DiscoveryResolverService
      */
     private function filterForLangs(array $payload, array $langs): array
     {
+        $wanted = self::wantedLangs($langs);
+
+        $volumes = [];
+        foreach ($payload['volumes'] ?? [] as $volume) {
+            if (!is_array($volume)) {
+                continue;
+            }
+            [$kept, $otherLangsExist] = $this->keptEditions($volume, $wanted);
+            $volumes[] = [
+                'ordinal' => $volume['ordinal'] ?? null,
+                'title' => $volume['title'] ?? '',
+                'authors' => is_array($volume['authors'] ?? null) ? $volume['authors'] : [],
+                'year' => $volume['year'] ?? null,
+                'editions' => $kept,
+                'other_langs_exist' => $otherLangsExist,
+            ];
+        }
+
+        return [
+            'source' => $payload['source'] ?? null,
+            'source_id' => $payload['source_id'] ?? null,
+            'label' => $payload['label'] ?? '',
+            'volumes' => $volumes,
+        ];
+    }
+
+    /**
+     * Same serve-time filtering for the author lane, over works instead of
+     * volumes: a work carries its popularity proxy (editions_count) and no
+     * ordinal, and the ranking is the hub's, so the client can cap by
+     * popularity without a second source call.
+     *
+     * @param array<string, mixed> $payload
+     * @param list<string>         $langs
+     *
+     * @return array<string, mixed>
+     */
+    private function filterAuthorForLangs(array $payload, array $langs): array
+    {
+        $wanted = self::wantedLangs($langs);
+
+        $works = [];
+        foreach ($payload['works'] ?? [] as $work) {
+            if (!is_array($work)) {
+                continue;
+            }
+            [$kept, $otherLangsExist] = $this->keptEditions($work, $wanted);
+            [$title, $titles] = self::titlesForLangs($work, $langs);
+            $works[] = [
+                'title' => $title,
+                'titles' => $titles,
+                'authors' => is_array($work['authors'] ?? null) ? $work['authors'] : [],
+                'year' => $work['year'] ?? null,
+                'editions_count' => $work['editions_count'] ?? null,
+                'editions' => $kept,
+                'other_langs_exist' => $otherLangsExist,
+            ];
+        }
+
+        return [
+            'source' => $payload['source'] ?? null,
+            'source_id' => $payload['source_id'] ?? null,
+            'label' => $payload['label'] ?? '',
+            'works' => $works,
+        ];
+    }
+
+    /**
+     * Display title and matching titles of one work, from the neutral
+     * label map (ADR-060 section 2 applied to titles, as it already is to
+     * editions).
+     *
+     * The display title is the reader's own language when the sources know
+     * it, so a French reader reads "L'Etranger" and not "The Stranger".
+     * The alternates matter more: the client drops a work whose normalized
+     * title and author already exist in the library, and a library is
+     * catalogued in the reader's language while the sources answer in
+     * theirs. Without the alternates that half of the membrane silently
+     * matches nothing, which on the author lane means offering people the
+     * translation of a book they own.
+     *
+     * @param array<string, mixed> $work
+     * @param list<string>         $langs
+     *
+     * @return array{0: string, 1: list<string>}
+     */
+    private static function titlesForLangs(array $work, array $langs): array
+    {
+        $labels = is_array($work['labels'] ?? null) ? $work['labels'] : [];
+        $neutral = is_string($work['title'] ?? null) ? $work['title'] : '';
+
+        $titles = [];
+        foreach ($langs as $lang) {
+            $lower = strtolower($lang);
+            $base = strstr($lower, '-', true);
+            foreach ([$lower, is_string($base) ? $base : null] as $code) {
+                if ($code !== null && isset($labels[$code]) && is_string($labels[$code])) {
+                    $titles[$labels[$code]] = true;
+                }
+            }
+        }
+        $display = $titles === [] ? $neutral : (string) array_key_first($titles);
+        if ($neutral !== '') {
+            $titles[$neutral] = true;
+        }
+
+        return [$display, array_values(array_map('strval', array_keys($titles)))];
+    }
+
+    /**
+     * Reader language codes as a lookup set, each entry also matched on its
+     * base subtag ("pt-BR" accepts a "pt" edition).
+     *
+     * @param list<string> $langs
+     *
+     * @return array<string, true>
+     */
+    private static function wantedLangs(array $langs): array
+    {
         $wanted = [];
         foreach ($langs as $lang) {
             $lower = strtolower($lang);
@@ -265,53 +542,50 @@ class DiscoveryResolverService
             }
         }
 
-        $volumes = [];
-        foreach ($payload['volumes'] ?? [] as $volume) {
-            if (!is_array($volume)) {
+        return $wanted;
+    }
+
+    /**
+     * Editions of one volume or work kept for this reader: those in the
+     * requested languages PLUS the original-language one, always included
+     * when known, deduplicated by ISBN and with their cover URLs
+     * sanitized. The second return value says whether the neutral cache
+     * holds editions this reader does not see.
+     *
+     * @param array<string, mixed> $item
+     * @param array<string, true>  $wanted
+     *
+     * @return array{0: list<array{isbn: string, lang: ?string, cover_url: ?string}>, 1: bool}
+     */
+    private function keptEditions(array $item, array $wanted): array
+    {
+        $all = is_array($item['editions'] ?? null) ? $item['editions'] : [];
+        $originalLang = is_string($item['original_lang'] ?? null) ? strtolower($item['original_lang']) : null;
+
+        $kept = [];
+        $keptIsbns = [];
+        foreach ($all as $edition) {
+            if (!is_array($edition) || !is_string($edition['isbn'] ?? null)) {
                 continue;
             }
-            $all = is_array($volume['editions'] ?? null) ? $volume['editions'] : [];
-            $originalLang = is_string($volume['original_lang'] ?? null) ? strtolower($volume['original_lang']) : null;
-
-            $kept = [];
-            $keptIsbns = [];
-            foreach ($all as $edition) {
-                if (!is_array($edition) || !is_string($edition['isbn'] ?? null)) {
-                    continue;
-                }
-                $lang = is_string($edition['lang'] ?? null) ? strtolower($edition['lang']) : null;
-                $isReaderLang = $lang !== null && ($wanted === [] || isset($wanted[$lang]));
-                $isOriginal = $lang !== null && $lang === $originalLang;
-                if (!$isReaderLang && !$isOriginal) {
-                    continue;
-                }
-                if (isset($keptIsbns[$edition['isbn']])) {
-                    continue;
-                }
-                $keptIsbns[$edition['isbn']] = true;
-                $kept[] = [
-                    'isbn' => $edition['isbn'],
-                    'lang' => $lang,
-                    'cover_url' => $this->sanitizedCoverUrl($edition['cover_url'] ?? null),
-                ];
+            $lang = is_string($edition['lang'] ?? null) ? strtolower($edition['lang']) : null;
+            $isReaderLang = $lang !== null && ($wanted === [] || isset($wanted[$lang]));
+            $isOriginal = $lang !== null && $lang === $originalLang;
+            if (!$isReaderLang && !$isOriginal) {
+                continue;
             }
-
-            $volumes[] = [
-                'ordinal' => $volume['ordinal'] ?? null,
-                'title' => $volume['title'] ?? '',
-                'authors' => is_array($volume['authors'] ?? null) ? $volume['authors'] : [],
-                'year' => $volume['year'] ?? null,
-                'editions' => $kept,
-                'other_langs_exist' => count($all) > count($kept),
+            if (isset($keptIsbns[$edition['isbn']])) {
+                continue;
+            }
+            $keptIsbns[$edition['isbn']] = true;
+            $kept[] = [
+                'isbn' => $edition['isbn'],
+                'lang' => $lang,
+                'cover_url' => $this->sanitizedCoverUrl($edition['cover_url'] ?? null),
             ];
         }
 
-        return [
-            'source' => $payload['source'] ?? null,
-            'source_id' => $payload['source_id'] ?? null,
-            'label' => $payload['label'] ?? '',
-            'volumes' => $volumes,
-        ];
+        return [$kept, count($all) > count($kept)];
     }
 
     private function sanitizedCoverUrl(mixed $url): ?string

@@ -17,6 +17,7 @@ use Symfony\Component\Routing\Attribute\Route;
  * Anonymous external discovery endpoints (ADR-060).
  *
  * POST /api/discovery/series - resolve the series owned volumes belong to.
+ * POST /api/discovery/author - resolve the bibliography of a liked author.
  *
  * Privacy contract: requests carry no Authorization header, no node id, no
  * account id; nothing here may persist a requester-to-query association.
@@ -84,6 +85,55 @@ class DiscoveryController extends AbstractController
         }
 
         return $this->json($this->resolver->resolveSeries($isbn13s, $name, $langs));
+    }
+
+    /**
+     * Author bibliography lookup: the name is REQUIRED here, unlike the
+     * series tiebreaker, because it is what the resolver verifies the
+     * anchor's author entity against (ADR-060 section 3.2). It stays an
+     * opaque length-capped string: source queries are built from resolved
+     * identifiers, never from it.
+     */
+    #[Route('/author', name: 'author', methods: ['POST'])]
+    public function author(Request $request): JsonResponse
+    {
+        if (($limited = $this->enforce($this->discoveryAnonLimiter, $request->getClientIp() ?? 'unknown')) !== null) {
+            return $limited;
+        }
+        if (($tooLarge = $this->rejectIfBodyTooLarge($request, self::MAX_BODY_BYTES)) !== null) {
+            return $tooLarge;
+        }
+
+        $data = $this->decodeJson($request);
+        if ($data === null) {
+            return $this->json(['error' => 'Invalid JSON body'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $name = $data['name'] ?? null;
+        if (!is_string($name) || trim($name) === '' || mb_strlen($name) > self::MAX_NAME_LENGTH) {
+            return $this->json(
+                ['error' => sprintf('name must be a non-empty string of at most %d characters', self::MAX_NAME_LENGTH)],
+                Response::HTTP_BAD_REQUEST,
+            );
+        }
+
+        $isbn13s = $this->validatedIsbns($data['anchor_isbns'] ?? null);
+        if ($isbn13s === null) {
+            return $this->json(
+                ['error' => sprintf('anchor_isbns must be 1..%d checksum-valid ISBN-10/13 strings', self::MAX_ANCHOR_ISBNS)],
+                Response::HTTP_BAD_REQUEST,
+            );
+        }
+
+        $langs = $this->validatedLangs($data['langs'] ?? []);
+        if ($langs === null) {
+            return $this->json(
+                ['error' => sprintf('langs must be at most %d short language codes', self::MAX_LANGS)],
+                Response::HTTP_BAD_REQUEST,
+            );
+        }
+
+        return $this->json($this->resolver->resolveAuthor(trim($name), $isbn13s, $langs));
     }
 
     /**

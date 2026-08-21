@@ -744,23 +744,24 @@
 <div class="section-title" style="margin-top: 24px;">Discovery Resolver (ADR-060)</div>
 <p class="section-legend">
     Read-only view of the pooled series/author completion cache and the pressure it puts on
-    Wikidata/Inventaire. Series completion is the only lane shipped so far (volet 1); author
-    completion rows will appear here once that lane ships. Figures stay small until real client
-    traffic exercises the endpoint (production exposure is a later phase).
+    Wikidata/Inventaire. Both lanes are shipped and share this pool: <code>series_lookup</code>
+    and <code>author_lookup</code> rows map one anchor ISBN to entity ids, <code>series</code>
+    and <code>author</code> rows hold the resolved payloads every reader shares. Figures stay
+    small until real client traffic exercises the endpoints.
 </p>
 <div class="stat-grid">
 
     <div class="stat-card {{ discovery_total_rows == 0 ? 'status-warn' : '' }}">
         <div class="stat-label">
             Cache Pool
-            <i class="tip" data-tip="Total rows in discovery_cache, all kinds and statuses. Zero means the feature has never been exercised yet.">i</i>
+            <i class="tip" data-tip="Total rows in discovery_cache, all kinds and statuses, with the payload weight underneath. Zero means the feature has never been exercised yet. The weight is uncompressed payload, what the nightly prune budgets; on disk Postgres compresses it by roughly 2.6x. The prune caps the payloads at 128 MB (freshest expiry kept first) and logs discovery_cache_over_budget in Hub Events when it has to cut.">i</i>
         </div>
         <div class="stat-value">{{ discovery_total_rows }}</div>
         <div class="stat-sub">
             {% if discovery_total_rows == 0 %}
                 <span class="sub-warn">feature never exercised</span>
             {% else %}
-                pooled rows, breakdown below
+                pooled rows, {{ (discovery_payload_bytes / 1048576)|round(1) }} MB of payload
             {% endif %}
         </div>
     </div>
@@ -894,13 +895,16 @@
 
 <div class="section-title" style="margin-top: 8px;">Discovery Failure Reasons (24h)</div>
 <p class="section-legend">
-    Non-resolved outcomes on the series-completion pipeline, read from Hub Events (channel
+    Non-resolved outcomes on both completion pipelines, read from Hub Events (channel
     <code>discovery</code>). <code>no_anchor_resolved</code>: none of the anchor ISBNs matched a
-    source entity. <code>disjoint_anchors</code>: the anchors resolved to unrelated series.
-    <code>no_clear_winner</code>: several candidate series survived and the optional name
+    source entity (either lane). <code>disjoint_anchors</code>: the anchors resolved to unrelated
+    series. <code>no_clear_winner</code>: several candidate series survived and the optional name
     tiebreaker did not settle it. <code>no_usable_members</code>: the series entity resolved but
-    its member list came back empty. Outbound budget exhaustion is source pressure, not a
-    resolution-quality signal, and is tracked separately above.
+    its member list came back empty. <code>name_not_verified</code>: an anchor gave an author
+    entity whose label is not the name asked about, so the answer would have been a homonym's
+    bibliography. <code>no_usable_works</code>: the author entity resolved but its bibliography
+    came back empty. Outbound budget exhaustion is source pressure, not a resolution-quality
+    signal, and is tracked separately above.
 </p>
 <table class="hub-table" style="max-width: 480px;">
     <thead>
@@ -910,7 +914,7 @@
         </tr>
     </thead>
     <tbody>
-        {% for reason in ['no_anchor_resolved', 'disjoint_anchors', 'no_clear_winner', 'no_usable_members'] %}
+        {% for reason in ['no_anchor_resolved', 'disjoint_anchors', 'no_clear_winner', 'no_usable_members', 'name_not_verified', 'no_usable_works'] %}
         <tr>
             <td><code class="mono">{{ reason }}</code></td>
             <td class="db-size-val"><strong>{{ discovery_failure_reasons_24h[reason]|default(0) }}</strong></td>

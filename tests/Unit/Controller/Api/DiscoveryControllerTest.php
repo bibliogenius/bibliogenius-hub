@@ -14,8 +14,8 @@ use Symfony\Component\RateLimiter\RateLimit;
 use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 
 /**
- * Freezes the ADR-060 section 3.1 request contract: strict, cheap
- * validation before any cache or source access (checksum-valid ISBNs
+ * Freezes the ADR-060 section 3.1 request contract of both lanes: strict,
+ * cheap validation before any cache or source access (checksum-valid ISBNs
  * capped at 3, opaque length-capped name, short language codes capped at
  * 8), per-IP rate limiting with Retry-After, and the always-200 envelope
  * for every resolution outcome.
@@ -56,10 +56,10 @@ final class DiscoveryControllerTest extends TestCase
         return $controller;
     }
 
-    private static function request(mixed $body): Request
+    private static function request(mixed $body, string $path = '/api/discovery/series'): Request
     {
         return Request::create(
-            '/api/discovery/series',
+            $path,
             'POST',
             [],
             [],
@@ -67,6 +67,11 @@ final class DiscoveryControllerTest extends TestCase
             ['CONTENT_TYPE' => 'application/json'],
             is_string($body) ? $body : (string) json_encode($body),
         );
+    }
+
+    private static function authorRequest(mixed $body): Request
+    {
+        return self::request($body, '/api/discovery/author');
     }
 
     public function testRateLimitedRequestGets429WithRetryAfter(): void
@@ -134,6 +139,82 @@ final class DiscoveryControllerTest extends TestCase
             'isbns' => ['9782070541270'],
             'langs' => ['fr', 'en', 'es', 'de', 'it', 'pt', 'tr', 'bg', 'ja'],
         ]))->getStatusCode());
+    }
+
+    public function testAuthorRequestWithoutANameIs400(): void
+    {
+        $resolver = $this->createMock(DiscoveryResolverService::class);
+        $resolver->expects($this->never())->method('resolveAuthor');
+        $controller = $this->controller($resolver);
+
+        // The name is not a tiebreaker here but the thing the resolver
+        // verifies the anchor's author entity against: without it there is
+        // nothing to protect against homonyms.
+        $this->assertSame(400, $controller->author(self::authorRequest([
+            'anchor_isbns' => ['9782070360024'],
+        ]))->getStatusCode());
+        $this->assertSame(400, $controller->author(self::authorRequest([
+            'name' => '   ',
+            'anchor_isbns' => ['9782070360024'],
+        ]))->getStatusCode());
+        $this->assertSame(400, $controller->author(self::authorRequest([
+            'name' => str_repeat('a', 257),
+            'anchor_isbns' => ['9782070360024'],
+        ]))->getStatusCode());
+    }
+
+    public function testAuthorAnchorIsbnsAreValidatedLikeSeriesIsbns(): void
+    {
+        $resolver = $this->createMock(DiscoveryResolverService::class);
+        $resolver->expects($this->never())->method('resolveAuthor');
+        $controller = $this->controller($resolver);
+
+        $this->assertSame(400, $controller->author(self::authorRequest([
+            'name' => 'Albert Camus',
+        ]))->getStatusCode());
+        $this->assertSame(400, $controller->author(self::authorRequest([
+            'name' => 'Albert Camus',
+            'anchor_isbns' => ['9782070360025'],
+        ]))->getStatusCode());
+        $this->assertSame(400, $controller->author(self::authorRequest([
+            'name' => 'Albert Camus',
+            'anchor_isbns' => ['9782070360024', '9780747532699', '9780306406157', '9780441007318'],
+        ]))->getStatusCode());
+        $this->assertSame(400, $controller->author(self::authorRequest([
+            'name' => 'Albert Camus',
+            'anchor_isbns' => ['9782070360024'],
+            'langs' => ['français'],
+        ]))->getStatusCode());
+    }
+
+    public function testRateLimitedAuthorRequestGets429BeforeAnyResolution(): void
+    {
+        $resolver = $this->createMock(DiscoveryResolverService::class);
+        $resolver->expects($this->never())->method('resolveAuthor');
+
+        $response = $this->controller($resolver, $this->buildLimiter(false, 30))
+            ->author(self::authorRequest(['name' => 'Albert Camus', 'anchor_isbns' => ['9782070360024']]));
+
+        $this->assertSame(429, $response->getStatusCode());
+        $this->assertNotNull($response->headers->get('Retry-After'));
+    }
+
+    public function testValidAuthorRequestTrimsTheNameAndReturnsTheEnvelope(): void
+    {
+        $resolver = $this->createMock(DiscoveryResolverService::class);
+        $resolver->expects($this->once())
+            ->method('resolveAuthor')
+            ->with('Ursula K. Le Guin', ['9780441007318'], ['fr', 'en'])
+            ->willReturn(['status' => 'ambiguous']);
+
+        $response = $this->controller($resolver)->author(self::authorRequest([
+            'name' => '  Ursula K. Le Guin  ',
+            'anchor_isbns' => ['0-441-00731-7'],
+            'langs' => ['fr', 'en'],
+        ]));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(['status' => 'ambiguous'], json_decode((string) $response->getContent(), true));
     }
 
     public function testValidRequestCanonicalizesIsbnsAndReturnsTheEnvelope(): void

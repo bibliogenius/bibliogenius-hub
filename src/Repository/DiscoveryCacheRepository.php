@@ -6,6 +6,7 @@ namespace App\Repository;
 
 use App\Entity\DiscoveryCache;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
+use Doctrine\DBAL\ParameterType;
 use Doctrine\Persistence\ManagerRegistry;
 
 /**
@@ -84,6 +85,48 @@ class DiscoveryCacheRepository extends ServiceEntityRepository
                 'now' => $now,
                 'expires' => DiscoveryCache::expiryFor($status)->format('Y-m-d H:i:s'),
             ],
+        );
+    }
+
+    /**
+     * Secondary nightly cap, by BYTES rather than by row count: keep the
+     * rows whose payloads fit in $maxPayloadBytes, freshest expiry first,
+     * and drop the rest. Returns how many rows were dropped.
+     *
+     * The TTL sweep alone bounds nothing under pressure: the pool only
+     * grows when resolutions succeed, and what limits resolutions is the
+     * global outbound budget, so a sustained stream of checksum-valid
+     * ISBNs pointing at distinct entities can write for thirty days before
+     * the first row expires. Bytes are the right unit because the pool is
+     * lopsided: an author payload measures tens of KB against a hundred
+     * bytes for the '*_lookup' rows that map an anchor to its entity, so a
+     * row cap would evict the cheap rows that save re-resolutions and
+     * leave the expensive ones. Ordering by expires_at drops the negative
+     * (7-day) rows and the least recently written entities first, which is
+     * the order the TTL sweep would have used anyway.
+     */
+    public function pruneOverBudget(int $maxPayloadBytes): int
+    {
+        return (int) $this->getEntityManager()->getConnection()->executeStatement(
+            'DELETE FROM discovery_cache WHERE (kind, cache_key) IN (
+               SELECT kind, cache_key FROM (
+                 SELECT kind, cache_key,
+                        SUM(COALESCE(octet_length(payload), 0))
+                          OVER (ORDER BY expires_at DESC, kind, cache_key) AS running_bytes
+                   FROM discovery_cache
+               ) ranked
+              WHERE running_bytes > :budget
+            )',
+            ['budget' => $maxPayloadBytes],
+            ['budget' => ParameterType::INTEGER],
+        );
+    }
+
+    /** Bytes of payload currently held, for the /admin pool card. */
+    public function totalPayloadBytes(): int
+    {
+        return (int) $this->getEntityManager()->getConnection()->fetchOne(
+            'SELECT COALESCE(SUM(octet_length(payload)), 0) FROM discovery_cache',
         );
     }
 

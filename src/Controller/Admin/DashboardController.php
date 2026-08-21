@@ -228,6 +228,7 @@ class DashboardController extends AbstractDashboardController
         // DiscoveryCacheRepository so their SELECT shapes stay unit-tested.
         $discoveryTotalRows = $this->discoveryCache->countAll();
         $discoveryByKindStatus = $this->discoveryCache->countByKindAndStatus();
+        $discoveryPayloadBytes = $this->discoveryCache->totalPayloadBytes();
         $discoveryNextExpiryAt = $this->discoveryCache->nextExpiryAt();
         $discoveryExpiringSoon7d = $this->discoveryCache->countExpiringWithinDays(7, $now);
         $discoveryResolutions24h = $this->discoveryCache->countResolutionsLast24h($now);
@@ -285,6 +286,7 @@ class DashboardController extends AbstractDashboardController
             'version_distribution' => $versionDistribution,
             'discovery_total_rows' => $discoveryTotalRows,
             'discovery_by_kind_status' => $discoveryByKindStatus,
+            'discovery_payload_bytes' => $discoveryPayloadBytes,
             'discovery_next_expiry_at' => $discoveryNextExpiryAt,
             'discovery_expiring_soon_7d' => $discoveryExpiringSoon7d,
             'discovery_resolutions_24h' => $discoveryResolutions24h,

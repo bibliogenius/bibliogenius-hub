@@ -1,0 +1,1816 @@
+{
+ "inv:02343e7ca10b631f0db6ca154df55cb6": {
+  "claims": {
+   "invp:P2": [
+    "717d89b0ab1fb7924315d724fba42dd123b7a018"
+   ],
+   "wdt:P1104": [
+    1584
+   ],
+   "wdt:P123": [
+    "wd:Q273819"
+   ],
+   "wdt:P1476": [
+    "Œuvres complètes"
+   ],
+   "wdt:P195": [
+    "wd:Q856656"
+   ],
+   "wdt:P212": [
+    "978-2-07-011702-4"
+   ],
+   "wdt:P268": [
+    "40152536j"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P437": [
+    "wd:Q193955"
+   ],
+   "wdt:P577": [
+    "2006-04-21"
+   ],
+   "wdt:P629": [
+    "inv:b61d78a24bd6d4a55eaade78d51d5205",
+    "wd:Q3458274",
+    "wd:Q3203180",
+    "wd:Q3234190",
+    "wd:Q163297",
+    "wd:Q1125903",
+    "wd:Q2632077",
+    "wd:Q1169773",
+    "wd:Q1198739"
+   ],
+   "wdt:P856": [
+    "https://www.gallimard.fr/catalogue/oeuvres-completes-1-1931-1944/9782070117024"
+   ],
+   "wdt:P957": [
+    "2-07-011702-2"
+   ]
+  },
+  "labels": {
+   "fromclaims": "Œuvres complètes"
+  },
+  "type": "edition",
+  "uri": "inv:02343e7ca10b631f0db6ca154df55cb6"
+ },
+ "inv:028f315ef7cfb8a4d1c3c1f4ab5131a6": {
+  "claims": {
+   "invp:P2": [
+    "969690a52b3a28628b52ab569d501880b1b0e62e"
+   ],
+   "wdt:P1476": [
+    "L'Étranger"
+   ],
+   "wdt:P212": [
+    "978-2-04-016010-4"
+   ],
+   "wdt:P2969": [
+    "823832"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P577": [
+    "2003-07-05"
+   ],
+   "wdt:P629": [
+    "wd:Q163297"
+   ],
+   "wdt:P648": [
+    "OL9478332M"
+   ],
+   "wdt:P957": [
+    "2-04-016010-8"
+   ]
+  },
+  "labels": {
+   "fromclaims": "L'Étranger"
+  },
+  "type": "edition",
+  "uri": "inv:028f315ef7cfb8a4d1c3c1f4ab5131a6"
+ },
+ "inv:0d61b3ac0481ecb9626eb42ea7fd0608": {
+  "claims": {
+   "wdt:P1476": [
+    "La Chute"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P629": [
+    "wd:Q690362"
+   ]
+  },
+  "labels": {
+   "fromclaims": "La Chute"
+  },
+  "type": "edition",
+  "uri": "inv:0d61b3ac0481ecb9626eb42ea7fd0608"
+ },
+ "inv:151415264ca97098d51d30123d2b5f2b": {
+  "claims": {
+   "wdt:P1476": [
+    "O Primeiro Homem (Portuguese Edition)"
+   ],
+   "wdt:P212": [
+    "978-972-38-3071-2"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q5146"
+   ],
+   "wdt:P577": [
+    "2018"
+   ],
+   "wdt:P629": [
+    "wd:Q386305"
+   ],
+   "wdt:P957": [
+    "972-38-3071-X"
+   ]
+  },
+  "labels": {
+   "fromclaims": "O Primeiro Homem (Portuguese Edition)"
+  },
+  "type": "edition",
+  "uri": "inv:151415264ca97098d51d30123d2b5f2b"
+ },
+ "inv:1917e3d856a752b75e2757433169d6b1": {
+  "claims": {
+   "invp:P2": [
+    "7c5b6dc6be236881e9902b98a91623bff577f833"
+   ],
+   "wdt:P1104": [
+    192
+   ],
+   "wdt:P123": [
+    "wd:Q273819"
+   ],
+   "wdt:P1476": [
+    "L'étranger"
+   ],
+   "wdt:P195": [
+    "wd:Q3074992"
+   ],
+   "wdt:P212": [
+    "978-2-07-036002-4"
+   ],
+   "wdt:P2969": [
+    "15688"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P437": [
+    "wd:Q17994250"
+   ],
+   "wdt:P577": [
+    "1972-01-07"
+   ],
+   "wdt:P629": [
+    "wd:Q163297"
+   ],
+   "wdt:P648": [
+    "OL59879604M"
+   ],
+   "wdt:P856": [
+    "https://www.gallimard.fr/catalogue/l-etranger/9782070360024"
+   ],
+   "wdt:P957": [
+    "2-07-036002-4"
+   ]
+  },
+  "labels": {
+   "fromclaims": "L'étranger"
+  },
+  "type": "edition",
+  "uri": "inv:1917e3d856a752b75e2757433169d6b1"
+ },
+ "inv:b61d78a24bd6d4a55eaade78d52254a8": {
+  "claims": {
+   "invp:P2": [
+    "f1fec2aee5d07fd5ca8c791f223f219ed523aa64"
+   ],
+   "wdt:P1104": [
+    1536
+   ],
+   "wdt:P123": [
+    "wd:Q273819"
+   ],
+   "wdt:P1476": [
+    "Œuvres"
+   ],
+   "wdt:P1680": [
+    "Sous étui"
+   ],
+   "wdt:P195": [
+    "wd:Q3413355"
+   ],
+   "wdt:P212": [
+    "978-2-07-288621-8"
+   ],
+   "wdt:P2679": [
+    "wd:Q775989"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P437": [
+    "wd:Q193934"
+   ],
+   "wdt:P577": [
+    "2020-01-03"
+   ],
+   "wdt:P629": [
+    "inv:3fdcb00a816ff62049c076960e33f88c",
+    "wd:Q3030182",
+    "wd:Q3203180",
+    "wd:Q3234190",
+    "wd:Q3205577",
+    "wd:Q163297",
+    "wd:Q1125903",
+    "wd:Q2632077",
+    "wd:Q1169773",
+    "wd:Q3237054",
+    "wd:Q320372",
+    "wd:Q1192449",
+    "wd:Q177069",
+    "wd:Q1195789",
+    "wd:Q690362",
+    "wd:Q833106",
+    "wd:Q386305"
+   ],
+   "wdt:P856": [
+    "https://www.gallimard.fr/catalogue/oeuvres-sous-etui/9782072886218"
+   ],
+   "wdt:P957": [
+    "2-07-288621-X"
+   ]
+  },
+  "labels": {
+   "fromclaims": "Œuvres"
+  },
+  "type": "edition",
+  "uri": "inv:b61d78a24bd6d4a55eaade78d52254a8"
+ },
+ "wd:Q101097068": {
+  "claims": {
+   "wdt:P1476": [
+    "Caligula"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189",
+    "wd:Q7777570"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P629": [
+    "wd:Q2632077"
+   ]
+  },
+  "labels": {
+   "en": "Caligula",
+   "fr": "Caligula",
+   "fromclaims": "Caligula"
+  },
+  "type": "edition",
+  "uri": "wd:Q101097068"
+ },
+ "wd:Q105200664": {
+  "claims": {
+   "invp:P1": [
+    "wd:Q105200664"
+   ],
+   "invp:P2": [
+    "d3c253db8b93e7d67dad88b54846073e11bf35cd"
+   ],
+   "wdt:P123": [
+    "wd:Q273819"
+   ],
+   "wdt:P1476": [
+    "La Peste"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P437": [
+    "wd:Q17994250"
+   ],
+   "wdt:P577": [
+    "1947"
+   ],
+   "wdt:P629": [
+    "wd:Q320372"
+   ]
+  },
+  "labels": {
+   "fr": "La Peste",
+   "fromclaims": "La Peste",
+   "it": "La peste"
+  },
+  "type": "edition",
+  "uri": "wd:Q105200664"
+ },
+ "wd:Q106451661": {
+  "claims": {
+   "wdt:P123": [
+    "wd:Q273819"
+   ],
+   "wdt:P1476": [
+    "L'Étranger"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P577": [
+    "1942"
+   ],
+   "wdt:P629": [
+    "wd:Q163297"
+   ]
+  },
+  "labels": {
+   "de": "L'Étranger",
+   "en": "L'Étranger",
+   "fr": "L'Étranger",
+   "fromclaims": "L'Étranger",
+   "it": "L'Étranger"
+  },
+  "type": "edition",
+  "uri": "wd:Q106451661"
+ },
+ "wd:Q109388526": {
+  "claims": {
+   "wdt:P1476": [
+    "La pesta"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q7026"
+   ],
+   "wdt:P629": [
+    "wd:Q320372"
+   ]
+  },
+  "labels": {
+   "ca": "La pesta",
+   "en": "La pesta",
+   "fromclaims": "La pesta"
+  },
+  "type": "edition",
+  "uri": "wd:Q109388526"
+ },
+ "wd:Q109388527": {
+  "claims": {
+   "wdt:P1476": [
+    "La peste"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q1321"
+   ],
+   "wdt:P629": [
+    "wd:Q320372"
+   ]
+  },
+  "labels": {
+   "ca": "La peste",
+   "en": "La peste",
+   "es": "La peste",
+   "fr": "La peste",
+   "fromclaims": "La peste",
+   "it": "La peste"
+  },
+  "type": "edition",
+  "uri": "wd:Q109388527"
+ },
+ "wd:Q110408018": {
+  "claims": {
+   "wdt:P1104": [
+    331
+   ],
+   "wdt:P123": [
+    "wd:Q273819"
+   ],
+   "wdt:P1476": [
+    "Le premier homme"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P577": [
+    "1994"
+   ],
+   "wdt:P629": [
+    "wd:Q386305"
+   ]
+  },
+  "labels": {
+   "fr": "Le premier homme",
+   "fromclaims": "Le premier homme",
+   "it": "Il primo uomo"
+  },
+  "type": "edition",
+  "uri": "wd:Q110408018"
+ },
+ "wd:Q1125903": {
+  "claims": {
+   "wdt:P1085": [
+    "10290416"
+   ],
+   "wdt:P136": [
+    "wd:Q13408937",
+    "wd:Q481315",
+    "wd:Q35760"
+   ],
+   "wdt:P138": [
+    "wd:Q102561"
+   ],
+   "wdt:P1476": [
+    "Le Mythe de Sisyphe"
+   ],
+   "wdt:P1545": [
+    "2"
+   ],
+   "wdt:P179": [
+    "wd:Q3008298"
+   ],
+   "wdt:P214": [
+    "198822860"
+   ],
+   "wdt:P227": [
+    "4236810-8"
+   ],
+   "wdt:P243": [
+    "12484393"
+   ],
+   "wdt:P268": [
+    "12006961k"
+   ],
+   "wdt:P31": [
+    "wd:Q7725634"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P50": [
+    "wd:Q34670"
+   ],
+   "wdt:P577": [
+    "1942-10"
+   ],
+   "wdt:P648": [
+    "OL1230601W"
+   ],
+   "wdt:P8383": [
+    "48339830"
+   ],
+   "wdt:P921": [
+    "wd:Q333625"
+   ]
+  },
+  "labels": {
+   "ar": "أسطورة سيزيف",
+   "az": "Sisifos",
+   "bg": "Митът за Сизиф",
+   "bn": "সিসিফাস-পুরাণ",
+   "bs": "Mit o Sizifu",
+   "ca": "El mite de Sísif",
+   "cs": "Mýtus o Sisyfovi",
+   "da": "Sisyphos",
+   "de": "Der Mythos des Sisyphos",
+   "el": "Ο Μύθος του Σίσυφου",
+   "en": "The Myth of Sisyphus",
+   "en-ca": "The Myth of Sisyphus",
+   "en-gb": "The Myth of Sisyphus",
+   "eo": "La Mito de Sizifo",
+   "es": "El mito de Sísifo",
+   "et": "Sisyphose müüt",
+   "fa": "افسانه سیزیف",
+   "fi": "Sisyfoksen myytti",
+   "fr": "Le Mythe de Sisyphe",
+   "ga": "Le Mythe de Sisyphe",
+   "gu": "ધ મિથ ઑવ્ સિસિફસ",
+   "he": "המיתוס של סיזיפוס",
+   "hr": "Mit o Sizifu",
+   "hy": "Սիզիփոսի առասպելը",
+   "id": "Mitos Sisifus",
+   "it": "Il mito di Sisifo",
+   "ja": "シーシュポスの神話",
+   "ka": "სიზიფეს მითი",
+   "kk": "Сизиф туралы аңыз (эссе)",
+   "ko": "시지프 신화",
+   "la": "Le Mythe de Sisyphe",
+   "lv": "Mīts par Sīsifu",
+   "mk": "Митот за Сизиф",
+   "ml": "സിസിഫസ് പുരാണം",
+   "nb": "Myten om Sisyfos",
+   "nl": "De Mythe van Sisyphus",
+   "pa": "ਮਿੱਥ ਆਫ਼ ਸਿਸੀਫਸ",
+   "pl": "Le Mythe de Sisyphe",
+   "pt": "O Mito de Sísifo",
+   "pt-br": "O Mito de Sísifo",
+   "ro": "Mitul lui Sisif",
+   "ru": "Миф о Сизифе",
+   "sr": "Мит о Сизифу",
+   "sv": "Sisyfos (bok)",
+   "tr": "Sisifos Söyleni",
+   "uk": "Міф про Сізіфа",
+   "ur": "افسانۂ سیسفس",
+   "uz": "Le mythe de Sisyphe",
+   "vi": "thần thoại Sisyphus",
+   "zh": "西绪弗斯神话",
+   "zh-hans": "西绪弗斯神话",
+   "zh-hant": "西緒弗斯神話",
+   "zh-hk": "西緒弗斯神話"
+  },
+  "type": "work",
+  "uri": "wd:Q1125903"
+ },
+ "wd:Q126601112": {
+  "claims": {
+   "invp:P1": [
+    "wd:Q126601112"
+   ],
+   "invp:P2": [
+    "05b9ad52b8c7100e6d31cb437c25f141705e2a57"
+   ],
+   "wdt:P1104": [
+    147
+   ],
+   "wdt:P1144": [
+    "57005652"
+   ],
+   "wdt:P123": [
+    "wd:Q3560313"
+   ],
+   "wdt:P1476": [
+    "The Fall"
+   ],
+   "wdt:P212": [
+    "978-0-394-70223-0"
+   ],
+   "wdt:P2969": [
+    "60892990"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q1860"
+   ],
+   "wdt:P437": [
+    "wd:Q193934"
+   ],
+   "wdt:P629": [
+    "wd:Q690362"
+   ],
+   "wdt:P648": [
+    "OL37843360M"
+   ],
+   "wdt:P724": [
+    "fall0000camu"
+   ],
+   "wdt:P957": [
+    "0-394-70223-9"
+   ]
+  },
+  "labels": {
+   "en": "The Fall",
+   "fromclaims": "The Fall"
+  },
+  "type": "edition",
+  "uri": "wd:Q126601112"
+ },
+ "wd:Q131960965": {
+  "claims": {
+   "invp:P1": [
+    "wd:Q131960965"
+   ],
+   "invp:P2": [
+    "b19e6243dbe6238ca9dbaedd3d0a763c7eefe702"
+   ],
+   "wdt:P1104": [
+    146
+   ],
+   "wdt:P123": [
+    "wd:Q1184979"
+   ],
+   "wdt:P1476": [
+    "異邦人"
+   ],
+   "wdt:P212": [
+    "978-4-10-211401-8"
+   ],
+   "wdt:P2969": [
+    "2988177"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q5287"
+   ],
+   "wdt:P437": [
+    "wd:Q193934"
+   ],
+   "wdt:P577": [
+    "1999"
+   ],
+   "wdt:P629": [
+    "wd:Q163297"
+   ],
+   "wdt:P648": [
+    "OL22901131M"
+   ],
+   "wdt:P724": [
+    "ihjin0000camu"
+   ],
+   "wdt:P957": [
+    "4-10-211401-7"
+   ]
+  },
+  "labels": {
+   "fromclaims": "異邦人",
+   "mul": "異邦人"
+  },
+  "type": "edition",
+  "uri": "wd:Q131960965"
+ },
+ "wd:Q1321": {
+  "claims": {
+   "wdt:P218": [
+    "es"
+   ],
+   "wdt:P31": [
+    "wd:Q33742",
+    "wd:Q34770",
+    "wd:Q1288568",
+    "wd:Q20162172"
+   ]
+  },
+  "labels": {
+   "en": "Spanish",
+   "fr": "espagnol"
+  },
+  "type": "language",
+  "uri": "wd:Q1321"
+ },
+ "wd:Q137825119": {
+  "claims": {
+   "invp:P1": [
+    "wd:Q137825119"
+   ],
+   "invp:P2": [
+    "49886cfd21423441fb41e2fba36b2782dd72924a"
+   ],
+   "wdt:P1104": [
+    160
+   ],
+   "wdt:P123": [
+    "wd:Q3560313"
+   ],
+   "wdt:P1476": [
+    "The Myth of Sisyphus"
+   ],
+   "wdt:P212": [
+    "978-0-525-56445-4"
+   ],
+   "wdt:P2969": [
+    "39947376"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q1860"
+   ],
+   "wdt:P437": [
+    "wd:Q193934"
+   ],
+   "wdt:P577": [
+    "2018-11-06"
+   ],
+   "wdt:P629": [
+    "wd:Q1125903"
+   ],
+   "wdt:P648": [
+    "OL27361579M"
+   ],
+   "wdt:P957": [
+    "0-525-56445-4"
+   ]
+  },
+  "labels": {
+   "fromclaims": "The Myth of Sisyphus",
+   "mul": "The Myth of Sisyphus"
+  },
+  "type": "edition",
+  "uri": "wd:Q137825119"
+ },
+ "wd:Q137825170": {
+  "claims": {
+   "invp:P1": [
+    "wd:Q137825170"
+   ],
+   "invp:P2": [
+    "4ccee10b29d0065b7a8ae80d978e387eae7af3e0"
+   ],
+   "wdt:P1104": [
+    155
+   ],
+   "wdt:P1476": [
+    "The Myth of Sisyphus"
+   ],
+   "wdt:P212": [
+    "978-0-525-56700-4"
+   ],
+   "wdt:P2969": [
+    "42113389"
+   ],
+   "wdt:P31": [
+    "wd:Q3331189"
+   ],
+   "wdt:P407": [
+    "wd:Q1860"
+   ],
+   "wdt:P437": [
+    "wd:Q128093"
+   ],
+   "wdt:P629": [
+    "wd:Q1125903"
+   ],
+   "wdt:P957": [
+    "0-525-56700-3"
+   ]
+  },
+  "labels": {
+   "fromclaims": "The Myth of Sisyphus",
+   "mul": "The Myth of Sisyphus"
+  },
+  "type": "edition",
+  "uri": "wd:Q137825170"
+ },
+ "wd:Q150": {
+  "claims": {
+   "wdt:P218": [
+    "fr"
+   ],
+   "wdt:P31": [
+    "wd:Q1288568",
+    "wd:Q33742",
+    "wd:Q34770"
+   ]
+  },
+  "labels": {
+   "en": "French",
+   "fr": "français"
+  },
+  "type": "language",
+  "uri": "wd:Q150"
+ },
+ "wd:Q163297": {
+  "claims": {
+   "wdt:P1085": [
+    "2150"
+   ],
+   "wdt:P1274": [
+    "1791073"
+   ],
+   "wdt:P136": [
+    "wd:Q2016518",
+    "wd:Q481315"
+   ],
+   "wdt:P1476": [
+    "L'Étranger"
+   ],
+   "wdt:P1545": [
+    "1"
+   ],
+   "wdt:P155": [
+    "wd:Q1125903"
+   ],
+   "wdt:P156": [
+    "wd:Q1169773"
+   ],
+   "wdt:P166": [
+    "wd:Q40734"
+   ],
+   "wdt:P179": [
+    "wd:Q3008298"
+   ],
+   "wdt:P18": [
+    "L'Étranger - Albert Camus.jpg"
+   ],
+   "wdt:P214": [
+    "183847819"
+   ],
+   "wdt:P227": [
+    "4236814-5"
+   ],
+   "wdt:P244": [
+    "no2016030471"
+   ],
+   "wdt:P268": [
+    "11958514w"
+   ],
+   "wdt:P269": [
+    "027574091"
+   ],
+   "wdt:P31": [
+    "wd:Q7725634"
+   ],
+   "wdt:P3631": [
+    "3874"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P50": [
+    "wd:Q34670"
+   ],
+   "wdt:P5331": [
+    "2517178012"
+   ],
+   "wdt:P577": [
+    "1942"
+   ],
+   "wdt:P648": [
+    "OL1230613W"
+   ],
+   "wdt:P674": [
+    "wd:Q21933247",
+    "wd:Q27077109",
+    "wd:Q27077132",
+    "wd:Q27077162"
+   ],
+   "wdt:P7823": [
+    "e5184a67-3cf7-4856-9081-fd303b9a2f05"
+   ],
+   "wdt:P7937": [
+    "wd:Q8261"
+   ],
+   "wdt:P8383": [
+    "3324344"
+   ],
+   "wdt:P840": [
+    "wd:Q262"
+   ]
+  },
+  "labels": {
+   "ar": "الغريب",
+   "arz": "الغريب (روايه)",
+   "avk": "Diveik",
+   "az": "Yad",
+   "azb": "یابانجی",
+   "be": "Чужаніца",
+   "be-tarask": "Чужаніца",
+   "bg": "Чужденецът",
+   "bn": "লেত্রঁজে",
+   "bs": "Stranac",
+   "ca": "L'estrany",
+   "ckb": "نامۆ",
+   "cs": "Cizinec",
+   "cy": "L'Étranger",
+   "da": "Den fremmede",
+   "de": "L'Étranger",
+   "el": "Ο ξένος (μυθιστόρημα)",
+   "en": "The Stranger",
+   "eo": "La fremdulo",
+   "es": "El extranjero",
+   "et": "Võõras",
+   "eu": "Arrotza",
+   "fa": "بیگانه",
+   "fi": "Sivullinen",
+   "fr": "L'Étranger",
+   "fy": "L'Étranger",
+   "ga": "L'Étranger",
+   "gl": "O estranxeiro",
+   "gsw": "Der Fremde",
+   "gu": "ધી આઉટસાઇડર",
+   "he": "הזר",
+   "hr": "Stranac",
+   "hu": "Közöny",
+   "hy": "Օտարը",
+   "id": "Orang Asing",
+   "is": "Útlendingurinn",
+   "it": "L'Étranger",
+   "ja": "異邦人",
+   "jv": "Wong NJaba",
+   "ka": "უცხო",
+   "ko": "이방인",
+   "la": "L'Étranger",
+   "lld": "L fulestier",
+   "lt": "Svetimas",
+   "lv": "Svešinieks",
+   "mg": "Vahiny",
+   "mk": "Странецот",
+   "ml": "ദ സ്ട്രേഞ്ജർ",
+   "mn": "Хөндлөнгийн хүн",
+   "ms": "L'Étranger",
+   "mzn": "بیگانه",
+   "nb": "Den fremmede",
+   "ne": "द स्ट्रेन्जर",
+   "nl": "De vreemdeling",
+   "oc": "L'Estrangièr",
+   "pa": "ਅਜਨਬੀ",
+   "pl": "Obcy",
+   "pt": "L'étranger",
+   "pwn": "tjumaljiaqaljan a caucau",
+   "ro": "Străinul",
+   "ru": "Посторонний",
+   "sh": "L’Étranger",
+   "shi": "Liṭṛunji (adlis)",
+   "sk": "Cudzinec",
+   "sl": "Tujec",
+   "sq": "I Huaj",
+   "sr": "Странац",
+   "sr-ec": "Странац",
+   "sr-el": "Stranac",
+   "sv": "Främlingen",
+   "tr": "Yabancı",
+   "uk": "Сторонній",
+   "ur": "دی اسٹرینجر (کاموس ناول)",
+   "uz": "Begona (Kamyu romani)",
+   "vi": "Người xa lạ",
+   "wuu": "异乡人",
+   "yue": "異鄉人",
+   "zh": "異鄉人",
+   "zh-cn": "异乡人",
+   "zh-hans": "局外人",
+   "zh-hant": "異鄉人",
+   "zh-hk": "異鄉人",
+   "zh-sg": "异乡人",
+   "zh-tw": "異鄉人"
+  },
+  "type": "work",
+  "uri": "wd:Q163297"
+ },
+ "wd:Q1860": {
+  "claims": {
+   "wdt:P218": [
+    "en"
+   ],
+   "wdt:P31": [
+    "wd:Q33742",
+    "wd:Q1288568",
+    "wd:Q34770",
+    "wd:Q152559",
+    "wd:Q399495",
+    "wd:Q1097949",
+    "wd:Q20162172"
+   ]
+  },
+  "labels": {
+   "en": "English",
+   "fr": "anglais"
+  },
+  "type": "language",
+  "uri": "wd:Q1860"
+ },
+ "wd:Q2632077": {
+  "claims": {
+   "wdt:P1085": [
+    "69188"
+   ],
+   "wdt:P136": [
+    "wd:Q5410443"
+   ],
+   "wdt:P1476": [
+    "Caligula"
+   ],
+   "wdt:P1545": [
+    "3"
+   ],
+   "wdt:P179": [
+    "wd:Q3008298"
+   ],
+   "wdt:P214": [
+    "315087722"
+   ],
+   "wdt:P227": [
+    "4341696-2"
+   ],
+   "wdt:P268": [
+    "12327937w"
+   ],
+   "wdt:P269": [
+    "032202989"
+   ],
+   "wdt:P31": [
+    "wd:Q7725634"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P50": [
+    "wd:Q34670"
+   ],
+   "wdt:P577": [
+    "1944-05"
+   ],
+   "wdt:P648": [
+    "OL1230575W"
+   ],
+   "wdt:P674": [
+    "wd:Q61041096",
+    "wd:Q61041101",
+    "wd:Q61041104",
+    "wd:Q61041113",
+    "wd:Q61041118",
+    "wd:Q61041128",
+    "wd:Q61041155",
+    "wd:Q61041163",
+    "wd:Q61041176",
+    "wd:Q61041188"
+   ],
+   "wdt:P7937": [
+    "wd:Q25379"
+   ]
+  },
+  "labels": {
+   "ar": "كاليغولا (مسرحية)",
+   "ca": "Calígula",
+   "cs": "Caligula",
+   "cy": "Caligula (drama)",
+   "da": "Caligula",
+   "de": "Caligula",
+   "el": "Καλιγούλας",
+   "en": "Caligula",
+   "eo": "Kaligulo",
+   "es": "Calígula",
+   "fa": "کالیگولا",
+   "fr": "Caligula",
+   "ga": "Caligula",
+   "he": "קליגולה",
+   "hy": "Կալիգուլա",
+   "it": "Caligola",
+   "ja": "カリギュラ",
+   "ko": "칼리굴라",
+   "nl": "Caligula",
+   "pl": "Kaligula",
+   "pt": "Calígula (peça teatral)",
+   "pt-br": "Calígula (peça teatral)",
+   "tr": "Caligula",
+   "zh": "卡里古拉",
+   "zh-hans": "卡里古拉",
+   "zh-hant": "卡里古拉",
+   "zh-hk": "卡里古拉"
+  },
+  "type": "work",
+  "uri": "wd:Q2632077"
+ },
+ "wd:Q3008298": {
+  "claims": {
+   "wdt:P136": [
+    "wd:Q481315"
+   ],
+   "wdt:P1476": [
+    "Cycle de l'absurde"
+   ],
+   "wdt:P31": [
+    "wd:Q17710980",
+    "wd:Q867335"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P50": [
+    "wd:Q34670"
+   ]
+  },
+  "labels": {
+   "ar": "دورة العبث",
+   "ca": "Cicle de l'absurd",
+   "cs": "filozofie absurdity",
+   "de": "Philosophie des Absurden",
+   "el": "Κύκλος του Παραλόγου",
+   "en": "The strange writer",
+   "eo": "Ciklo de la Absurdo",
+   "es": "Filosofía de Albert Camus",
+   "fr": "philosophie d'Albert Camus",
+   "ga": "Cycle de l'absurde",
+   "hy": "Աբսուրդի շարք",
+   "ro": "Ciclul absurdului",
+   "ru": "Цикл абсурда",
+   "sv": "Absurd cycle"
+  },
+  "type": "serie",
+  "uri": "wd:Q3008298"
+ },
+ "wd:Q320372": {
+  "claims": {
+   "wdt:P1085": [
+    "2147"
+   ],
+   "wdt:P1274": [
+    "1939814"
+   ],
+   "wdt:P136": [
+    "wd:Q333625"
+   ],
+   "wdt:P138": [
+    "wd:Q133780"
+   ],
+   "wdt:P1476": [
+    "La peste"
+   ],
+   "wdt:P155": [
+    "wd:Q3237054"
+   ],
+   "wdt:P18": [
+    "La Peste book cover.jpg"
+   ],
+   "wdt:P1889": [
+    "wd:Q359171"
+   ],
+   "wdt:P214": [
+    "185447266"
+   ],
+   "wdt:P227": [
+    "4131560-1"
+   ],
+   "wdt:P244": [
+    "no2019051685"
+   ],
+   "wdt:P268": [
+    "122159507"
+   ],
+   "wdt:P269": [
+    "069021392"
+   ],
+   "wdt:P31": [
+    "wd:Q7725634"
+   ],
+   "wdt:P3631": [
+    "313209"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P50": [
+    "wd:Q34670"
+   ],
+   "wdt:P577": [
+    "1947"
+   ],
+   "wdt:P648": [
+    "OL1230715W"
+   ],
+   "wdt:P674": [
+    "wd:Q65212706"
+   ],
+   "wdt:P7823": [
+    "5310f7c2-4174-48ba-9eb7-a4a377e3eca9"
+   ],
+   "wdt:P7937": [
+    "wd:Q8261"
+   ],
+   "wdt:P8383": [
+    "2058116"
+   ],
+   "wdt:P840": [
+    "wd:Q131818"
+   ],
+   "wdt:P921": [
+    "wd:Q133780",
+    "wd:Q44512"
+   ]
+  },
+  "labels": {
+   "ar": "الطاعون",
+   "az": "Taun",
+   "bg": "Чумата",
+   "bs": "Kuga",
+   "ca": "La pesta",
+   "cs": "Mor",
+   "cy": "La Peste",
+   "da": "Pesten",
+   "de": "Die Pest",
+   "el": "Η Πανούκλα",
+   "en": "The Plague",
+   "en-ca": "The Plague",
+   "en-gb": "The Plague",
+   "eo": "La Pesto",
+   "es": "La peste",
+   "et": "Katk",
+   "eu": "Izurria",
+   "fa": "طاعون",
+   "fi": "Rutto",
+   "fr": "La Peste",
+   "fy": "De Pest",
+   "ga": "La Peste",
+   "gl": "A peste",
+   "gsw": "Die Pest",
+   "guc": "esteban mira esto",
+   "he": "הדבר",
+   "hr": "Kuga",
+   "hu": "A pestis",
+   "hy": "Ժանտախտը",
+   "id": "Sampar",
+   "is": "Plágan (skáldsaga)",
+   "it": "La peste",
+   "ja": "ペスト",
+   "jv": "Sampar",
+   "ka": "შავი ჭირი",
+   "ko": "페스트",
+   "la": "La Peste",
+   "lt": "Maras (romanas)",
+   "lv": "Mēris",
+   "mk": "Чумата",
+   "nb": "Pesten",
+   "nl": "De pest",
+   "pa": "ਪਲੇਗ",
+   "pl": "Dżuma",
+   "pt": "A Peste",
+   "pt-br": "A Peste",
+   "ro": "Ciuma",
+   "ru": "Чума",
+   "sh": "La Peste",
+   "sl": "Kuga",
+   "sr": "Куга (роман)",
+   "sv": "Pesten",
+   "tr": "Veba",
+   "uk": "Чума (роман)",
+   "ur": "دی پلیگ (ناول)",
+   "uz": "Vabo (roman)",
+   "vi": "Dịch hạch",
+   "zh": "鼠疫",
+   "zh-cn": "鼠疫",
+   "zh-hans": "鼠疫",
+   "zh-hant": "鼠疫",
+   "zh-hk": "鼠疫",
+   "zh-sg": "鼠疫",
+   "zh-tw": "鼠疫"
+  },
+  "type": "work",
+  "uri": "wd:Q320372"
+ },
+ "wd:Q34670": {
+  "claims": {
+   "wdt:P1006": [
+    "068350694"
+   ],
+   "wdt:P103": [
+    "wd:Q150"
+   ],
+   "wdt:P106": [
+    "wd:Q36180",
+    "wd:Q4964182",
+    "wd:Q6625963",
+    "wd:Q1930187",
+    "wd:Q11774202",
+    "wd:Q214917",
+    "wd:Q23833535",
+    "wd:Q49757",
+    "wd:Q937857",
+    "wd:Q6051619",
+    "wd:Q33999"
+   ],
+   "wdt:P109": [
+    "Albert Camus signature.svg",
+    "Albert Camus signature acte mariage.svg"
+   ],
+   "wdt:P1233": [
+    "130822"
+   ],
+   "wdt:P12430": [
+    "e8db770c-b038-47fd-befc-cb5be5ca25a4"
+   ],
+   "wdt:P135": [
+    "wd:Q59104"
+   ],
+   "wdt:P1412": [
+    "wd:Q150"
+   ],
+   "wdt:P166": [
+    "wd:Q37922",
+    "wd:Q137970105"
+   ],
+   "wdt:P18": [
+    "Albert Camus, gagnant de prix Nobel, portrait en buste, posé au bureau, faisant face à gauche, cigarette de tabagisme.jpg"
+   ],
+   "wdt:P2013": [
+    "AlbertCamusAuthor"
+   ],
+   "wdt:P213": [
+    "0000000122832690"
+   ],
+   "wdt:P214": [
+    "97000332"
+   ],
+   "wdt:P22": [
+    "wd:Q109240592"
+   ],
+   "wdt:P227": [
+    "118518739"
+   ],
+   "wdt:P244": [
+    "n79061368"
+   ],
+   "wdt:P26": [
+    "wd:Q47484792",
+    "wd:Q5479842"
+   ],
+   "wdt:P2607": [
+    "1acd2e61-bc94-4d0a-b5e4-898dbb3fca90"
+   ],
+   "wdt:P268": [
+    "118949856"
+   ],
+   "wdt:P269": [
+    "026764644"
+   ],
+   "wdt:P27": [
+    "wd:Q142"
+   ],
+   "wdt:P2963": [
+    "957894"
+   ],
+   "wdt:P31": [
+    "wd:Q5"
+   ],
+   "wdt:P349": [
+    "00435195"
+   ],
+   "wdt:P3630": [
+    "2615"
+   ],
+   "wdt:P40": [
+    "wd:Q47519747",
+    "wd:Q47519771"
+   ],
+   "wdt:P5491": [
+    "29487"
+   ],
+   "wdt:P5570": [
+    "2147192806"
+   ],
+   "wdt:P569": [
+    "1913-11-07"
+   ],
+   "wdt:P570": [
+    "1960-01-04"
+   ],
+   "wdt:P648": [
+    "OL124171A"
+   ],
+   "wdt:P69": [
+    "wd:Q1190852"
+   ],
+   "wdt:P737": [
+    "wd:Q6512",
+    "wd:Q151164",
+    "wd:Q134189",
+    "wd:Q9358",
+    "wd:Q905",
+    "wd:Q713743",
+    "wd:Q47484",
+    "wd:Q991",
+    "wd:Q314189",
+    "wd:Q48301",
+    "wd:Q76509",
+    "wd:Q7197",
+    "wd:Q9364"
+   ],
+   "wdt:P7400": [
+    "camusalbert"
+   ],
+   "wdt:P906": [
+    "44544"
+   ],
+   "wdt:P950": [
+    "XX1721208"
+   ],
+   "wdt:P9707": [
+    "59944"
+   ]
+  },
+  "labels": {
+   "af": "Albert Camus",
+   "am": "አልቤር ካሚው",
+   "an": "Albert Camus",
+   "ar": "ألبير كامو",
+   "arz": "البير كامو",
+   "as": "আলবেৰ কেমু",
+   "ast": "Albert Camus",
+   "avk": "Albert Camus",
+   "ay": "Albert Camus",
+   "az": "Alber Kamü",
+   "azb": "آلبر کامو",
+   "ban": "Albert Camus",
+   "be": "Альбер Камю",
+   "be-tarask": "Альбэр Камю",
+   "bg": "Албер Камю",
+   "bjn": "Albert Camus",
+   "bn": "আলবের কাম্যু",
+   "bo": "ཨལ་བྷེར་ཀ་མུས།",
+   "br": "Albert Camus",
+   "bs": "Albert Camus",
+   "bxr": "Альбер Камю",
+   "ca": "Albert Camus",
+   "ceb": "Albert Camus",
+   "ckb": "ئەلبێر کامو",
+   "cs": "Albert Camus",
+   "cy": "Albert Camus",
+   "da": "Albert Camus",
+   "de": "Albert Camus",
+   "diq": "Albert Camus",
+   "ee": "Albert Camus",
+   "el": "Αλμπέρ Καμύ",
+   "en": "Albert Camus",
+   "en-gb": "Albert Camus",
+   "eo": "Albert Camus",
+   "es": "Albert Camus",
+   "et": "Albert Camus",
+   "eu": "Albert Camus",
+   "ext": "Albert Camus",
+   "fa": "آلبر کامو",
+   "fi": "Albert Camus",
+   "fo": "Albert Camus",
+   "fr": "Albert Camus",
+   "frp": "Arbèrto Camus",
+   "fy": "Albert Camus",
+   "ga": "Albert Camus",
+   "gd": "Albert Camus",
+   "gl": "Albert Camus",
+   "gor": "Albert Camus",
+   "gsw": "Albert Camus",
+   "gu": "આલ્બેર કેમ્યૂ",
+   "guw": "Albert Camus",
+   "hak": "Albert Camus",
+   "he": "אלבר קאמי",
+   "hi": "आल्बेर कामु",
+   "hr": "Albert Camus",
+   "ht": "Albert Camus",
+   "hu": "Albert Camus",
+   "hy": "Ալբեր Քամյու",
+   "ia": "Albert Camus",
+   "id": "Albert Camus",
+   "ie": "Albert Camus",
+   "ilo": "Albert Camus",
+   "io": "Albert Camus",
+   "is": "Albert Camus",
+   "it": "Albert Camus",
+   "ja": "アルベール・カミュ",
+   "jv": "Albert Camus",
+   "ka": "ალბერ კამიუ",
+   "kaa": "Albert Camus",
+   "kab": "Albert Camus",
+   "kbp": "Albert Camus",
+   "kk": "Альберт Камю",
+   "kl": "Albert Camus",
+   "kn": "ಆಲ್ಬರ್ಟ್ ಕಾಮೂ",
+   "ko": "알베르 카뮈",
+   "ks": "البر کامو",
+   "ku": "Albert Camus",
+   "kw": "Albert Camus",
+   "ky": "Камү Альбер",
+   "la": "Albertus Camus",
+   "lb": "Albert Camus",
+   "lfn": "Albert Camus",
+   "li": "Albert Camus",
+   "lld": "Albert Camus",
+   "lmo": "Albert Camus",
+   "lrc": "آلبرکامو",
+   "lt": "Albert Camus",
+   "lv": "Albērs Kamī",
+   "mg": "Albert Camus",
+   "min": "Albert Camus",
+   "mk": "Албер Ками",
+   "ml": "ആൽബർട്ട് കാമ്യു",
+   "mn": "Альбер Камю",
+   "mr": "आल्बेर काम्यू",
+   "mrj": "Камю",
+   "ms": "Albert Camus",
+   "mul": "Albert Camus",
+   "my": "အယ်လ်ဘတ် ကမူး",
+   "mzn": "آلبر کامو",
+   "nan": "Albert Camus",
+   "nb": "Albert Camus",
+   "nl": "Albert Camus",
+   "nn": "Albert Camus",
+   "nov": "Albert Camus",
+   "nrm": "Albert Camus",
+   "oc": "Albert Camus",
+   "olo": "Albert Camus",
+   "pa": "ਅਲਬੇਅਰ ਕਾਮੂ",
+   "pam": "Albert Camus",
+   "pap": "Albert Camus",
+   "pl": "Albert Camus",
+   "pms": "Albert Camus",
+   "pnb": "البرٹ کامیو",
+   "ps": "البېرټ کامو",
+   "pt": "Albert Camus",
+   "pt-br": "Albert Camus",
+   "qu": "Albert Camus",
+   "ro": "Albert Camus",
+   "ru": "Альбер Камю",
+   "sc": "Albert Camus",
+   "scn": "Albert Camus",
+   "sco": "Albert Camus",
+   "sd": "البرٽ ڪامو",
+   "sh": "Albert Camus",
+   "shi": "Albir Kamu",
+   "sk": "Albert Camus",
+   "sl": "Albert Camus",
+   "smn": "Albert Camus",
+   "sq": "Albert Camus",
+   "sr": "Албер Ками",
+   "sv": "Albert Camus",
+   "sw": "Albert Camus",
+   "ta": "அல்பேர்ட் காம்யு",
+   "te": "ఆల్బర్ట్ కామూ",
+   "tg": "Камю Албер",
+   "th": "อาลแบร์ กามูว์",
+   "tl": "Albert Camus",
+   "tok": "jan Ape Kamu",
+   "tr": "Albert Camus",
+   "tt": "Альбер Камю",
+   "uk": "Альбер Камю",
+   "ur": "البرٹ کامو",
+   "uz": "Albert Camus",
+   "vi": "Albert Camus",
+   "vo": "Albert Camus",
+   "war": "Albert Camus",
+   "wuu": "阿尔贝·加缪",
+   "xmf": "ალბერ კამიუ",
+   "yo": "Albert Camus",
+   "yue": "卡繆",
+   "zgh": "ⴰⵍⴱⵉⵔ ⴽⴰⵎⵓ",
+   "zh": "阿尔贝·加缪",
+   "zh-cn": "阿尔贝·加缪",
+   "zh-hans": "阿尔贝·加缪",
+   "zh-hant": "阿爾貝·卡繆",
+   "zh-hk": "艾拔·卡繆",
+   "zh-tw": "阿爾貝·卡繆"
+  },
+  "type": "human",
+  "uri": "wd:Q34670"
+ },
+ "wd:Q386305": {
+  "claims": {
+   "wdt:P1085": [
+    "109569"
+   ],
+   "wdt:P136": [
+    "wd:Q3056541"
+   ],
+   "wdt:P1476": [
+    "Le Premier Homme"
+   ],
+   "wdt:P214": [
+    "206860873"
+   ],
+   "wdt:P227": [
+    "4370939-4"
+   ],
+   "wdt:P243": [
+    "31938033"
+   ],
+   "wdt:P268": [
+    "12458214b"
+   ],
+   "wdt:P31": [
+    "wd:Q7725634"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P50": [
+    "wd:Q34670"
+   ],
+   "wdt:P5331": [
+    "6944198"
+   ],
+   "wdt:P577": [
+    "1994"
+   ],
+   "wdt:P648": [
+    "OL1230596W"
+   ],
+   "wdt:P674": [
+    "wd:Q110407956"
+   ],
+   "wdt:P840": [
+    "wd:Q262"
+   ]
+  },
+  "labels": {
+   "ar": "الرجل الأول (رواية)",
+   "azb": "بیرینجی آدام",
+   "ca": "El primer home",
+   "de": "Der erste Mensch",
+   "en": "The First Man",
+   "eo": "Le Premier Homme",
+   "es": "El primer hombre",
+   "fa": "آدم اول",
+   "fr": "Le Premier Homme",
+   "ga": "Le Premier Homme",
+   "he": "אדם הראשון",
+   "hy": "Առաջին մարդը",
+   "it": "Il primo uomo",
+   "ja": "最初の人間",
+   "ko": "최초의 인간",
+   "ml": "പ്രഥമ മനുഷ്യ",
+   "nl": "Le Premier Homme",
+   "pl": "Pierwszy człowiek (powieść)",
+   "pt": "Le Premier Homme",
+   "ru": "Первый человек",
+   "ta": "தி பர்ஸ்ட் மேன்",
+   "tr": "İlk Adam",
+   "uk": "Перша людина (роман)",
+   "ur": "دی فرسٹ مین",
+   "zh": "第一人"
+  },
+  "type": "work",
+  "uri": "wd:Q386305"
+ },
+ "wd:Q5146": {
+  "claims": {
+   "wdt:P218": [
+    "pt"
+   ],
+   "wdt:P31": [
+    "wd:Q33742",
+    "wd:Q1288568",
+    "wd:Q1322198"
+   ]
+  },
+  "labels": {
+   "en": "Portuguese",
+   "fr": "portugais"
+  },
+  "type": "language",
+  "uri": "wd:Q5146"
+ },
+ "wd:Q5287": {
+  "claims": {
+   "wdt:P218": [
+    "ja"
+   ],
+   "wdt:P31": [
+    "wd:Q33742",
+    "wd:Q1288568",
+    "wd:Q1322198"
+   ]
+  },
+  "labels": {
+   "en": "Japanese",
+   "fr": "japonais"
+  },
+  "type": "language",
+  "uri": "wd:Q5287"
+ },
+ "wd:Q690362": {
+  "claims": {
+   "wdt:P1085": [
+    "8482"
+   ],
+   "wdt:P136": [
+    "wd:Q2016518"
+   ],
+   "wdt:P1476": [
+    "La Chute"
+   ],
+   "wdt:P18": [
+    "Primera edición del libro \"La Caída\" del filósofo francés Albert Camus.jpg",
+    "Primera edición en español de \"La Caída de Albert Camus\" (1957).png"
+   ],
+   "wdt:P214": [
+    "183878065"
+   ],
+   "wdt:P227": [
+    "4113202-6"
+   ],
+   "wdt:P244": [
+    "n80074688"
+   ],
+   "wdt:P268": [
+    "119350580"
+   ],
+   "wdt:P269": [
+    "027272923"
+   ],
+   "wdt:P31": [
+    "wd:Q7725634"
+   ],
+   "wdt:P407": [
+    "wd:Q150"
+   ],
+   "wdt:P50": [
+    "wd:Q34670"
+   ],
+   "wdt:P5331": [
+    "461753"
+   ],
+   "wdt:P577": [
+    "1956"
+   ],
+   "wdt:P648": [
+    "OL1230631W"
+   ],
+   "wdt:P724": [
+    "fall00albe"
+   ],
+   "wdt:P7937": [
+    "wd:Q8261"
+   ],
+   "wdt:P8383": [
+    "3324245"
+   ],
+   "wdt:P840": [
+    "wd:Q727",
+    "wd:Q90"
+   ]
+  },
+  "labels": {
+   "ar": "السقطة",
+   "az": "Çöküş (roman)",
+   "azb": "چؤکوش (رومان)",
+   "bs": "Pad",
+   "ca": "La caiguda",
+   "cs": "Pád",
+   "da": "Faldet",
+   "de": "Der Fall",
+   "el": "Η Πτώση",
+   "en": "The Fall",
+   "eo": "La Kazo",
+   "es": "La caída",
+   "fa": "سقوط",
+   "fi": "Putoaminen",
+   "fr": "La Chute",
+   "ga": "La Chute",
+   "gl": "A caída",
+   "he": "הנפילה",
+   "hy": "Անկումը",
+   "id": "Jatuh (novel Camus)",
+   "it": "La caduta",
+   "ja": "転落",
+   "ka": "დაცემა",
+   "kk": "Азғындау (повесть)",
+   "ko": "전락",
+   "lt": "Krytis",
+   "nl": "De val",
+   "pl": "Upadek",
+   "pt": "A Queda",
+   "ro": "Căderea",
+   "ru": "Падение",
+   "sv": "Fallet",
+   "tr": "Düşüş",
+   "uk": "Падіння (роман)",
+   "ur": "دی فال (کامو ناول)",
+   "zh": "堕落 (加缪)"
+  },
+  "type": "work",
+  "uri": "wd:Q690362"
+ },
+ "wd:Q7026": {
+  "claims": {
+   "wdt:P218": [
+    "ca"
+   ],
+   "wdt:P31": [
+    "wd:Q34770",
+    "wd:Q1288568",
+    "wd:Q1322198"
+   ]
+  },
+  "labels": {
+   "en": "Catalan",
+   "fr": "catalan"
+  },
+  "type": "language",
+  "uri": "wd:Q7026"
+ }
+}

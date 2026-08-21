@@ -6,6 +6,7 @@ namespace App\Tests\Unit\Service;
 
 use App\Entity\DiscoveryCache;
 use App\Repository\DiscoveryCacheRepository;
+use App\Service\Discovery\AuthorResolutionPipeline;
 use App\Service\Discovery\DiscoveryBudgetExhaustedException;
 use App\Service\Discovery\SeriesResolutionPipeline;
 use App\Service\DiscoveryResolverService;
@@ -59,6 +60,7 @@ final class DiscoveryResolverServiceTest extends TestCase
             $cache,
             $pipeline,
             $logger ?? $this->createStub(HubEventLogger::class),
+            $this->createStub(AuthorResolutionPipeline::class),
         );
     }
 

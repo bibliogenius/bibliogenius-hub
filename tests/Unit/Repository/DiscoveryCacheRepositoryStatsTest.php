@@ -63,6 +63,51 @@ final class DiscoveryCacheRepositoryStatsTest extends TestCase
     // Pool
     // -------------------------------------------------------------------
 
+    /**
+     * The byte cap keeps the freshest-expiry rows that fit in the budget
+     * and drops the rest. Bytes, not rows: a '*_lookup' row costs a
+     * hundred bytes and saves a re-resolution, an author payload costs
+     * tens of KB, so a row cap would evict the cheap half of the pool and
+     * leave the expensive one.
+     */
+    public function testPruneOverBudgetDropsTheRowsPastTheByteBudget(): void
+    {
+        $capturedSql = null;
+        $capturedParams = null;
+        $capturedTypes = null;
+
+        $conn = $this->createMock(Connection::class);
+        $conn->expects($this->once())
+            ->method('executeStatement')
+            ->willReturnCallback(
+                function (string $sql, array $params, array $types) use (&$capturedSql, &$capturedParams, &$capturedTypes) {
+                    $capturedSql = $sql;
+                    $capturedParams = $params;
+                    $capturedTypes = $types;
+
+                    return 12;
+                },
+            );
+
+        $deleted = $this->repositoryWithConnection($conn)->pruneOverBudget(1024);
+
+        $this->assertSame(12, $deleted);
+        $this->assertSame(['budget' => 1024], $capturedParams);
+        // DBAL 4: ParameterType constants, never \PDO::PARAM_* ints.
+        $this->assertSame(\Doctrine\DBAL\ParameterType::INTEGER, $capturedTypes['budget']);
+        $this->assertStringContainsStringIgnoringCase('octet_length(payload)', $capturedSql);
+        $this->assertStringContainsStringIgnoringCase('ORDER BY expires_at DESC', $capturedSql);
+        $this->assertStringContainsStringIgnoringCase('running_bytes > :budget', $capturedSql);
+    }
+
+    public function testTotalPayloadBytesCoalescesTheEmptyPool(): void
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->method('fetchOne')->willReturn('0');
+
+        $this->assertSame(0, $this->repositoryWithConnection($conn)->totalPayloadBytes());
+    }
+
     public function testCountAllCountsEveryRow(): void
     {
         $capturedSql = null;

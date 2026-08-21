@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Unit\Service\Discovery;
 
 use App\Service\Discovery\DiscoveryBudgetExhaustedException;
+use App\Service\Discovery\EditionResolver;
+use App\Service\Discovery\EntityLookup;
 use App\Service\Discovery\InventaireClient;
 use App\Service\Discovery\OutboundBudget;
 use App\Service\Discovery\SeriesResolutionPipeline;
@@ -79,9 +81,14 @@ final class SeriesResolutionPipelineTest extends TestCase
             (string) file_get_contents(self::FIXTURES . '/wikidata_series_members_hp.json'),
         );
 
+        $inventaire = new InventaireClient($this->inventaireHttp(), $budget);
+        $entities = new EntityLookup($inventaire);
+
         return new SeriesResolutionPipeline(
-            new InventaireClient($this->inventaireHttp(), $budget),
+            $inventaire,
             new WikidataClient(new MockHttpClient($sparqlHandler), $budget),
+            $entities,
+            new EditionResolver($inventaire, $entities),
         );
     }
 

@@ -31,7 +31,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *   deposit_404_log       - TTL 30 days (aggregated, so cap is implicit)
  *   cached_catalogs       - per-row expires_at (ADR-027 catalog cache)
  *   orphan_covers         - catalog-driven filesystem sweep (ADR-033)
- *   discovery_cache       - per-row expires_at (ADR-060 discovery resolver)
+ *   discovery_cache       - per-row expires_at + payload byte cap (ADR-060)
  */
 #[AsCommand(
     name: 'app:db:prune',
@@ -46,6 +46,20 @@ class PruneCommand extends Command
     private const HUB_EVENTS_TTL_DAYS = 30;
     private const HUB_EVENTS_MAX_ROWS = 1000;
     private const DEPOSIT_404_LOG_TTL_DAYS = 30;
+
+    /**
+     * Byte budget of the pooled discovery cache (ADR-060). The 30-day TTL
+     * bounds nothing under sustained pressure, so the payloads are capped
+     * too: measured, an author bibliography weighs about 26 KB and a
+     * series about 5 KB, so this budget holds several thousand resolved
+     * entities, far past organic need.
+     *
+     * This counts UNCOMPRESSED payload bytes, which is what the budget
+     * query sums; on disk the table is materially smaller because
+     * Postgres compresses TOASTed text, measured at about 2.6x on real
+     * resolver payloads. Read 128 MB here as roughly 50 MB of VPS disk.
+     */
+    private const DISCOVERY_CACHE_MAX_PAYLOAD_BYTES = 128 * 1024 * 1024;
 
     public function __construct(
         private readonly Connection $connection,
@@ -317,9 +331,29 @@ class PruneCommand extends Command
     private function pruneDiscoveryCache(SymfonyStyle $io): int
     {
         $deleted = $this->discoveryCacheRepository->pruneExpired(new \DateTimeImmutable());
-        $io->writeln(sprintf('  discovery_cache  (per-row expires_at): <info>%d deleted</info>', $deleted));
 
-        return $deleted;
+        // Secondary cap, by payload bytes: the pool is shared by every
+        // reader and only the outbound budget limits how fast it can be
+        // written, so a thirty-day TTL is not a size guarantee.
+        $capDeleted = $this->discoveryCacheRepository->pruneOverBudget(
+            self::DISCOVERY_CACHE_MAX_PAYLOAD_BYTES,
+        );
+        if ($capDeleted > 0) {
+            // Reaching the cap is either real fleet growth or someone
+            // flooding the resolver: both deserve to be visible in /admin
+            // rather than inferred from a shrinking pool.
+            $this->eventLogger->warning('maintenance', 'discovery_cache_over_budget', [
+                'count' => $capDeleted,
+            ]);
+        }
+
+        $io->writeln(sprintf(
+            '  discovery_cache  (per-row expires_at, cap %d MB): <info>%d deleted</info>',
+            intdiv(self::DISCOVERY_CACHE_MAX_PAYLOAD_BYTES, 1024 * 1024),
+            $deleted + $capDeleted,
+        ));
+
+        return $deleted + $capDeleted;
     }
 
     /**
