@@ -52,10 +52,16 @@ class InventaireClient
     {
         $entities = [];
         foreach (array_chunk(array_values(array_unique($uris)), self::URIS_BATCH_SIZE) as $chunk) {
-            $data = $this->get('/api/entities', [
-                'action' => 'by-uris',
-                'uris' => implode('|', $chunk),
-            ]);
+            $data = $this->get(
+                '/api/entities',
+                ['action' => 'by-uris', 'uris' => implode('|', $chunk)],
+                // Only a single-uri request may degrade to "nothing found":
+                // it is the anchor lookup, the one place a client-derived
+                // uri reaches the source. A batch that answers 4xx would
+                // otherwise drop fifty entities silently, and the caller
+                // would cache the truncated result as a complete payload.
+                count($chunk) === 1,
+            );
             $batch = $data['entities'] ?? [];
             if (!is_array($batch)) {
                 continue;
@@ -102,7 +108,7 @@ class InventaireClient
      * @throws DiscoveryBudgetExhaustedException
      * @throws DiscoverySourceException
      */
-    private function get(string $path, array $query): array
+    private function get(string $path, array $query, bool $clientErrorIsEmpty = false): array
     {
         $this->budget->consumeOrFail();
         try {
@@ -111,8 +117,33 @@ class InventaireClient
                 'headers' => ['User-Agent' => self::USER_AGENT],
                 'timeout' => self::TIMEOUT_SECONDS,
             ]);
-            if ($response->getStatusCode() !== 200) {
-                throw new DiscoverySourceException(sprintf('Inventaire returned HTTP %d', $response->getStatusCode()));
+            $status = $response->getStatusCode();
+            if ($status !== 200) {
+                // Where the caller allows it, a client error is an ANSWER
+                // rather than a failure: "this query is not resolvable", so
+                // the resolver negative-caches it and the reader is spared a
+                // retry every 24h forever. Inventaire answers 400 on an ISBN
+                // that passes our checksum but that it considers
+                // structurally invalid, and real libraries carry those.
+                // Treating that as a transport failure cost more than the
+                // row it failed to cache: the exception aborted the whole
+                // lookup, so one bad ISBN among three anchors vetoed the two
+                // good ones.
+                //
+                // Everywhere else a 4xx stays a failure, deliberately. A
+                // batch or a reverse-claims call that degraded to an empty
+                // answer would let a TRUNCATED payload be cached as a
+                // complete one for thirty days, which is precisely the
+                // "resolved but wrong" shape the drift monitoring of section
+                // 3.5 cannot see.
+                //
+                // 429 and 5xx always throw: they mean "try later", and
+                // caching them would freeze an outage into the pool.
+                if (!$clientErrorIsEmpty || $status === 429 || $status >= 500) {
+                    throw new DiscoverySourceException(sprintf('Inventaire returned HTTP %d', $status));
+                }
+
+                return [];
             }
             $data = json_decode($response->getContent(), true);
         } catch (DiscoverySourceException $e) {

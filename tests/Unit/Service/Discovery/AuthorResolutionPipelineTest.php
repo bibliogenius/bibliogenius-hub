@@ -289,6 +289,26 @@ final class AuthorResolutionPipelineTest extends TestCase
         $this->assertNull($pipeline->resolveAuthorEntity(self::AUTHOR_URI, self::AUTHOR_NAME));
     }
 
+    /**
+     * One anchor the source refuses must not veto the others. Before the
+     * client told a 400 apart from an outage, a single checksum-valid but
+     * structurally invalid ISBN in a reader's library aborted the whole
+     * lookup, and the failure was never cached, so it came back every day.
+     */
+    public function testAnAnchorRefusedByTheSourceYieldsNoCandidateInsteadOfFailing(): void
+    {
+        $budget = $this->createStub(OutboundBudget::class);
+        $http = new MockHttpClient(static fn (): MockResponse => new MockResponse(
+            '{"status":400,"message":"invalid uri id"}',
+            ['http_code' => 400],
+        ));
+        $inventaire = new InventaireClient($http, $budget);
+        $lookup = new EntityLookup($inventaire);
+        $pipeline = new AuthorResolutionPipeline($inventaire, $lookup, new EditionResolver($inventaire, $lookup));
+
+        $this->assertSame([], $pipeline->resolveAnchor('9791234567896'));
+    }
+
     public function testBudgetExhaustionPropagates(): void
     {
         $budget = $this->createStub(OutboundBudget::class);
