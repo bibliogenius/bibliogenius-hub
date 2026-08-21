@@ -39,6 +39,8 @@ help:
 	@echo "  make test         - Test deployed endpoints"
 	@echo "  make test-relay   - Test relay endpoints on staging (E2EE mailbox)"
 	@echo "  make test-relay-prod - Same round-trip against production"
+	@echo "  make test-discovery - Smoke the discovery resolver on staging (ADR-060)"
+	@echo "  make test-discovery-prod - Same checks against production"
 	@echo "  make test-all     - Run all tests"
 	@echo ""
 	@echo "Staging (hub-dev on Scaleway):"
@@ -157,6 +159,24 @@ test-relay:
 .PHONY: test-relay-prod
 test-relay-prod:
 	@$(MAKE) test-relay RELAY_URL=$(HUB_URL)
+
+# Discovery resolver smoke test AND source-drift sentinel (ADR-060, both
+# lanes). Defaults to STAGING like test-relay. Beyond the envelope and the
+# input validation, it asserts the QUALITY of a real resolution (authors,
+# titles, alternates, editions, no omnibus), which is the one regression
+# the section 3.5 drift monitoring cannot see: it measures outcomes, and a
+# resolution can succeed with an empty payload. A cache miss resolves
+# against Wikidata and Inventaire and consumes the hub-wide outbound
+# budget; on a warm pool the run is free.
+DISCOVERY_URL ?= $(HUB_DEV_URL)
+
+.PHONY: test-discovery
+test-discovery:
+	@HUB=$(DISCOVERY_URL) ./scripts/qa_discovery_resolver.sh
+
+.PHONY: test-discovery-prod
+test-discovery-prod:
+	@$(MAKE) test-discovery DISCOVERY_URL=$(HUB_URL)
 
 # Run all tests
 .PHONY: test-all
