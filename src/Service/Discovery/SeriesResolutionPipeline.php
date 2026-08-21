@@ -250,6 +250,34 @@ class SeriesResolutionPipeline
         if ($allEditionUris === []) {
             return;
         }
+
+        // An edition claimed by several works of the same series is an
+        // omnibus or a box set: the sources link it to every work it
+        // contains. It is an edition of none of them individually, and
+        // offering it as "the missing volume N" would have the client
+        // import a box set under one volume's title. Dropped before the
+        // fetch, so it costs no outbound call either.
+        $shared = [];
+        foreach (array_count_values($allEditionUris) as $uri => $count) {
+            if ($count > 1) {
+                $shared[$uri] = true;
+            }
+        }
+        if ($shared !== []) {
+            foreach ($editionUrisByVolume as $i => $uris) {
+                $editionUrisByVolume[$i] = array_values(
+                    array_filter($uris, static fn (string $u): bool => !isset($shared[$u])),
+                );
+            }
+            $allEditionUris = array_filter(
+                $allEditionUris,
+                static fn (string $u): bool => !isset($shared[$u]),
+            );
+            if ($allEditionUris === []) {
+                return;
+            }
+        }
+
         $editions = $this->inventaire->entitiesByUris(array_unique($allEditionUris));
 
         $langUris = [];

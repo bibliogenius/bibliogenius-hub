@@ -70,6 +70,15 @@
     "labels": { "en": "French" },
     "claims": { "wdt:P218": ["fr"] }
   },
+  "inv:0mn1bu5000000000000000000000cafe": {
+    "uri": "inv:0mn1bu5000000000000000000000cafe",
+    "type": "edition",
+    "claims": {
+      "wdt:P212": ["978-2-07-054519-3"],
+      "wdt:P407": ["wd:Q150"],
+      "wdt:P1476": ["Harry Potter, coffret 4 volumes"]
+    }
+  },
   "wd:Q58465058": {
     "uri": "wd:Q58465058",
     "type": "edition",

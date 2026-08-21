@@ -169,6 +169,29 @@ final class SeriesResolutionPipelineTest extends TestCase
         $this->assertStringContainsString('"mul"', $captured);
     }
 
+    /**
+     * An edition claimed by two works of the same series is an omnibus or a
+     * box set, not an edition of either volume: the sources link it to
+     * every work it contains. Offering one as "the missing volume N" makes
+     * the client import a box set under a single volume's title, which is
+     * exactly the false positive the precision rule forbids.
+     */
+    public function testOmnibusEditionsAreNotOfferedAsVolumeEditions(): void
+    {
+        $payload = $this->pipeline()->resolveSeriesEntity('wd:Q8337');
+
+        $this->assertNotNull($payload);
+        $offered = [];
+        foreach ($payload['volumes'] as $volume) {
+            $offered = array_merge($offered, array_column($volume['editions'], 'isbn'));
+        }
+
+        $this->assertNotContains('9782070545193', $offered);
+        // The single-work editions are untouched.
+        $this->assertContains('9780747532699', $offered);
+        $this->assertContains('9782070541270', $offered);
+    }
+
     public function testOversizedSeriesIsTreatedAsUnknown(): void
     {
         $bindings = [];
