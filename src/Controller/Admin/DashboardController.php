@@ -4,6 +4,7 @@ namespace App\Controller\Admin;
 
 use App\Repository\Deposit404LogRepository;
 use App\Repository\DirectoryHealthRepository;
+use App\Repository\DiscoveryCacheRepository;
 use App\Repository\RelayMailboxRepository;
 use App\Service\HubEventLogger;
 use Doctrine\ORM\EntityManagerInterface;
@@ -25,8 +26,11 @@ class DashboardController extends AbstractDashboardController
         private readonly HubEventLogger $eventLogger,
         private readonly Deposit404LogRepository $deposit404Log,
         private readonly DirectoryHealthRepository $directoryHealth,
+        private readonly DiscoveryCacheRepository $discoveryCache,
         #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%env(int:default:catalog_coverage_alert_threshold_default:CATALOG_COVERAGE_ALERT_THRESHOLD)%')]
         private readonly int $catalogCoverageAlertThreshold = 40,
+        #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%env(int:default:discovery_drift_alert_threshold_default:DISCOVERY_DRIFT_ALERT_THRESHOLD)%')]
+        private readonly int $discoveryDriftAlertThreshold = 50,
     ) {
     }
 
@@ -216,6 +220,23 @@ class DashboardController extends AbstractDashboardController
             [$yesterday],
         );
 
+        // Discovery monitoring (ADR-060 section 3.5): read-only visibility
+        // into the pooled resolution cache and its source-drift tripwire.
+        // The share and the last-alert marker are reused from the same
+        // repository methods the nightly prune sentinel already relies on;
+        // the rest are new read-only aggregates, kept in
+        // DiscoveryCacheRepository so their SELECT shapes stay unit-tested.
+        $discoveryTotalRows = $this->discoveryCache->countAll();
+        $discoveryByKindStatus = $this->discoveryCache->countByKindAndStatus();
+        $discoveryNextExpiryAt = $this->discoveryCache->nextExpiryAt();
+        $discoveryExpiringSoon7d = $this->discoveryCache->countExpiringWithinDays(7, $now);
+        $discoveryResolutions24h = $this->discoveryCache->countResolutionsLast24h($now);
+        $discoveryNonResolvedShare24h = $this->discoveryCache->nonResolvedSharePercentLast24h($now);
+        $discoveryLastDriftAlertAt = $this->discoveryCache->lastDriftAlertAt();
+        $discoveryFailureReasons24h = $this->discoveryCache->countFailureReasonsLast24h($now);
+        $discoveryBudgetExhausted24h = $this->discoveryCache->countBudgetExhaustionsSince($now->modify('-24 hours'));
+        $discoveryBudgetExhausted7d = $this->discoveryCache->countBudgetExhaustionsSince($now->modify('-7 days'));
+
         // DB table sizes (PostgreSQL)
         $tableSizes = $conn->fetchAllAssociative(
             "SELECT relname AS table_name,
@@ -262,6 +283,18 @@ class DashboardController extends AbstractDashboardController
             'loans_per_day' => $loansPerDay,
             'library_growth' => $libraryGrowth,
             'version_distribution' => $versionDistribution,
+            'discovery_total_rows' => $discoveryTotalRows,
+            'discovery_by_kind_status' => $discoveryByKindStatus,
+            'discovery_next_expiry_at' => $discoveryNextExpiryAt,
+            'discovery_expiring_soon_7d' => $discoveryExpiringSoon7d,
+            'discovery_resolutions_24h' => $discoveryResolutions24h,
+            'discovery_non_resolved_share_24h' => $discoveryNonResolvedShare24h,
+            'discovery_drift_alert_threshold' => $this->discoveryDriftAlertThreshold,
+            'discovery_last_drift_alert_at' => $discoveryLastDriftAlertAt,
+            'discovery_failure_reasons_24h' => $discoveryFailureReasons24h,
+            'discovery_budget_exhausted_24h' => $discoveryBudgetExhausted24h,
+            'discovery_budget_exhausted_7d' => $discoveryBudgetExhausted7d,
+            'discovery_drift_min_samples' => DiscoveryCacheRepository::DRIFT_MIN_SAMPLES,
         ]);
     }
 

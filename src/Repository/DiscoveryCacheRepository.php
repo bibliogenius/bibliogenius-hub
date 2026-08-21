@@ -136,4 +136,136 @@ class DiscoveryCacheRepository extends ServiceEntityRepository
             ? new \DateTimeImmutable($raw)
             : null;
     }
+
+    // -----------------------------------------------------------------
+    // /admin monitoring (ADR-060 section 3.5): read-only aggregates over
+    // the pool and its hub_events trail. Kept here, not inline in the
+    // controller, so the SELECT shapes are unit-tested.
+    // -----------------------------------------------------------------
+
+    /** Total rows currently held in the pool, all kinds and statuses. */
+    public function countAll(): int
+    {
+        return (int) $this->getEntityManager()->getConnection()->fetchOne(
+            'SELECT COUNT(*) FROM discovery_cache',
+        );
+    }
+
+    /**
+     * Row counts grouped by kind and status, for the pool breakdown table.
+     * Only combinations actually present in the pool are returned.
+     *
+     * @return list<array{kind: string, status: string, count: int}>
+     */
+    public function countByKindAndStatus(): array
+    {
+        $rows = $this->getEntityManager()->getConnection()->fetchAllAssociative(
+            'SELECT kind, status, COUNT(*) AS count
+               FROM discovery_cache
+              GROUP BY kind, status
+              ORDER BY kind, status',
+        );
+
+        return array_map(
+            static fn (array $row): array => [
+                'kind' => (string) $row['kind'],
+                'status' => (string) $row['status'],
+                'count' => (int) $row['count'],
+            ],
+            $rows,
+        );
+    }
+
+    /** Soonest expires_at still in the pool, or null when the pool is empty. */
+    public function nextExpiryAt(): ?\DateTimeImmutable
+    {
+        $raw = $this->getEntityManager()->getConnection()->fetchOne(
+            'SELECT MIN(expires_at) FROM discovery_cache',
+        );
+
+        return is_string($raw) && $raw !== ''
+            ? new \DateTimeImmutable($raw)
+            : null;
+    }
+
+    /**
+     * Rows expiring within the next $days days (already-expired rows
+     * pending the nightly sweep are excluded: they are a prune-lag
+     * artefact, not an upcoming-expiry signal).
+     */
+    public function countExpiringWithinDays(int $days, \DateTimeImmutable $now): int
+    {
+        return (int) $this->getEntityManager()->getConnection()->fetchOne(
+            'SELECT COUNT(*) FROM discovery_cache WHERE expires_at >= :now AND expires_at <= :cutoff',
+            [
+                'now' => $now->format('Y-m-d H:i:s'),
+                'cutoff' => $now->modify(sprintf('+%d days', $days))->format('Y-m-d H:i:s'),
+            ],
+        );
+    }
+
+    /**
+     * Cache writes in the last 24h, all statuses: the same population
+     * nonResolvedSharePercentLast24h() computes its share over, exposed as
+     * a raw count so the dashboard can show "N resolutions, X% non-resolved"
+     * side by side instead of a lone percentage.
+     */
+    public function countResolutionsLast24h(\DateTimeImmutable $now): int
+    {
+        return (int) $this->getEntityManager()->getConnection()->fetchOne(
+            'SELECT COUNT(*) FROM discovery_cache WHERE updated_at >= :since',
+            ['since' => $now->modify('-24 hours')->format('Y-m-d H:i:s')],
+        );
+    }
+
+    /**
+     * Failure-reason breakdown over the last 24h, read from hub_events
+     * (channel 'discovery'). Keys are whatever DiscoveryResolverService
+     * wrote in the 'reason' context field (no_anchor_resolved,
+     * disjoint_anchors, no_clear_winner, no_usable_members,
+     * outbound_budget_exhausted, source-exception messages); the dashboard
+     * only renders the four resolution-quality reasons, the budget one is
+     * covered separately by countBudgetExhaustionsSince().
+     *
+     * @return array<string, int> reason => count
+     */
+    public function countFailureReasonsLast24h(\DateTimeImmutable $now): array
+    {
+        $rows = $this->getEntityManager()->getConnection()->fetchAllAssociative(
+            "SELECT (context::jsonb)->>'reason' AS reason, COUNT(*) AS count
+               FROM hub_events
+              WHERE channel = 'discovery' AND created_at >= :since
+              GROUP BY reason",
+            ['since' => $now->modify('-24 hours')->format('Y-m-d H:i:s')],
+        );
+
+        $counts = [];
+        foreach ($rows as $row) {
+            if ($row['reason'] === null) {
+                continue;
+            }
+            $counts[(string) $row['reason']] = (int) $row['count'];
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Outbound-budget exhaustions (hub_events channel 'discovery', reason
+     * 'outbound_budget_exhausted') since $since. Called with both a 24h and
+     * a 7d window for the source-pressure cards.
+     */
+    public function countBudgetExhaustionsSince(\DateTimeImmutable $since): int
+    {
+        return (int) $this->getEntityManager()->getConnection()->fetchOne(
+            "SELECT COUNT(*) FROM hub_events
+              WHERE channel = 'discovery'
+                AND (context::jsonb)->>'reason' = :reason
+                AND created_at >= :since",
+            [
+                'reason' => 'outbound_budget_exhausted',
+                'since' => $since->format('Y-m-d H:i:s'),
+            ],
+        );
+    }
 }

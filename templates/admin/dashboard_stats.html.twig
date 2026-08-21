@@ -740,6 +740,185 @@
 </table>
 {% endif %}
 
+{# — Discovery resolver (series/author completion, ADR-060) — #}
+<div class="section-title" style="margin-top: 24px;">Discovery Resolver (ADR-060)</div>
+<p class="section-legend">
+    Read-only view of the pooled series/author completion cache and the pressure it puts on
+    Wikidata/Inventaire. Series completion is the only lane shipped so far (volet 1); author
+    completion rows will appear here once that lane ships. Figures stay small until real client
+    traffic exercises the endpoint (production exposure is a later phase).
+</p>
+<div class="stat-grid">
+
+    <div class="stat-card {{ discovery_total_rows == 0 ? 'status-warn' : '' }}">
+        <div class="stat-label">
+            Cache Pool
+            <i class="tip" data-tip="Total rows in discovery_cache, all kinds and statuses. Zero means the feature has never been exercised yet.">i</i>
+        </div>
+        <div class="stat-value">{{ discovery_total_rows }}</div>
+        <div class="stat-sub">
+            {% if discovery_total_rows == 0 %}
+                <span class="sub-warn">feature never exercised</span>
+            {% else %}
+                pooled rows, breakdown below
+            {% endif %}
+        </div>
+    </div>
+
+    {% set discovery_expiry_hours = discovery_next_expiry_at ? ((discovery_next_expiry_at|date("U")) - ("now"|date("U"))) / 3600 : null %}
+    <div class="stat-card">
+        <div class="stat-label">
+            Next Expiry
+            <i class="tip" data-tip="Soonest expires_at still in the pool. Resolved rows live 30 days, ambiguous/unknown rows 7 days (ADR-060 section 3.3). Swept nightly by app:db:prune.">i</i>
+        </div>
+        <div class="stat-value">
+            {% if discovery_next_expiry_at is null %}
+                n/a
+            {% elseif discovery_expiry_hours < 1 %}
+                &lt;1h
+            {% elseif discovery_expiry_hours < 24 %}
+                {{ discovery_expiry_hours|round }}h
+            {% else %}
+                {{ (discovery_expiry_hours / 24)|round }}d
+            {% endif %}
+        </div>
+        <div class="stat-sub">
+            {% if discovery_next_expiry_at is null %}
+                pool empty
+            {% else %}
+                {{ discovery_expiring_soon_7d }} row{{ discovery_expiring_soon_7d != 1 ? 's' : '' }} expiring &lt;7d
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">
+            Resolutions (24h)
+            <i class="tip" data-tip="Cache writes in the last 24h, every outcome (resolved, ambiguous, unknown). Same population the non-resolved share to the right is computed over.">i</i>
+        </div>
+        <div class="stat-value">{{ discovery_resolutions_24h }}</div>
+        <div class="stat-sub">cache writes, all outcomes</div>
+    </div>
+
+    <div class="stat-card {{ discovery_non_resolved_share_24h is not null and discovery_non_resolved_share_24h >= discovery_drift_alert_threshold ? 'status-alert' : (discovery_non_resolved_share_24h is not null ? 'status-ok' : '') }}">
+        <div class="stat-label">
+            Non-resolved Share (24h)
+            <i class="tip" data-tip="Share of the 24h resolutions that ended ambiguous or unknown. At or above {{ discovery_drift_alert_threshold }}%, app:db:prune fires a source-drift warning (Hub Events, channel maintenance, message discovery_drift_degraded), deduplicated to once per 24h. Needs at least {{ discovery_drift_min_samples }} samples in the window, else it reads n/a as statistically meaningless.">i</i>
+        </div>
+        <div class="stat-value">
+            {% if discovery_non_resolved_share_24h is null %}
+                n/a
+            {% else %}
+                {{ discovery_non_resolved_share_24h }}%
+            {% endif %}
+        </div>
+        <div class="stat-sub">
+            {% if discovery_non_resolved_share_24h is null %}
+                not enough samples yet
+            {% elseif discovery_non_resolved_share_24h >= discovery_drift_alert_threshold %}
+                <span class="sub-alert">at or above alert threshold ({{ discovery_drift_alert_threshold }}%)</span>
+            {% else %}
+                below alert threshold ({{ discovery_drift_alert_threshold }}%)
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">
+            Last Drift Alert
+            <i class="tip" data-tip="When app:db:prune last emitted the source-drift warning (Hub Events, channel maintenance, message discovery_drift_degraded). Never means it has not fired yet.">i</i>
+        </div>
+        <div class="stat-value">
+            {% if discovery_last_drift_alert_at is null %}
+                never
+            {% else %}
+                <time datetime="{{ discovery_last_drift_alert_at|date('c', 'UTC') }}" data-utc data-format="date">{{ discovery_last_drift_alert_at|date('Y-m-d H:i', 'UTC') }}</time> UTC
+            {% endif %}
+        </div>
+        <div class="stat-sub">
+            {% if discovery_last_drift_alert_at is null %}
+                no source-drift alert yet
+            {% else %}
+                ago
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="stat-card {{ discovery_budget_exhausted_24h > 0 ? 'status-warn' : 'status-ok' }}">
+        <div class="stat-label">
+            Outbound Budget Exhausted
+            <i class="tip" data-tip="Times the hub-wide outbound token bucket to Wikidata/Inventaire was empty (ADR-060 section 3.4), returning 'unavailable' instead of resolving. Occasional hits are expected under legitimate traffic; a sustained rise means the shared budget is too tight.">i</i>
+        </div>
+        <div class="stat-value">{{ discovery_budget_exhausted_24h }}</div>
+        <div class="stat-sub">
+            {% if discovery_budget_exhausted_24h > 0 %}
+                <span class="sub-warn">{{ discovery_budget_exhausted_7d }} over 7 days</span>
+            {% else %}
+                {{ discovery_budget_exhausted_7d }} over 7 days
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+
+{% if discovery_by_kind_status is not empty %}
+<table class="hub-table" style="max-width: 420px; margin-top: 12px; margin-bottom: 20px;">
+    <thead>
+        <tr>
+            <th>Kind</th>
+            <th>Status</th>
+            <th style="text-align:right">Rows</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in discovery_by_kind_status %}
+        <tr>
+            <td><code class="mono">{{ row.kind }}</code></td>
+            <td>
+                {% if row.status == 'resolved' %}
+                    <span class="badge badge-ok">resolved</span>
+                {% elseif row.status == 'ambiguous' %}
+                    <span class="badge badge-warning">ambiguous</span>
+                {% else %}
+                    <span class="badge badge-muted">{{ row.status }}</span>
+                {% endif %}
+            </td>
+            <td class="db-size-val"><strong>{{ row.count }}</strong></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="muted" style="padding: 4px 0 16px;">Pool empty, nothing to break down yet.</p>
+{% endif %}
+
+<div class="section-title" style="margin-top: 8px;">Discovery Failure Reasons (24h)</div>
+<p class="section-legend">
+    Non-resolved outcomes on the series-completion pipeline, read from Hub Events (channel
+    <code>discovery</code>). <code>no_anchor_resolved</code>: none of the anchor ISBNs matched a
+    source entity. <code>disjoint_anchors</code>: the anchors resolved to unrelated series.
+    <code>no_clear_winner</code>: several candidate series survived and the optional name
+    tiebreaker did not settle it. <code>no_usable_members</code>: the series entity resolved but
+    its member list came back empty. Outbound budget exhaustion is source pressure, not a
+    resolution-quality signal, and is tracked separately above.
+</p>
+<table class="hub-table" style="max-width: 480px;">
+    <thead>
+        <tr>
+            <th>Reason</th>
+            <th style="text-align:right">Count (24h)</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for reason in ['no_anchor_resolved', 'disjoint_anchors', 'no_clear_winner', 'no_usable_members'] %}
+        <tr>
+            <td><code class="mono">{{ reason }}</code></td>
+            <td class="db-size-val"><strong>{{ discovery_failure_reasons_24h[reason]|default(0) }}</strong></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
 {# — Health — #}
 <div class="section-title" style="margin-top: 24px;">Health</div>
 <div class="stat-grid">
