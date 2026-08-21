@@ -1,0 +1,92 @@
+{
+  "wd:Q58464836": {
+    "uri": "wd:Q58464836",
+    "type": "edition",
+    "claims": {
+      "wdt:P212": ["978-2-07-054127-0"],
+      "wdt:P629": ["wd:Q46758"],
+      "wdt:P407": ["wd:Q150"],
+      "invp:P2": ["57883743aa7c6ad25885a63e6e94349ec4f71562"]
+    }
+  },
+  "wd:Q46758": {
+    "uri": "wd:Q46758",
+    "type": "work",
+    "labels": {
+      "en": "Harry Potter and the Prisoner of Azkaban",
+      "fr": "Harry Potter et le Prisonnier d'Azkaban"
+    },
+    "claims": {
+      "wdt:P179": ["wd:Q8337"],
+      "wdt:P50": ["wd:Q34660"],
+      "wdt:P577": ["1999-07-08"],
+      "wdt:P407": ["wd:Q1860"],
+      "wdt:P1545": ["3"]
+    }
+  },
+  "wd:Q43361": {
+    "uri": "wd:Q43361",
+    "type": "work",
+    "labels": {
+      "en": "Harry Potter and the Philosopher's Stone",
+      "fr": "Harry Potter à l'école des sorciers"
+    },
+    "claims": {
+      "wdt:P179": ["wd:Q8337"],
+      "wdt:P50": ["wd:Q34660"],
+      "wdt:P577": ["1997-06-26"],
+      "wdt:P407": ["wd:Q1860"],
+      "wdt:P1545": ["1"]
+    }
+  },
+  "wd:Q8337": {
+    "uri": "wd:Q8337",
+    "type": "serie",
+    "labels": {
+      "am": "\u1203\u122a \u1356\u1270\u122d",
+      "mul": "Harry Potter"
+    },
+    "claims": {
+      "wdt:P50": ["wd:Q34660"]
+    }
+  },
+  "wd:Q34660": {
+    "uri": "wd:Q34660",
+    "type": "human",
+    "labels": {
+      "en": "J. K. Rowling"
+    },
+    "claims": {}
+  },
+  "wd:Q1860": {
+    "uri": "wd:Q1860",
+    "type": "language",
+    "labels": { "en": "English" },
+    "claims": { "wdt:P218": ["en"] }
+  },
+  "wd:Q150": {
+    "uri": "wd:Q150",
+    "type": "language",
+    "labels": { "en": "French" },
+    "claims": { "wdt:P218": ["fr"] }
+  },
+  "wd:Q58465058": {
+    "uri": "wd:Q58465058",
+    "type": "edition",
+    "claims": {
+      "wdt:P212": ["978-0-7475-3269-9"],
+      "wdt:P629": ["wd:Q43361"],
+      "wdt:P407": ["wd:Q1860"],
+      "invp:P2": ["aa1122334455667788990011223344556677aabb"]
+    }
+  },
+  "inv:5e0f3a8b6d1c4e2f9a7b0c3d5e8f1a2b": {
+    "uri": "inv:5e0f3a8b6d1c4e2f9a7b0c3d5e8f1a2b",
+    "type": "edition",
+    "claims": {
+      "wdt:P212": ["978-2-07-051842-5"],
+      "wdt:P629": ["wd:Q43361"],
+      "wdt:P407": ["wd:Q150"]
+    }
+  }
+}

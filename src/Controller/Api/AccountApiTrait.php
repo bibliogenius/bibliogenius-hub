@@ -11,10 +11,12 @@ use Symfony\Component\RateLimiter\RateLimit;
 use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 
 /**
- * Shared HTTP helpers for the account E2EE sync controllers (ADR-043). Keeps
- * the rate-limit, JSON, body-size, and blob-decode boilerplate in one place so
- * AccountController and AccountSyncController do not drift. Business logic lives
- * in AccountAuthService and the repositories, never here.
+ * Shared HTTP helpers, born with the account E2EE sync controllers
+ * (ADR-043) and since reused by other JSON API controllers
+ * (DiscoveryController, ADR-060). Keeps the rate-limit, JSON, body-size,
+ * and blob-decode boilerplate in one place so the controllers do not
+ * drift. Business logic lives in the services and repositories, never
+ * here.
  *
  * Used by classes extending AbstractController (provides json()).
  */

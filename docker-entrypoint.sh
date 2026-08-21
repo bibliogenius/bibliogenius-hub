@@ -137,6 +137,12 @@ php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS account_device_reg
 php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS account_auth_challenges (id SERIAL NOT NULL, account_id VARCHAR(64) NOT NULL, challenge VARCHAR(64) NOT NULL, purpose VARCHAR(16) NOT NULL, expires_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, PRIMARY KEY (id), CONSTRAINT fk_auth_chal_account FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE)" --env=$ENV --no-interaction || echo "WARNING: account_auth_challenges creation failed"
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_account_auth_chal_expires ON account_auth_challenges (expires_at)" --env=$ENV --no-interaction || true
 
+# discovery_cache (Version20260821060000 - ADR-060 external discovery resolver)
+# Pooled bibliographic cache keyed by (kind, cache_key); language-neutral
+# payloads, per-row expires_at swept by the nightly prune.
+php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS discovery_cache (kind VARCHAR(16) NOT NULL, cache_key VARCHAR(255) NOT NULL, status VARCHAR(16) NOT NULL, payload TEXT DEFAULT NULL, source VARCHAR(32) DEFAULT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), expires_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, PRIMARY KEY (kind, cache_key))" --env=$ENV --no-interaction || echo "WARNING: discovery_cache creation failed"
+php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_discovery_cache_expires ON discovery_cache (expires_at)" --env=$ENV --no-interaction || true
+
 # Clear and warm up cache
 php /app/bin/console cache:clear --env=$ENV --no-debug || true
 php /app/bin/console cache:warmup --env=$ENV || true

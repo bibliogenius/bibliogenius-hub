@@ -6,6 +6,7 @@ namespace App\Command;
 
 use App\Repository\Deposit404LogRepository;
 use App\Repository\DirectoryHealthRepository;
+use App\Repository\DiscoveryCacheRepository;
 use App\Repository\InviteTokenRepository;
 use App\Repository\LibraryProfileRepository;
 use App\Repository\RelayMailboxRepository;
@@ -30,6 +31,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *   deposit_404_log       - TTL 30 days (aggregated, so cap is implicit)
  *   cached_catalogs       - per-row expires_at (ADR-027 catalog cache)
  *   orphan_covers         - catalog-driven filesystem sweep (ADR-033)
+ *   discovery_cache       - per-row expires_at (ADR-060 discovery resolver)
  */
 #[AsCommand(
     name: 'app:db:prune',
@@ -52,10 +54,13 @@ class PruneCommand extends Command
         private readonly DirectoryService $directoryService,
         private readonly LibraryProfileRepository $profileRepository,
         private readonly RelayMailboxRepository $relayMailboxRepository,
+        private readonly DiscoveryCacheRepository $discoveryCacheRepository,
         private readonly DirectoryHealthRepository $directoryHealth,
         private readonly HubEventLogger $eventLogger,
         #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%env(int:default:catalog_coverage_alert_threshold_default:CATALOG_COVERAGE_ALERT_THRESHOLD)%')]
         private readonly int $catalogCoverageAlertThreshold = 40,
+        #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%env(int:default:discovery_drift_alert_threshold_default:DISCOVERY_DRIFT_ALERT_THRESHOLD)%')]
+        private readonly int $discoveryDriftAlertThreshold = 50,
     ) {
         parent::__construct();
     }
@@ -74,6 +79,7 @@ class PruneCommand extends Command
             'deposit_404_log' => $this->pruneDeposit404Log($io),
             'cached_catalogs' => $this->pruneCachedCatalogs($io),
             'orphan_covers' => $this->pruneOrphanCovers($io),
+            'discovery_cache' => $this->pruneDiscoveryCache($io),
         ];
         $total = array_sum($perTable);
 
@@ -81,6 +87,7 @@ class PruneCommand extends Command
 
         $this->checkCatalogCoverage($io);
         $this->checkDuplicateLibraries($io);
+        $this->checkDiscoveryDrift($io);
 
         $io->success(sprintf('Done — %d rows deleted.', $total));
 
@@ -299,6 +306,60 @@ class PruneCommand extends Command
         $io->writeln(sprintf('  cached_catalogs  (per-row expires_at): <info>%d deleted</info>', $deleted));
 
         return $deleted;
+    }
+
+    /**
+     * Expired discovery-cache rows (ADR-060): both TTL classes (30-day
+     * resolved, 7-day negative) share the per-row expires_at. Expired rows
+     * are already ignored at serve time; this sweep only keeps the table
+     * lean.
+     */
+    private function pruneDiscoveryCache(SymfonyStyle $io): int
+    {
+        $deleted = $this->discoveryCacheRepository->pruneExpired(new \DateTimeImmutable());
+        $io->writeln(sprintf('  discovery_cache  (per-row expires_at): <info>%d deleted</info>', $deleted));
+
+        return $deleted;
+    }
+
+    /**
+     * Source-drift tripwire (ADR-060 section 3.5): SPARQL schemas and API
+     * shapes change silently, so the share of non-resolved outcomes over
+     * the last 24h of cache writes is computed nightly and a hub_events
+     * warning fires past the threshold. A quality regression then shows up
+     * in /admin within a day instead of as weeks of silently empty external
+     * cards. Best-effort: a monitoring failure must never fail the prune.
+     */
+    private function checkDiscoveryDrift(SymfonyStyle $io): void
+    {
+        try {
+            $now = new \DateTimeImmutable();
+            $share = $this->discoveryCacheRepository->nonResolvedSharePercentLast24h($now);
+            if ($share === null) {
+                $io->writeln('  discovery drift: <info>not enough samples</info>');
+
+                return;
+            }
+
+            if (DirectoryHealthRepository::shouldEmitAlert(
+                $share,
+                $this->discoveryDriftAlertThreshold,
+                $this->discoveryCacheRepository->lastDriftAlertAt(),
+                $now,
+            )) {
+                $this->eventLogger->warning('maintenance', 'discovery_drift_degraded', [
+                    'count' => $share,
+                ]);
+            }
+
+            $io->writeln(sprintf(
+                '  discovery drift: <info>%d%% non-resolved</info> (alert threshold %d%%)',
+                $share,
+                $this->discoveryDriftAlertThreshold,
+            ));
+        } catch (\Throwable $e) {
+            $io->warning(sprintf('Discovery drift check failed: %s', $e->getMessage()));
+        }
     }
 
     /**

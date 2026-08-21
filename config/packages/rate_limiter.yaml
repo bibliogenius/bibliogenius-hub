@@ -55,3 +55,18 @@ framework:
             policy: 'token_bucket'
             limit: 120
             rate: { interval: '1 minute', amount: 120 }
+
+        # External discovery resolver (ADR-060). discovery_anon keys on the
+        # client IP like the other anonymous endpoints; discovery_source_budget
+        # is consumed under ONE global key per outbound source call (see
+        # OutboundBudget), capping what any traffic pattern can make the hub
+        # inflict on Wikidata/Inventaire and bounding worker occupancy on the
+        # slow path.
+        discovery_anon:
+            policy: 'token_bucket'
+            limit: 30
+            rate: { interval: '1 minute', amount: 30 }
+        discovery_source_budget:
+            policy: 'token_bucket'
+            limit: 60
+            rate: { interval: '1 minute', amount: 60 }

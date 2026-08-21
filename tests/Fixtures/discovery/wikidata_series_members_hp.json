@@ -1,0 +1,29 @@
+{
+  "head": { "vars": ["volume", "volumeLabel", "ordinal", "year", "authors", "origLangCode"] },
+  "results": {
+    "bindings": [
+      {
+        "volume": { "type": "uri", "value": "http://www.wikidata.org/entity/Q43361" },
+        "volumeLabel": { "type": "literal", "value": "Harry Potter and the Philosopher's Stone" },
+        "ordinal": { "type": "literal", "value": "1" },
+        "year": { "type": "literal", "value": "1997" },
+        "authors": { "type": "literal", "value": "J. K. Rowling" },
+        "origLangCode": { "type": "literal", "value": "en" }
+      },
+      {
+        "volume": { "type": "uri", "value": "http://www.wikidata.org/entity/Q46758" },
+        "volumeLabel": { "type": "literal", "value": "Harry Potter and the Prisoner of Azkaban" },
+        "ordinal": { "type": "literal", "value": "3" },
+        "year": { "type": "literal", "value": "1999" },
+        "authors": { "type": "literal", "value": "J. K. Rowling" },
+        "origLangCode": { "type": "literal", "value": "en" }
+      },
+      {
+        "volume": { "type": "uri", "value": "http://www.wikidata.org/entity/Q99999999" },
+        "volumeLabel": { "type": "literal", "value": "Hogwarts: an Incomplete and Unreliable Guide" },
+        "authors": { "type": "literal", "value": "J. K. Rowling" },
+        "origLangCode": { "type": "literal", "value": "en" }
+      }
+    ]
+  }
+}

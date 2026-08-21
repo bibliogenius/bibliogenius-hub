@@ -7,6 +7,7 @@ namespace App\Tests\Unit\Command;
 use App\Command\PruneCommand;
 use App\Repository\Deposit404LogRepository;
 use App\Repository\DirectoryHealthRepository;
+use App\Repository\DiscoveryCacheRepository;
 use App\Repository\InviteTokenRepository;
 use App\Repository\LibraryProfileRepository;
 use App\Repository\RelayMailboxRepository;
@@ -83,7 +84,7 @@ final class PruneCommandTest extends TestCase
         $this->assertArrayHasKey('total_deleted', $context);
         $this->assertArrayHasKey('per_table', $context);
 
-        // 10 + (3+2) + 6 + 7 + 4 + 9 + 12 + 2 = 55
+        // 10 + (3+2) + 6 + 7 + 4 + 9 + 12 + 2 + 0 = 55
         $this->assertSame(55, $context['total_deleted']);
         $this->assertSame(
             [
@@ -95,6 +96,7 @@ final class PruneCommandTest extends TestCase
                 'deposit_404_log' => 9,
                 'cached_catalogs' => 12,
                 'orphan_covers' => 2,
+                'discovery_cache' => 0,
             ],
             $context['per_table'],
         );
@@ -325,6 +327,98 @@ final class PruneCommandTest extends TestCase
         $this->assertStringContainsString('Catalog coverage check failed', $tester->getDisplay());
     }
 
+    public function testDiscoveryCacheStepReportsCount(): void
+    {
+        // Guards the ADR-060 wiring: if pruneExpired stops being called, the
+        // per_table key disappears and the pooled cache grows unbounded
+        // (storage policy violation).
+        [$conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo] = $this->quietCollaborators();
+
+        $conn = $this->createMock(Connection::class);
+        $conn->method('executeStatement')->willReturn(0);
+        $conn->method('fetchOne')->willReturn(0);
+        $insertArgs = null;
+        $conn->method('insert')
+            ->with(
+                $this->equalTo('hub_events'),
+                $this->callback(function (array $data) use (&$insertArgs) {
+                    $insertArgs = $data;
+
+                    return true;
+                }),
+            );
+
+        $discoveryRepo = $this->createMock(DiscoveryCacheRepository::class);
+        $discoveryRepo->expects($this->once())
+            ->method('pruneExpired')
+            ->willReturn(21);
+        $discoveryRepo->method('nonResolvedSharePercentLast24h')->willReturn(null);
+        $discoveryRepo->method('lastDriftAlertAt')->willReturn(null);
+
+        $tester = $this->buildCommandTester(
+            $conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo,
+            discoveryCacheRepo: $discoveryRepo,
+        );
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+
+        $this->assertNotNull($insertArgs);
+        $context = json_decode($insertArgs['context'], true);
+        $this->assertSame(21, $context['per_table']['discovery_cache']);
+        $this->assertStringContainsString('discovery_cache', $tester->getDisplay());
+    }
+
+    public function testDiscoveryDriftAlertEmittedAboveThresholdViaWarning(): void
+    {
+        // ADR-060 section 3.5: source drift pages through warning() (visible
+        // in /admin), not critical(), and dedups on the last emission.
+        [$conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo] = $this->quietCollaborators();
+
+        $discoveryRepo = $this->createMock(DiscoveryCacheRepository::class);
+        $discoveryRepo->method('pruneExpired')->willReturn(0);
+        $discoveryRepo->method('nonResolvedSharePercentLast24h')->willReturn(80);
+        $discoveryRepo->method('lastDriftAlertAt')->willReturn(null);
+
+        $eventLogger = $this->createMock(HubEventLogger::class);
+        $eventLogger->expects($this->once())
+            ->method('warning')
+            ->with('maintenance', 'discovery_drift_degraded', ['count' => 80]);
+
+        $tester = $this->buildCommandTester(
+            $conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo,
+            eventLogger: $eventLogger,
+            discoveryCacheRepo: $discoveryRepo,
+            discoveryDriftAlertThreshold: 50,
+        );
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+        $this->assertStringContainsString('discovery drift', $tester->getDisplay());
+    }
+
+    public function testDiscoveryDriftStaysSilentBelowThresholdAndWithoutSamples(): void
+    {
+        [$conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo] = $this->quietCollaborators();
+
+        $discoveryRepo = $this->createMock(DiscoveryCacheRepository::class);
+        $discoveryRepo->method('pruneExpired')->willReturn(0);
+        // Below threshold: reported but no alert.
+        $discoveryRepo->method('nonResolvedSharePercentLast24h')->willReturn(20);
+        $discoveryRepo->method('lastDriftAlertAt')->willReturn(null);
+
+        $eventLogger = $this->createMock(HubEventLogger::class);
+        $eventLogger->expects($this->never())->method('warning');
+
+        $tester = $this->buildCommandTester(
+            $conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo,
+            eventLogger: $eventLogger,
+            discoveryCacheRepo: $discoveryRepo,
+            discoveryDriftAlertThreshold: 50,
+        );
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+        $this->assertStringContainsString('20% non-resolved', $tester->getDisplay());
+    }
+
     /**
      * Collaborators for tests that only exercise the coverage check: every
      * prune step is stubbed to a no-op so the command runs end to end.
@@ -362,10 +456,20 @@ final class PruneCommandTest extends TestCase
         ?HubEventLogger $eventLogger = null,
         int $catalogCoverageAlertThreshold = 40,
         ?RelayMailboxRepository $relayMailboxRepo = null,
+        ?DiscoveryCacheRepository $discoveryCacheRepo = null,
+        int $discoveryDriftAlertThreshold = 50,
     ): CommandTester {
         if ($relayMailboxRepo === null) {
             $relayMailboxRepo = $this->createStub(RelayMailboxRepository::class);
             $relayMailboxRepo->method('clearDanglingProfileReferences')->willReturn(0);
+        }
+        if ($discoveryCacheRepo === null) {
+            // Stub discovery cache: nothing pruned, not enough drift samples,
+            // so legacy tests keep their totals and stay alert-free.
+            $discoveryCacheRepo = $this->createStub(DiscoveryCacheRepository::class);
+            $discoveryCacheRepo->method('pruneExpired')->willReturn(0);
+            $discoveryCacheRepo->method('nonResolvedSharePercentLast24h')->willReturn(null);
+            $discoveryCacheRepo->method('lastDriftAlertAt')->willReturn(null);
         }
 
         $command = new PruneCommand(
@@ -375,11 +479,13 @@ final class PruneCommandTest extends TestCase
             $directoryService,
             $profileRepo,
             $relayMailboxRepo,
+            $discoveryCacheRepo,
             // Stub health: 0 gaps, never alerted; below any threshold, so
             // legacy tests keep exercising the prune steps alert-free.
             $directoryHealth ?? $this->createStub(DirectoryHealthRepository::class),
             $eventLogger ?? $this->createStub(HubEventLogger::class),
             $catalogCoverageAlertThreshold,
+            $discoveryDriftAlertThreshold,
         );
         $app = new Application();
         $app->add($command);
