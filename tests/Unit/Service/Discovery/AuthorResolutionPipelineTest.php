@@ -125,12 +125,37 @@ final class AuthorResolutionPipelineTest extends TestCase
         $this->assertSame(self::AUTHOR_NAME, $payload['label']);
 
         // The series entity answering the same P50 claim is not a work and
-        // is dropped; the six works come back ranked by how many languages
-        // label them (84 for "L'Etranger", 25 for "Le Premier Homme").
+        // is dropped; the absurd-cycle group collapses to its entry point
+        // (see testSeriesGroupsCollapseToTheirEntryPoint); the remaining
+        // works come back ranked by how many languages label them (84 for
+        // "L'Etranger", 25 for "Le Premier Homme").
         $this->assertSame(
-            ['The Stranger', 'The Plague', 'The Myth of Sisyphus', 'The Fall', 'Caligula', 'The First Man'],
+            ['The Stranger', 'The Plague', 'The Fall', 'The First Man'],
             array_column($payload['works'], 'title'),
         );
+    }
+
+    public function testSeriesGroupsCollapseToTheirEntryPoint(): void
+    {
+        // The Naruto lesson (2026-08-23): sources model every volume of a
+        // series as a work of its author, and editions_count ranking then
+        // offers arbitrary mid-series volumes (tome 22 of 72). A series
+        // group must collapse to its ENTRY POINT, the lowest ordinal: the
+        // reader either owns it (membrane drops it, the series lane is the
+        // right door) or it is the one sane place to start. Standalone
+        // works are untouched, so cycle-writing authors (Camus here: the
+        // absurd cycle) keep their bibliography.
+        $payload = $this->pipeline()->resolveAuthorEntity(self::AUTHOR_URI, self::AUTHOR_NAME);
+
+        $this->assertNotNull($payload);
+        $titles = array_column($payload['works'], 'title');
+        $this->assertSame(
+            ['The Stranger', 'The Plague', 'The Fall', 'The First Man'],
+            $titles,
+        );
+        // Ordinals 2 and 3 of the cycle never surface as author works.
+        $this->assertNotContains('The Myth of Sisyphus', $titles);
+        $this->assertNotContains('Caligula', $titles);
     }
 
     public function testWorksCarryTheirAuthorsYearAndNeutralLabelMap(): void
@@ -189,9 +214,13 @@ final class AuthorResolutionPipelineTest extends TestCase
                 $byTitle['The Stranger']['editions'],
             ),
         );
+        // The Fall keeps its single usable edition (its inv: sibling has
+        // no ISBN and is skipped). Asserted on a SURVIVING work: the
+        // absurd-cycle members past the entry point are collapsed away, so
+        // Sisyphus no longer carries the second-work check.
         $this->assertSame(
-            ['9780525567004', '9780525564454'],
-            array_column($byTitle['The Myth of Sisyphus']['editions'], 'isbn'),
+            ['9780394702230'],
+            array_column($byTitle['The Fall']['editions'], 'isbn'),
         );
         $this->assertSame(
             'https://inventaire.io/img/entities/969690a52b3a28628b52ab569d501880b1b0e62e',

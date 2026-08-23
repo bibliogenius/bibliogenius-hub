@@ -146,6 +146,8 @@ class AuthorResolutionPipeline
             }
             $seenTitles[$titleKey] = true;
             $langUris = Claims::values($entity, 'wdt:P407');
+            $seriesUris = Claims::values($entity, 'wdt:P179');
+            $ordinals = Claims::values($entity, 'wdt:P1545');
             $works[] = [
                 'work_uri' => $uri,
                 'title' => $title,
@@ -153,6 +155,8 @@ class AuthorResolutionPipeline
                 'year' => Claims::year($entity, 'wdt:P577'),
                 'author_uris' => Claims::values($entity, 'wdt:P50'),
                 'lang_uri' => $langUris[0] ?? null,
+                'series_uri' => $seriesUris[0] ?? null,
+                'series_ordinal' => $ordinals[0] ?? null,
                 'notability' => Labels::languageCount($entity),
                 'editions_count' => null,
                 'editions' => [],
@@ -161,6 +165,14 @@ class AuthorResolutionPipeline
         if ($works === []) {
             return null;
         }
+
+        // Works sharing a series claim collapse to their entry point BEFORE
+        // ranking and truncation, so a 72-volume series cannot crowd out an
+        // author's standalone works, let alone surface an arbitrary
+        // mid-series volume (the Naruto case, 2026-08-23: editions_count
+        // ranking offered tomes 22 and 40 of 72). Cycle-writing authors
+        // keep one card per cycle plus every standalone work.
+        $works = self::collapseSeriesToEntryPoints($works);
 
         // Most notable first (PHP sorts are stable, so source order breaks
         // ties), then truncate: the tail is dead payload.
@@ -172,7 +184,7 @@ class AuthorResolutionPipeline
         $this->attachTopEditions($works);
 
         foreach ($works as &$work) {
-            unset($work['work_uri'], $work['author_uris'], $work['lang_uri'], $work['notability']);
+            unset($work['work_uri'], $work['author_uris'], $work['lang_uri'], $work['series_uri'], $work['series_ordinal'], $work['notability']);
         }
         unset($work);
 
@@ -184,6 +196,68 @@ class AuthorResolutionPipeline
             'label' => $label,
             'works' => $works,
         ];
+    }
+
+    /**
+     * Keep, per series claim, only the ENTRY POINT of the group: the work
+     * with the lowest integer ordinal (P1545), falling back to the most
+     * notable when no ordinal in the group parses. Works without a series
+     * claim pass through untouched.
+     *
+     * A mid-series volume is the one card the author lane must never
+     * offer: reading order matters there and the series lane is the door
+     * that knows ordinals. The entry point is safe by construction: the
+     * reader either owns it (the client membrane drops it) or it is the
+     * one sane place to start.
+     *
+     * @param list<array<string, mixed>> $works
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function collapseSeriesToEntryPoints(array $works): array
+    {
+        $bestBySeries = [];
+        foreach ($works as $i => $work) {
+            $series = $work['series_uri'];
+            if (!is_string($series)) {
+                continue;
+            }
+            if (!isset($bestBySeries[$series])) {
+                $bestBySeries[$series] = $i;
+                continue;
+            }
+            $current = $works[$bestBySeries[$series]];
+            $challengerOrdinal = self::integerOrdinal($work['series_ordinal']);
+            $currentOrdinal = self::integerOrdinal($current['series_ordinal']);
+            $challengerWins = match (true) {
+                $challengerOrdinal !== null && $currentOrdinal === null => true,
+                $challengerOrdinal === null && $currentOrdinal !== null => false,
+                $challengerOrdinal !== null && $currentOrdinal !== null => $challengerOrdinal < $currentOrdinal,
+                default => $work['notability'] > $current['notability'],
+            };
+            if ($challengerWins) {
+                $bestBySeries[$series] = $i;
+            }
+        }
+
+        $kept = [];
+        foreach ($works as $i => $work) {
+            if (!is_string($work['series_uri']) || in_array($i, $bestBySeries, true)) {
+                $kept[] = $work;
+            }
+        }
+
+        return $kept;
+    }
+
+    /** Source ordinals like "3" are kept; "2.5" or "III" are not integers. */
+    private static function integerOrdinal(mixed $raw): ?int
+    {
+        if (!is_string($raw) || preg_match('/^\d+$/', trim($raw)) !== 1) {
+            return null;
+        }
+
+        return (int) trim($raw);
     }
 
     /**

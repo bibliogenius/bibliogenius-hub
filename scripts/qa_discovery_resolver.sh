@@ -153,6 +153,28 @@ for isbn in "$OMNIBUS_PLEIADE" "$OMNIBUS_TWO_WORKS"; do
 done
 pass "omnibus editions excluded"
 
+# The mid-series trap (Naruto lesson, 2026-08-23): the sources model every
+# volume of a long series as a work of its author, and editions_count
+# ranking then offers arbitrary mid-volumes (tomes 22 and 40 of 72 were
+# really served). The pipeline must collapse each series group to its
+# entry point, so at most ONE "- Tome N" title may survive per series.
+# Kishimoto is the canonical case: his bibliography is almost only Naruto.
+post /api/discovery/author \
+    '{"name":"Masashi Kishimoto","anchor_isbns":["9782871294146"],"langs":["fr"]}'
+body=$(cat "$RESP")
+[ "$HTTP_STATUS" = "200" ] || fail "kishimoto lookup: expected 200, got $HTTP_STATUS"
+kstatus=$(jsonq "$body" 'd["status"]')
+if [ "$kstatus" = "resolved" ]; then
+    tome_count=$(jsonq "$body" 'sum(1 for w in d["author"]["works"] if "Tome " in (w["title"] or ""))')
+    [ "$tome_count" -le 1 ] \
+        || fail "series volumes leak into the author lane: $tome_count 'Tome N' works (entry-point collapse broken)"
+    pass "series groups collapsed: $tome_count 'Tome N' work(s) at most"
+else
+    # unknown/unavailable are acceptable here (source coverage), the trap
+    # only exists on a resolved bibliography.
+    pass "kishimoto lookup -> $kstatus (collapse not exercised)"
+fi
+
 # 4. Pooling: the same question again must be served from the cache -------------
 warm_start=$(date +%s)
 post /api/discovery/author \
