@@ -22,7 +22,7 @@
         # Avoid logging which countries each user downloads - knowing that
         # a given IP fetched FR.json.gz reveals the country they opted into
         # before they share anything publicly.
-        skip_log
+        log_skip
         header Cache-Control "public, max-age=2592000, immutable"
         header Access-Control-Allow-Origin "*"
         file_server

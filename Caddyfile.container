@@ -15,7 +15,7 @@
     # Caddyfile.container.vps for the full rationale.
     @cities path /static/cities/*
     handle @cities {
-        skip_log
+        log_skip
         header Cache-Control "public, max-age=2592000, immutable"
         header Access-Control-Allow-Origin "*"
         file_server
