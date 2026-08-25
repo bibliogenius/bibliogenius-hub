@@ -452,7 +452,7 @@ class DirectoryController extends AbstractController
     #[Route('/{nodeId}/covers/{bookId}', name: 'cover_upload', methods: ['POST'], priority: 2)]
     public function uploadCover(string $nodeId, string $bookId, Request $request): JsonResponse|Response
     {
-        if (!$this->isValidNodeId($nodeId) || !ctype_digit($bookId)) {
+        if (!$this->isValidCoverTarget($nodeId, $bookId)) {
             return $this->error('Invalid parameters.', Response::HTTP_BAD_REQUEST);
         }
 
@@ -489,7 +489,7 @@ class DirectoryController extends AbstractController
     #[Route('/{nodeId}/covers/{bookId}', name: 'cover_get', methods: ['GET'], priority: 2)]
     public function getCover(string $nodeId, string $bookId): BinaryFileResponse|JsonResponse
     {
-        if (!$this->isValidNodeId($nodeId) || !ctype_digit($bookId)) {
+        if (!$this->isValidCoverTarget($nodeId, $bookId)) {
             return $this->error('Invalid parameters.', Response::HTTP_BAD_REQUEST);
         }
 
@@ -510,7 +510,7 @@ class DirectoryController extends AbstractController
     #[Route('/{nodeId}/covers/{bookId}', name: 'cover_delete', methods: ['DELETE'], priority: 2)]
     public function deleteCover(string $nodeId, string $bookId, Request $request): JsonResponse
     {
-        if (!$this->isValidNodeId($nodeId) || !ctype_digit($bookId)) {
+        if (!$this->isValidCoverTarget($nodeId, $bookId)) {
             return $this->error('Invalid parameters.', Response::HTTP_BAD_REQUEST);
         }
 
@@ -1012,6 +1012,39 @@ class DirectoryController extends AbstractController
     private function isValidNodeId(mixed $nodeId): bool
     {
         return is_string($nodeId) && $nodeId !== '' && strlen($nodeId) <= 128;
+    }
+
+    /**
+     * Guard shared by the three cover routes. Both segments are joined onto the
+     * covers directory to name a file, so both have to be safe path components,
+     * and the book id has to be a shape clients actually key covers by.
+     *
+     * `$bookId` was gated on `ctype_digit` alone, which was the whole contract
+     * until clients switched to uuid primary keys: every uuid-keyed cover was
+     * then answered 400 on upload, fetch and delete, while the cover GC already
+     * indexed both shapes. Accepting both here realigns the routes with the GC.
+     */
+    private function isValidCoverTarget(string $nodeId, string $bookId): bool
+    {
+        return $this->isValidNodeId($nodeId)
+            && $this->isSafePathComponent($nodeId)
+            && DirectoryService::isCoverBookId($bookId);
+    }
+
+    /**
+     * True when the value can be joined onto a directory without escaping it.
+     * The node id reaches the cover routes as a directory name, and route
+     * placeholders never match a slash, so this only has to refuse the relative
+     * segments and the separators a decoded value could still carry.
+     */
+    private function isSafePathComponent(string $value): bool
+    {
+        return $value !== ''
+            && $value !== '.'
+            && $value !== '..'
+            && !str_contains($value, '/')
+            && !str_contains($value, '\\')
+            && !str_contains($value, "\0");
     }
 
     /**

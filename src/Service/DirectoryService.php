@@ -608,11 +608,25 @@ class DirectoryService
     }
 
     /**
+     * True for a book id the cover routes may join onto the covers directory:
+     * the integer row ids pre-uuid clients uploaded under, and the uuids
+     * current clients key covers by. Both shapes are traversal-safe by
+     * construction, which is what makes them usable as a path component.
+     *
+     * The two generations coexist on disk and in cached_catalogs, so both must
+     * be accepted for as long as pre-uuid uploads survive the GC.
+     */
+    public static function isCoverBookId(string $value): bool
+    {
+        return ctype_digit($value) || self::isUuidBookId($value);
+    }
+
+    /**
      * True for a canonical 36-char hyphenated uuid (the shape clients use to
      * key cover files since the uuid primary-key migration). Deliberately
      * strict so the GC never claims arbitrary filenames as its own.
      */
-    private static function isUuidBookId(string $value): bool
+    public static function isUuidBookId(string $value): bool
     {
         return preg_match(
             '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i',
