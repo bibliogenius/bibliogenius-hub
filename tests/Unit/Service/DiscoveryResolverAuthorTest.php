@@ -8,10 +8,13 @@ use App\Entity\DiscoveryCache;
 use App\Repository\DiscoveryCacheRepository;
 use App\Service\Discovery\AuthorResolutionPipeline;
 use App\Service\Discovery\DiscoveryBudgetExhaustedException;
+use App\Service\Discovery\OutboundBudget;
 use App\Service\Discovery\SeriesResolutionPipeline;
 use App\Service\DiscoveryResolverService;
 use App\Service\HubEventLogger;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
+use Symfony\Component\RateLimiter\Storage\InMemoryStorage;
 
 /**
  * Freezes the ADR-060 author lane at the resolver level: anchor-first and
@@ -52,16 +55,31 @@ final class DiscoveryResolverAuthorTest extends TestCase
         ];
     }
 
+    private function budget(int $limit): OutboundBudget
+    {
+        return new OutboundBudget(new RateLimiterFactory(
+            [
+                'id' => 'discovery_source_budget',
+                'policy' => 'token_bucket',
+                'limit' => $limit,
+                'rate' => ['interval' => '1 minute', 'amount' => 60],
+            ],
+            new InMemoryStorage(),
+        ));
+    }
+
     private function service(
         DiscoveryCacheRepository $cache,
         AuthorResolutionPipeline $pipeline,
         ?HubEventLogger $logger = null,
+        ?OutboundBudget $budget = null,
     ): DiscoveryResolverService {
         return new DiscoveryResolverService(
             $cache,
             $this->createStub(SeriesResolutionPipeline::class),
             $logger ?? $this->createStub(HubEventLogger::class),
             $pipeline,
+            $budget ?? $this->budget(60),
         );
     }
 
@@ -270,7 +288,7 @@ final class DiscoveryResolverAuthorTest extends TestCase
             ->resolveAuthor(self::AUTHOR_NAME, [self::ANCHOR], []);
 
         // A transport failure is never cached: the next reader retries.
-        $this->assertSame(['status' => 'unavailable'], $envelope);
+        $this->assertSame('unavailable', $envelope['status']);
     }
 
     /**
@@ -335,5 +353,82 @@ final class DiscoveryResolverAuthorTest extends TestCase
         // No Bulgarian label either: the display title falls back to the
         // neutral one rather than to nothing.
         $this->assertSame('The Stranger', $work['title']);
+    }
+
+    /**
+     * Author lane counterpart of the series admission rule. It matters
+     * more here: a first launch sweeps up to five authors back to back, so
+     * this is exactly where the budget runs out mid-flight and the reader
+     * loses the tail of the sweep for 24h.
+     *
+     * The anchor stage is deliberately NOT gated, and the test proves it:
+     * the verified identity it caches costs two or three calls, survives
+     * the refusal, and makes the next attempt free.
+     */
+    public function testColdBibliographyIsRefusedWhenTheBudgetCannotCoverIt(): void
+    {
+        $cache = $this->createMock(DiscoveryCacheRepository::class);
+        $cache->method('findFresh')->willReturnMap([
+            [DiscoveryCache::KIND_AUTHOR_LOOKUP, self::ANCHOR, null],
+            [DiscoveryCache::KIND_AUTHOR, self::AUTHOR_URI, null],
+        ]);
+        $puts = [];
+        $cache->method('put')->willReturnCallback(
+            static function (string $kind, string $key, string $status) use (&$puts): void {
+                $puts[] = [$kind, $key, $status];
+            },
+        );
+
+        $pipeline = $this->createMock(AuthorResolutionPipeline::class);
+        $pipeline->method('resolveAnchor')
+            ->willReturn([['uri' => self::AUTHOR_URI, 'label' => self::AUTHOR_NAME]]);
+        $pipeline->expects($this->never())->method('resolveAuthorEntity');
+
+        $reasons = [];
+        $logger = $this->createMock(HubEventLogger::class);
+        $logger->method('error')->willReturnCallback(
+            static function (string $channel, string $message, array $context) use (&$reasons): void {
+                $reasons[] = $context['reason'] ?? null;
+            },
+        );
+
+        $envelope = $this->service(
+            $cache,
+            $pipeline,
+            $logger,
+            $this->budget(OutboundBudget::COLD_RESOLUTION_CALLS - 1),
+        )->resolveAuthor(self::AUTHOR_NAME, [self::ANCHOR], []);
+
+        $this->assertSame('unavailable', $envelope['status']);
+        $this->assertSame([DiscoveryBudgetExhaustedException::REASON_INSUFFICIENT], $reasons);
+        // The anchor row is written and kept: the identity is verified,
+        // and the retry after the budget refills costs no outbound call.
+        $this->assertSame([[DiscoveryCache::KIND_AUTHOR_LOOKUP, self::ANCHOR, 'resolved']], $puts);
+    }
+
+    /**
+     * Author-lane half of the invariant the series lane already pins: only
+     * the transient outcome names a retry window. A homonym is negative
+     * cached hub-side for seven days, so a short retry would have the
+     * client ask again for an answer that cannot have changed.
+     */
+    public function testDefinitiveNegativesCarryNoRetryHintOnTheAuthorLane(): void
+    {
+        $cache = $this->createMock(DiscoveryCacheRepository::class);
+        $cache->method('findFresh')->willReturn(null);
+
+        $pipeline = $this->createMock(AuthorResolutionPipeline::class);
+        // Two entities carrying the requested name: duplicates we cannot
+        // tell apart, so the lane answers 'ambiguous'.
+        $pipeline->method('resolveAnchor')->willReturn([
+            ['uri' => self::AUTHOR_URI, 'label' => self::AUTHOR_NAME],
+            ['uri' => 'wd:Q999999', 'label' => self::AUTHOR_NAME],
+        ]);
+
+        $envelope = $this->service($cache, $pipeline)
+            ->resolveAuthor(self::AUTHOR_NAME, [self::ANCHOR], []);
+
+        $this->assertSame('ambiguous', $envelope['status']);
+        $this->assertArrayNotHasKey('retry_after', $envelope);
     }
 }

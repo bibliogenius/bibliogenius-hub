@@ -101,6 +101,35 @@ class InventaireClient
     }
 
     /**
+     * Request options for one outbound call.
+     *
+     * TIMEOUT_SECONDS is an INACTIVITY timeout, so it bounds one call and
+     * nothing else; max_duration caps the call against the time the whole
+     * resolution has left, which is what stops a single slow response from
+     * walking past the resolution deadline while no between-calls check
+     * can run. Outside a resolution the budget has no deadline and the
+     * inactivity timeout stands alone.
+     *
+     * @param array<string, string> $query
+     *
+     * @return array<string, mixed>
+     */
+    private function requestOptions(array $query): array
+    {
+        $options = [
+            'query' => $query,
+            'headers' => ['User-Agent' => self::USER_AGENT],
+            'timeout' => self::TIMEOUT_SECONDS,
+        ];
+        $maxDuration = $this->budget->remainingSeconds();
+        if ($maxDuration !== null) {
+            $options['max_duration'] = $maxDuration;
+        }
+
+        return $options;
+    }
+
+    /**
      * @param array<string, string> $query
      *
      * @return array<string, mixed>
@@ -112,11 +141,7 @@ class InventaireClient
     {
         $this->budget->consumeOrFail();
         try {
-            $response = $this->discoveryHttpClient->request('GET', $this->baseUrl . $path, [
-                'query' => $query,
-                'headers' => ['User-Agent' => self::USER_AGENT],
-                'timeout' => self::TIMEOUT_SECONDS,
-            ]);
+            $response = $this->discoveryHttpClient->request('GET', $this->baseUrl . $path, $this->requestOptions($query));
             $status = $response->getStatusCode();
             if ($status !== 200) {
                 // Where the caller allows it, a client error is an ANSWER

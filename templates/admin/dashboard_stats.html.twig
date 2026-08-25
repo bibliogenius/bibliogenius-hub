@@ -794,8 +794,8 @@
 
     <div class="stat-card">
         <div class="stat-label">
-            Resolutions (24h)
-            <i class="tip" data-tip="Cache writes in the last 24h, every outcome (resolved, ambiguous, unknown). Same population the non-resolved share to the right is computed over.">i</i>
+            Cache Writes (24h)
+            <i class="tip" data-tip="Cache writes in the last 24h, every outcome (resolved, ambiguous, unknown). One resolution writes up to four rows, so this is not a resolution count: the unavailable share further right is the one computed over outcomes. Same population the non-resolved share to the right is computed over.">i</i>
         </div>
         <div class="stat-value">{{ discovery_resolutions_24h }}</div>
         <div class="stat-sub">cache writes, all outcomes</div>
@@ -841,6 +841,27 @@
                 no source-drift alert yet
             {% else %}
                 ago
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="stat-card {{ discovery_unavailable_24h.share_percent is not null and discovery_unavailable_24h.share_percent > 0 ? 'status-warn' : (discovery_unavailable_24h.share_percent is not null ? 'status-ok' : '') }}">
+        <div class="stat-label">
+            Unavailable Share (24h)
+            <i class="tip" data-tip="Share of the 24h outcomes that ended unavailable, the answer the non-resolved share to the left cannot give: an unavailable outcome never writes a cache row, so it is missing from both halves of that ratio. Denominator here is resolved entity rows plus every journalled discovery outcome, which is one trace per outcome and never two. It counts outcomes that reached a decision, not HTTP requests: a fully warm request touches no source and is invisible on purpose, a warm negative one is journalled and counts at zero outbound cost. Needs at least {{ discovery_drift_min_samples }} outcomes in the window, else it reads n/a.">i</i>
+        </div>
+        <div class="stat-value">
+            {% if discovery_unavailable_24h.share_percent is null %}
+                n/a
+            {% else %}
+                {{ discovery_unavailable_24h.share_percent }}%
+            {% endif %}
+        </div>
+        <div class="stat-sub">
+            {% if discovery_unavailable_24h.share_percent is null %}
+                not enough outcomes yet
+            {% else %}
+                {{ discovery_unavailable_24h.unavailable }} of {{ discovery_unavailable_24h.total }} outcomes
             {% endif %}
         </div>
     </div>
@@ -922,6 +943,41 @@
         {% endfor %}
     </tbody>
 </table>
+
+<div class="section-title" style="margin-top: 8px;">Discovery Unavailable Causes (24h)</div>
+<p class="section-legend">
+    Why the {{ discovery_unavailable_24h.unavailable }} unavailable outcome{{ discovery_unavailable_24h.unavailable != 1 ? 's' : '' }}
+    of the last 24h gave up, read from Hub Events (channel <code>discovery</code>). These never
+    reach the pool, so they are the one population the cache cannot account for.
+    <code>outbound_budget_exhausted</code>: the global bucket emptied while the resolution was
+    already running, so the calls it had already paid for bought nothing.
+    <code>outbound_budget_insufficient</code>: the bucket could not cover a cold resolution and it
+    was refused before its first call, which costs nothing and leaves the tokens to a resolution
+    that can finish. <code>resolution_deadline_exceeded</code>: the resolution spent its
+    {{ discovery_resolution_deadline_seconds }}s wall-clock allowance, so the hub gave up before
+    the client's 8s rather than hold a worker for an answer nobody would read. Anything else is a
+    source-side failure (timeout, 5xx, undecodable body), truncated to its first 100 characters.
+</p>
+{% if discovery_unavailable_24h.reasons is empty %}
+<p class="muted" style="padding: 4px 0 16px;">No unavailable outcome in the window.</p>
+{% else %}
+<table class="hub-table" style="max-width: 640px;">
+    <thead>
+        <tr>
+            <th>Cause</th>
+            <th style="text-align:right">Count (24h)</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for reason, count in discovery_unavailable_24h.reasons %}
+        <tr>
+            <td><code class="mono">{{ reason }}</code></td>
+            <td class="db-size-val"><strong>{{ count }}</strong></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
 
 {# — Health — #}
 <div class="section-title" style="margin-top: 24px;">Health</div>

@@ -6,6 +6,7 @@ use App\Repository\Deposit404LogRepository;
 use App\Repository\DirectoryHealthRepository;
 use App\Repository\DiscoveryCacheRepository;
 use App\Repository\RelayMailboxRepository;
+use App\Service\Discovery\OutboundBudget;
 use App\Service\HubEventLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminDashboard;
@@ -237,6 +238,10 @@ class DashboardController extends AbstractDashboardController
         $discoveryFailureReasons24h = $this->discoveryCache->countFailureReasonsLast24h($now);
         $discoveryBudgetExhausted24h = $this->discoveryCache->countBudgetExhaustionsSince($now->modify('-24 hours'));
         $discoveryBudgetExhausted7d = $this->discoveryCache->countBudgetExhaustionsSince($now->modify('-7 days'));
+        // The failure RATE, which the non-resolved share cannot express:
+        // 'unavailable' never writes a cache row, so it is absent from
+        // both halves of that ratio.
+        $discoveryUnavailable24h = $this->discoveryCache->unavailableBreakdownSince($now->modify('-24 hours'));
 
         // DB table sizes (PostgreSQL)
         $tableSizes = $conn->fetchAllAssociative(
@@ -297,6 +302,8 @@ class DashboardController extends AbstractDashboardController
             'discovery_budget_exhausted_24h' => $discoveryBudgetExhausted24h,
             'discovery_budget_exhausted_7d' => $discoveryBudgetExhausted7d,
             'discovery_drift_min_samples' => DiscoveryCacheRepository::DRIFT_MIN_SAMPLES,
+            'discovery_unavailable_24h' => $discoveryUnavailable24h,
+            'discovery_resolution_deadline_seconds' => OutboundBudget::RESOLUTION_DEADLINE_SECONDS,
         ]);
     }
 

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Repository;
 
 use App\Entity\DiscoveryCache;
+use App\Service\Discovery\DiscoveryBudgetExhaustedException;
+use App\Service\DiscoveryResolverService;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\DBAL\ParameterType;
 use Doctrine\Persistence\ManagerRegistry;
@@ -294,21 +296,117 @@ class DiscoveryCacheRepository extends ServiceEntityRepository
     }
 
     /**
-     * Outbound-budget exhaustions (hub_events channel 'discovery', reason
-     * 'outbound_budget_exhausted') since $since. Called with both a 24h and
-     * a 7d window for the source-pressure cards.
+     * Outbound-budget refusals (hub_events channel 'discovery') since
+     * $since, BOTH shapes counted together: the bucket emptying
+     * mid-resolution and the resolution refused up front because the
+     * bucket could not cover it. Called with a 24h and a 7d window for the
+     * source-pressure cards.
+     *
+     * Both belong in one figure because the card answers "is the budget
+     * the thing hurting readers", and both mean yes. Which of the two is
+     * happening is a separate and useful question, answered by the reason
+     * split of unavailableBreakdownSince().
      */
     public function countBudgetExhaustionsSince(\DateTimeImmutable $since): int
     {
         return (int) $this->getEntityManager()->getConnection()->fetchOne(
             "SELECT COUNT(*) FROM hub_events
               WHERE channel = 'discovery'
-                AND (context::jsonb)->>'reason' = :reason
+                AND (context::jsonb)->>'reason' IN (:exhausted, :insufficient)
                 AND created_at >= :since",
             [
-                'reason' => 'outbound_budget_exhausted',
+                'exhausted' => DiscoveryBudgetExhaustedException::REASON_EXHAUSTED,
+                'insufficient' => DiscoveryBudgetExhaustedException::REASON_INSUFFICIENT,
                 'since' => $since->format('Y-m-d H:i:s'),
             ],
         );
+    }
+
+    /**
+     * Unavailable outcomes over a window, the total they are a share of,
+     * and their cause split. The failure-RATE half of ADR-060 section 3.5,
+     * which the existing cards cannot express.
+     *
+     * Why they cannot: an 'unavailable' outcome never writes a cache row
+     * (DiscoveryResolverService keeps transport failures out of the pool
+     * on purpose), so it is missing from BOTH halves of
+     * nonResolvedSharePercentLast24h(). Three author_unavailable in the
+     * journal could be three out of five or three out of five hundred, and
+     * nothing stored says which.
+     *
+     * The denominator is derivable from what is already stored, without a
+     * new table, a counter or a request log, because every outcome leaves
+     * exactly one trace and never two:
+     *
+     *   - a cold resolution that succeeds writes one ENTITY row
+     *     ('series' or 'author', status 'resolved');
+     *   - every other outcome, unavailable included, writes one
+     *     hub_events row on channel 'discovery'.
+     *
+     * Hence total = resolved entity rows + discovery events. Lookup kinds
+     * are excluded because one resolution writes up to three of them
+     * besides its payload, and non-resolved entity rows are excluded
+     * because they are journalled too and would count twice.
+     *
+     * What this measures is OUTCOMES that reached a decision, not HTTP
+     * requests: a fully warm request makes no source call and is invisible
+     * here by design (the failure rate of the source lane is not a
+     * question about requests that never touched a source), while a warm
+     * NEGATIVE request is journalled and does count, at zero outbound
+     * cost. Reasons come back keyed exactly as the resolver wrote them, so
+     * a cause added later appears without touching this query.
+     *
+     * @return array{total: int, resolved: int, unavailable: int, reasons: array<string, int>, share_percent: ?int}
+     */
+    public function unavailableBreakdownSince(\DateTimeImmutable $since): array
+    {
+        $connection = $this->getEntityManager()->getConnection();
+
+        $resolved = (int) $connection->fetchOne(
+            'SELECT COUNT(*) FROM discovery_cache
+              WHERE kind IN (:series, :author) AND status = :resolved AND updated_at >= :since',
+            [
+                'series' => DiscoveryCache::KIND_SERIES,
+                'author' => DiscoveryCache::KIND_AUTHOR,
+                'resolved' => DiscoveryCache::STATUS_RESOLVED,
+                'since' => $since->format('Y-m-d H:i:s'),
+            ],
+        );
+
+        $rows = $connection->fetchAllAssociative(
+            "SELECT message, (context::jsonb)->>'reason' AS reason, COUNT(*) AS count
+               FROM hub_events
+              WHERE channel = 'discovery' AND created_at >= :since
+              GROUP BY message, reason",
+            ['since' => $since->format('Y-m-d H:i:s')],
+        );
+
+        $events = 0;
+        $unavailable = 0;
+        $reasons = [];
+        foreach ($rows as $row) {
+            $count = (int) $row['count'];
+            $events += $count;
+            // Both lanes journal '<lane>_unavailable' and nothing else does.
+            if (!str_ends_with((string) $row['message'], '_' . DiscoveryResolverService::STATUS_UNAVAILABLE)) {
+                continue;
+            }
+            $unavailable += $count;
+            $reason = $row['reason'] !== null ? (string) $row['reason'] : 'unspecified';
+            $reasons[$reason] = ($reasons[$reason] ?? 0) + $count;
+        }
+        arsort($reasons);
+
+        $total = $resolved + $events;
+
+        return [
+            'total' => $total,
+            'resolved' => $resolved,
+            'unavailable' => $unavailable,
+            'reasons' => $reasons,
+            // Same statistical floor as the drift share: below it the
+            // percentage is noise dressed up as a signal.
+            'share_percent' => $total < self::DRIFT_MIN_SAMPLES ? null : (int) round(100 * $unavailable / $total),
+        ];
     }
 }

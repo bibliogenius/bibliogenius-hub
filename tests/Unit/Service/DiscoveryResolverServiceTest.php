@@ -8,10 +8,15 @@ use App\Entity\DiscoveryCache;
 use App\Repository\DiscoveryCacheRepository;
 use App\Service\Discovery\AuthorResolutionPipeline;
 use App\Service\Discovery\DiscoveryBudgetExhaustedException;
+use App\Service\Discovery\DiscoveryDeadlineExceededException;
+use App\Service\Discovery\DiscoverySourceException;
+use App\Service\Discovery\OutboundBudget;
 use App\Service\Discovery\SeriesResolutionPipeline;
 use App\Service\DiscoveryResolverService;
 use App\Service\HubEventLogger;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
+use Symfony\Component\RateLimiter\Storage\InMemoryStorage;
 
 /**
  * Freezes the ADR-060 resolver orchestration: two-level pooled cache
@@ -51,16 +56,32 @@ final class DiscoveryResolverServiceTest extends TestCase
         ];
     }
 
+    /** Real budget over in-memory storage: the admission check reads live tokens. */
+    private function budget(int $limit): OutboundBudget
+    {
+        return new OutboundBudget(new RateLimiterFactory(
+            [
+                'id' => 'discovery_source_budget',
+                'policy' => 'token_bucket',
+                'limit' => $limit,
+                'rate' => ['interval' => '1 minute', 'amount' => 60],
+            ],
+            new InMemoryStorage(),
+        ));
+    }
+
     private function service(
         DiscoveryCacheRepository $cache,
         SeriesResolutionPipeline $pipeline,
         ?HubEventLogger $logger = null,
+        ?OutboundBudget $budget = null,
     ): DiscoveryResolverService {
         return new DiscoveryResolverService(
             $cache,
             $pipeline,
             $logger ?? $this->createStub(HubEventLogger::class),
             $this->createStub(AuthorResolutionPipeline::class),
+            $budget ?? $this->budget(60),
         );
     }
 
@@ -188,7 +209,7 @@ final class DiscoveryResolverServiceTest extends TestCase
 
         $envelope = $this->service($cache, $pipeline)->resolveSeries([self::ISBN_HP3_FR], null, []);
 
-        $this->assertSame(['status' => 'unavailable'], $envelope);
+        $this->assertSame('unavailable', $envelope['status']);
     }
 
     public function testEntityWithoutUsableMembersIsNegativeCached(): void
@@ -245,5 +266,232 @@ final class DiscoveryResolverServiceTest extends TestCase
         $volume = $envelope['series']['volumes'][0];
         $this->assertSame(['en'], array_column($volume['editions'], 'lang'));
         $this->assertTrue($volume['other_langs_exist']);
+    }
+
+    // -------------------------------------------------------------------
+    // Never start a cold resolution the budget cannot finish
+    // -------------------------------------------------------------------
+
+    /**
+     * The entity stage is all or nothing and costs about twenty calls, so
+     * a budget that cannot cover it must refuse BEFORE the first call.
+     * Aborting halfway spends the tokens and caches nothing, which is the
+     * failure that makes contention self-reinforcing.
+     */
+    public function testColdEntityStageIsRefusedWhenTheBudgetCannotCoverIt(): void
+    {
+        $cache = $this->createMock(DiscoveryCacheRepository::class);
+        $cache->method('findFresh')->willReturnMap([
+            [DiscoveryCache::KIND_SERIES_LOOKUP, self::ISBN_HP3_FR, [
+                'status' => 'resolved',
+                'payload' => ['series_uris' => ['wd:Q8337']],
+                'source' => null,
+            ]],
+            [DiscoveryCache::KIND_SERIES, 'wd:Q8337', null],
+        ]);
+        $cache->expects($this->never())->method('put');
+
+        $pipeline = $this->createMock(SeriesResolutionPipeline::class);
+        $pipeline->expects($this->never())->method('resolveSeriesEntity');
+
+        $reasons = [];
+        $logger = $this->createMock(HubEventLogger::class);
+        $logger->method('error')->willReturnCallback(
+            static function (string $channel, string $message, array $context) use (&$reasons): void {
+                $reasons[] = $context['reason'] ?? null;
+            },
+        );
+
+        $envelope = $this->service(
+            $cache,
+            $pipeline,
+            $logger,
+            $this->budget(OutboundBudget::COLD_RESOLUTION_CALLS - 1),
+        )->resolveSeries([self::ISBN_HP3_FR], null, []);
+
+        $this->assertSame('unavailable', $envelope['status']);
+        $this->assertSame([DiscoveryBudgetExhaustedException::REASON_INSUFFICIENT], $reasons);
+    }
+
+    /**
+     * The counterweight to the check above: refusing on an empty budget
+     * must never touch a request the pool can already answer, or the
+     * admission rule would empty the lane of its substance on the very
+     * days it is meant to protect it. A warm request makes no source call,
+     * so the budget has no say in it.
+     */
+    public function testAWarmResolutionIsStillServedOnAnEmptyBudget(): void
+    {
+        $cache = $this->createMock(DiscoveryCacheRepository::class);
+        $cache->method('findFresh')->willReturnMap([
+            [DiscoveryCache::KIND_SERIES_LOOKUP, self::ISBN_HP3_FR, [
+                'status' => 'resolved',
+                'payload' => ['series_uris' => ['wd:Q8337']],
+                'source' => null,
+            ]],
+            [DiscoveryCache::KIND_SERIES, 'wd:Q8337', [
+                'status' => 'resolved',
+                'payload' => self::hpPayload(),
+                'source' => 'wikidata',
+            ]],
+        ]);
+
+        $pipeline = $this->createMock(SeriesResolutionPipeline::class);
+        $pipeline->expects($this->never())->method('resolveSeriesEntity');
+
+        $envelope = $this->service($cache, $pipeline, null, $this->budget(0))
+            ->resolveSeries([self::ISBN_HP3_FR], null, []);
+
+        $this->assertSame('resolved', $envelope['status']);
+        $this->assertSame('Q8337', $envelope['series']['source_id']);
+    }
+
+    /**
+     * A resolution that outlives its wall-clock allowance answers
+     * 'unavailable' like any source failure, but is journalled under its
+     * own reason: "the hub gave up on purpose" and "the source failed" ask
+     * for different fixes.
+     */
+    public function testDeadlineExceededIsJournalledUnderItsOwnReason(): void
+    {
+        $cache = $this->createMock(DiscoveryCacheRepository::class);
+        $cache->method('findFresh')->willReturn(null);
+        $cache->expects($this->never())->method('put');
+
+        $pipeline = $this->createMock(SeriesResolutionPipeline::class);
+        $pipeline->method('resolveAnchor')
+            ->willThrowException(new DiscoveryDeadlineExceededException('out of time'));
+
+        $reasons = [];
+        $logger = $this->createMock(HubEventLogger::class);
+        $logger->method('error')->willReturnCallback(
+            static function (string $channel, string $message, array $context) use (&$reasons): void {
+                $reasons[] = $context['reason'] ?? null;
+            },
+        );
+
+        $envelope = $this->service($cache, $pipeline, $logger)->resolveSeries([self::ISBN_HP3_FR], null, []);
+
+        $this->assertSame('unavailable', $envelope['status']);
+        $this->assertSame([DiscoveryDeadlineExceededException::REASON], $reasons);
+    }
+
+    /**
+     * The wall-clock window belongs to one resolution: left open, it would
+     * shorten the next one served by the same worker down to nothing.
+     */
+    public function testTheResolutionWindowIsClosedAfterwards(): void
+    {
+        $cache = $this->createMock(DiscoveryCacheRepository::class);
+        $cache->method('findFresh')->willReturn(null);
+
+        $pipeline = $this->createMock(SeriesResolutionPipeline::class);
+        $pipeline->method('resolveAnchor')->willReturn([]);
+
+        $budget = $this->budget(60);
+        $this->service($cache, $pipeline, null, $budget)->resolveSeries([self::ISBN_HP3_FR], null, []);
+
+        $this->assertNull($budget->remainingSeconds());
+    }
+
+    // -------------------------------------------------------------------
+    // retry_after: the hub paces the client, the client does not guess
+    // -------------------------------------------------------------------
+
+    /**
+     * The client's own throttle is a blind 24h, so without a hint from the
+     * hub a refusal meant as "come back shortly" costs the reader a whole
+     * day. The hint is carried by the transient outcome only.
+     */
+    public function testBudgetRefusalCarriesTheShortRetryHint(): void
+    {
+        $cache = $this->createMock(DiscoveryCacheRepository::class);
+        $cache->method('findFresh')->willReturnMap([
+            [DiscoveryCache::KIND_SERIES_LOOKUP, self::ISBN_HP3_FR, [
+                'status' => 'resolved',
+                'payload' => ['series_uris' => ['wd:Q8337']],
+                'source' => null,
+            ]],
+            [DiscoveryCache::KIND_SERIES, 'wd:Q8337', null],
+        ]);
+
+        $envelope = $this->service(
+            $cache,
+            $this->createMock(SeriesResolutionPipeline::class),
+            null,
+            $this->budget(OutboundBudget::COLD_RESOLUTION_CALLS - 1),
+        )->resolveSeries([self::ISBN_HP3_FR], null, []);
+
+        $this->assertSame(
+            DiscoveryResolverService::RETRY_AFTER_BUDGET_SECONDS,
+            $envelope['retry_after'],
+        );
+    }
+
+    /**
+     * A source outage outlives a token bucket, so it gets the long hint.
+     * Ordering matters: the short one must not leak onto this path.
+     */
+    public function testSourceFailureCarriesTheLongRetryHint(): void
+    {
+        $cache = $this->createMock(DiscoveryCacheRepository::class);
+        $cache->method('findFresh')->willReturn(null);
+
+        $pipeline = $this->createMock(SeriesResolutionPipeline::class);
+        $pipeline->method('resolveAnchor')
+            ->willThrowException(new DiscoverySourceException('Inventaire returned HTTP 503'));
+
+        $envelope = $this->service($cache, $pipeline)->resolveSeries([self::ISBN_HP3_FR], null, []);
+
+        $this->assertSame(
+            DiscoveryResolverService::RETRY_AFTER_SOURCE_SECONDS,
+            $envelope['retry_after'],
+        );
+        $this->assertGreaterThan(
+            DiscoveryResolverService::RETRY_AFTER_BUDGET_SECONDS,
+            DiscoveryResolverService::RETRY_AFTER_SOURCE_SECONDS,
+        );
+    }
+
+    /**
+     * The exact shape of the transient envelope, not just its status.
+     *
+     * The other tests on this path assert the status alone so a new field
+     * does not break five of them at once, which is convenient and loses
+     * something: nothing would notice a field accidentally added to an
+     * envelope the client parses. This one holds that line in a single
+     * place.
+     */
+    public function testTheUnavailableEnvelopeCarriesExactlyStatusAndRetryAfter(): void
+    {
+        $cache = $this->createMock(DiscoveryCacheRepository::class);
+        $cache->method('findFresh')->willReturn(null);
+
+        $pipeline = $this->createMock(SeriesResolutionPipeline::class);
+        $pipeline->method('resolveAnchor')
+            ->willThrowException(new DiscoverySourceException('Inventaire returned HTTP 503'));
+
+        $envelope = $this->service($cache, $pipeline)->resolveSeries([self::ISBN_HP3_FR], null, []);
+
+        $this->assertSame(['status', 'retry_after'], array_keys($envelope));
+    }
+
+    /**
+     * A definitive negative must NOT carry a hint: it is negative-cached
+     * hub-side for seven days, and a short retry would make the client ask
+     * again for an answer that cannot have changed.
+     */
+    public function testDefinitiveNegativesCarryNoRetryHint(): void
+    {
+        $cache = $this->createMock(DiscoveryCacheRepository::class);
+        $cache->method('findFresh')->willReturn(null);
+
+        $pipeline = $this->createMock(SeriesResolutionPipeline::class);
+        $pipeline->method('resolveAnchor')->willReturn([]);
+
+        $envelope = $this->service($cache, $pipeline)->resolveSeries([self::ISBN_HP3_FR], null, []);
+
+        $this->assertSame('unknown', $envelope['status']);
+        $this->assertArrayNotHasKey('retry_after', $envelope);
     }
 }

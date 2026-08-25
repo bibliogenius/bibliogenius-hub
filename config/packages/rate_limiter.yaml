@@ -66,7 +66,25 @@ framework:
             policy: 'token_bucket'
             limit: 30
             rate: { interval: '1 minute', amount: 30 }
+        #
+        # The two knobs are deliberately far apart (2026-08-25). 'rate' is the
+        # sustained pressure the sources actually feel and stays at 60/min,
+        # which is what this budget exists to hold. 'limit' is only the burst
+        # capacity, and at 60 it was BELOW the cost of a single legitimate
+        # event: a first launch sweeps up to five authors back to back and a
+        # cold resolution measures about 21 outbound calls, so the third or
+        # fourth author of a brand-new library hit the wall mid-sweep, and the
+        # client throttles a failed sweep for 24h. 150 covers one full cold
+        # onboarding (~105) with room for a second reader arriving during it.
+        #
+        # Widening the burst does NOT raise the peak inflicted on the sources:
+        # that peak is set by sequential execution speed and the four workers,
+        # and was already reachable at 60. It only lengthens how long a burst
+        # may run before being pulled back to 60/min. The cost it does carry,
+        # more concurrent slow requests on four threads, is bounded elsewhere:
+        # a resolution the budget cannot cover is refused before its first call
+        # and every resolution has a 6s wall-clock deadline (OutboundBudget).
         discovery_source_budget:
             policy: 'token_bucket'
-            limit: 60
+            limit: 150
             rate: { interval: '1 minute', amount: 60 }

@@ -100,6 +100,30 @@ class WikidataClient
     }
 
     /**
+     * Request options for one SPARQL call.
+     *
+     * TIMEOUT_SECONDS is an INACTIVITY timeout and is deliberately left
+     * alone; max_duration caps the call against the time the resolution
+     * has left, so the 10s allowance cannot outlive a 6s deadline.
+     *
+     * @return array<string, mixed>
+     */
+    private function requestOptions(string $query): array
+    {
+        $options = [
+            'query' => ['query' => $query, 'format' => 'json'],
+            'headers' => ['User-Agent' => self::USER_AGENT],
+            'timeout' => self::TIMEOUT_SECONDS,
+        ];
+        $maxDuration = $this->budget->remainingSeconds();
+        if ($maxDuration !== null) {
+            $options['max_duration'] = $maxDuration;
+        }
+
+        return $options;
+    }
+
+    /**
      * @return list<array<string, array{value?: string}>>
      *
      * @throws DiscoveryBudgetExhaustedException
@@ -109,11 +133,7 @@ class WikidataClient
     {
         $this->budget->consumeOrFail();
         try {
-            $response = $this->discoveryHttpClient->request('GET', $this->sparqlUrl, [
-                'query' => ['query' => $query, 'format' => 'json'],
-                'headers' => ['User-Agent' => self::USER_AGENT],
-                'timeout' => self::TIMEOUT_SECONDS,
-            ]);
+            $response = $this->discoveryHttpClient->request('GET', $this->sparqlUrl, $this->requestOptions($query));
             if ($response->getStatusCode() !== 200) {
                 throw new DiscoverySourceException(sprintf('Wikidata returned HTTP %d', $response->getStatusCode()));
             }

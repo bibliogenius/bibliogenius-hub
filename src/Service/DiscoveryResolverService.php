@@ -8,8 +8,10 @@ use App\Entity\DiscoveryCache;
 use App\Repository\DiscoveryCacheRepository;
 use App\Service\Discovery\AuthorResolutionPipeline;
 use App\Service\Discovery\DiscoveryBudgetExhaustedException;
+use App\Service\Discovery\DiscoveryDeadlineExceededException;
 use App\Service\Discovery\DiscoverySourceException;
 use App\Service\Discovery\Labels;
+use App\Service\Discovery\OutboundBudget;
 use App\Service\Discovery\SeriesResolutionPipeline;
 
 /**
@@ -35,6 +37,30 @@ class DiscoveryResolverService
     public const STATUS_UNAVAILABLE = 'unavailable';
 
     /**
+     * Seconds the client should wait before retrying an 'unavailable'
+     * lookup, when the budget is what refused it.
+     *
+     * The hub owns this number rather than the client because the client
+     * population moves on store timelines and the hub deploys in minutes:
+     * the pacing knob has to be on the side that can turn it. Without it,
+     * the client falls back to its blind 24h throttle, which means a
+     * refusal the hub meant as "come back shortly" costs the reader a
+     * whole day.
+     *
+     * Short, because a budget refusal is transient by construction and, on
+     * the admission path, free: it makes no outbound call, so an early
+     * retry costs the sources nothing and the hub a cache lookup.
+     */
+    public const RETRY_AFTER_BUDGET_SECONDS = 300;
+
+    /**
+     * Same, when a source failed or ran past the resolution deadline.
+     * An order of magnitude longer: this is the path that does spend
+     * outbound calls, and a source outage outlives a token bucket.
+     */
+    public const RETRY_AFTER_SOURCE_SECONDS = 3600;
+
+    /**
      * Cover URLs are emitted only when https and on one of the sources' own
      * cover hosts: the S5 rule extended to hub output, so the hub cannot
      * become a URL-injection vector into clients.
@@ -51,7 +77,27 @@ class DiscoveryResolverService
         private readonly SeriesResolutionPipeline $pipeline,
         private readonly HubEventLogger $eventLogger,
         private readonly AuthorResolutionPipeline $authorPipeline,
+        private readonly OutboundBudget $budget,
     ) {
+    }
+
+    /**
+     * The 'unavailable' envelope, carrying how long the client should wait
+     * before asking again.
+     *
+     * 'ambiguous' and 'unknown' deliberately carry no hint: they are
+     * definitive answers, negative-cached hub-side for seven days, and the
+     * client's 24h throttle is the right pacing for them. Only the
+     * transient outcome gets to say "sooner than that".
+     *
+     * @return array<string, mixed>
+     */
+    private static function unavailable(int $retryAfterSeconds): array
+    {
+        return [
+            'status' => self::STATUS_UNAVAILABLE,
+            'retry_after' => $retryAfterSeconds,
+        ];
     }
 
     /**
@@ -65,6 +111,25 @@ class DiscoveryResolverService
      * @return array<string, mixed> the response envelope
      */
     public function resolveSeries(array $isbn13s, ?string $name, array $langs): array
+    {
+        // Opens the wall-clock window of ONE resolution and closes it
+        // whatever happens: a deadline left behind would shorten the next
+        // resolution served by the same worker.
+        $this->budget->startResolution();
+        try {
+            return $this->doResolveSeries($isbn13s, $name, $langs);
+        } finally {
+            $this->budget->reset();
+        }
+    }
+
+    /**
+     * @param list<string> $isbn13s
+     * @param list<string> $langs
+     *
+     * @return array<string, mixed>
+     */
+    private function doResolveSeries(array $isbn13s, ?string $name, array $langs): array
     {
         try {
             $candidateSets = [];
@@ -113,18 +178,27 @@ class DiscoveryResolverService
             }
 
             $payload = $this->seriesPayload($seriesUri);
-        } catch (DiscoveryBudgetExhaustedException) {
+        } catch (DiscoveryBudgetExhaustedException $e) {
             $this->eventLogger->error('discovery', 'series_unavailable', [
-                'reason' => 'outbound_budget_exhausted',
+                'reason' => $e->reason(),
             ]);
 
-            return ['status' => self::STATUS_UNAVAILABLE];
+            return self::unavailable(self::RETRY_AFTER_BUDGET_SECONDS);
+        } catch (DiscoveryDeadlineExceededException) {
+            // Before DiscoverySourceException, which it extends: the two
+            // are both source slowness but only one says the hub gave up
+            // on purpose, and /admin has to tell them apart.
+            $this->eventLogger->error('discovery', 'series_unavailable', [
+                'reason' => DiscoveryDeadlineExceededException::REASON,
+            ]);
+
+            return self::unavailable(self::RETRY_AFTER_SOURCE_SECONDS);
         } catch (DiscoverySourceException $e) {
             $this->eventLogger->error('discovery', 'series_unavailable', [
                 'reason' => substr($e->getMessage(), 0, 100),
             ]);
 
-            return ['status' => self::STATUS_UNAVAILABLE];
+            return self::unavailable(self::RETRY_AFTER_SOURCE_SECONDS);
         }
 
         if ($payload === null) {
@@ -154,6 +228,22 @@ class DiscoveryResolverService
      * @return array<string, mixed> the response envelope
      */
     public function resolveAuthor(string $name, array $isbn13s, array $langs): array
+    {
+        $this->budget->startResolution();
+        try {
+            return $this->doResolveAuthor($name, $isbn13s, $langs);
+        } finally {
+            $this->budget->reset();
+        }
+    }
+
+    /**
+     * @param list<string> $isbn13s
+     * @param list<string> $langs
+     *
+     * @return array<string, mixed>
+     */
+    private function doResolveAuthor(string $name, array $isbn13s, array $langs): array
     {
         try {
             $anyCandidate = false;
@@ -189,18 +279,24 @@ class DiscoveryResolverService
             }
 
             $payload = $this->authorPayload($verified['uri'], $verified['label']);
-        } catch (DiscoveryBudgetExhaustedException) {
+        } catch (DiscoveryBudgetExhaustedException $e) {
             $this->eventLogger->error('discovery', 'author_unavailable', [
-                'reason' => 'outbound_budget_exhausted',
+                'reason' => $e->reason(),
             ]);
 
-            return ['status' => self::STATUS_UNAVAILABLE];
+            return self::unavailable(self::RETRY_AFTER_BUDGET_SECONDS);
+        } catch (DiscoveryDeadlineExceededException) {
+            $this->eventLogger->error('discovery', 'author_unavailable', [
+                'reason' => DiscoveryDeadlineExceededException::REASON,
+            ]);
+
+            return self::unavailable(self::RETRY_AFTER_SOURCE_SECONDS);
         } catch (DiscoverySourceException $e) {
             $this->eventLogger->error('discovery', 'author_unavailable', [
                 'reason' => substr($e->getMessage(), 0, 100),
             ]);
 
-            return ['status' => self::STATUS_UNAVAILABLE];
+            return self::unavailable(self::RETRY_AFTER_SOURCE_SECONDS);
         }
 
         if ($payload === null) {
@@ -259,6 +355,12 @@ class DiscoveryResolverService
                 : null;
         }
 
+        // The entity stage is where seventeen of a cold resolution's
+        // twenty-one calls are spent, and its payload is all or nothing.
+        // Refuse it outright when the budget cannot cover it: an immediate
+        // 'unavailable' costs nothing, whereas dying at the fifteenth call
+        // has spent fifteen tokens and cached not one row.
+        $this->budget->requireHeadroomForColdResolution();
         $payload = $this->pipeline->resolveSeriesEntity($seriesUri);
         if ($payload === null) {
             $this->cache->put(DiscoveryCache::KIND_SERIES, $seriesUri, DiscoveryCache::STATUS_UNKNOWN, null, null);
@@ -337,6 +439,7 @@ class DiscoveryResolverService
                 : null;
         }
 
+        $this->budget->requireHeadroomForColdResolution();
         $payload = $this->authorPipeline->resolveAuthorEntity($authorUri, $label);
         if ($payload === null) {
             $this->cache->put(DiscoveryCache::KIND_AUTHOR, $authorUri, DiscoveryCache::STATUS_UNKNOWN, null, null);

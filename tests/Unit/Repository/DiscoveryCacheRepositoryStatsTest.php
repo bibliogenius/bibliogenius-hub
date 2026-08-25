@@ -6,6 +6,8 @@ namespace App\Tests\Unit\Repository;
 
 use App\Entity\DiscoveryCache;
 use App\Repository\DiscoveryCacheRepository;
+use App\Service\Discovery\DiscoveryBudgetExhaustedException;
+use App\Service\Discovery\DiscoveryDeadlineExceededException;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\ClassMetadata;
@@ -268,10 +270,133 @@ final class DiscoveryCacheRepositoryStatsTest extends TestCase
 
         $this->assertSame(3, $count);
         $this->assertStringContainsStringIgnoringCase("channel = 'discovery'", $capturedSql);
-        $this->assertStringContainsStringIgnoringCase("'reason' = :reason", $capturedSql);
+        $this->assertStringContainsStringIgnoringCase("(context::jsonb)->>'reason'", $capturedSql);
+        $this->assertSame('2026-08-14 12:00:00', $capturedParams['since']);
+    }
+
+    // -------------------------------------------------------------------
+    // Unavailable share: the failure RATE the cache alone cannot express
+    // -------------------------------------------------------------------
+
+    /**
+     * The denominator has to come from BOTH stores, because each outcome
+     * writes to exactly one of them: a cold success writes an entity row,
+     * everything else writes a journal row. Reading only the cache is what
+     * makes "three author_unavailable" unreadable today, since an
+     * unavailable outcome never writes a row at all.
+     */
+    public function testUnavailableBreakdownCountsResolvedEntityRowsPlusJournalledOutcomes(): void
+    {
+        $capturedSql = null;
+        $capturedParams = null;
+
+        $conn = $this->createMock(Connection::class);
+        $conn->expects($this->once())
+            ->method('fetchOne')
+            ->willReturnCallback(function (string $sql, array $params) use (&$capturedSql, &$capturedParams) {
+                $capturedSql = $sql;
+                $capturedParams = $params;
+                return '6';
+            });
+        $conn->method('fetchAllAssociative')->willReturn([
+            ['message' => 'series_unavailable', 'reason' => DiscoveryBudgetExhaustedException::REASON_EXHAUSTED, 'count' => '3'],
+            ['message' => 'author_unavailable', 'reason' => DiscoveryDeadlineExceededException::REASON, 'count' => '1'],
+            ['message' => 'series_ambiguous', 'reason' => 'no_clear_winner', 'count' => '2'],
+        ]);
+
+        $breakdown = $this->repositoryWithConnection($conn)->unavailableBreakdownSince($this->now());
+
+        // 6 resolved entity rows + 6 journalled outcomes.
+        $this->assertSame(12, $breakdown['total']);
+        $this->assertSame(6, $breakdown['resolved']);
+        $this->assertSame(4, $breakdown['unavailable']);
+        $this->assertSame(33, $breakdown['share_percent']);
         $this->assertSame(
-            ['reason' => 'outbound_budget_exhausted', 'since' => '2026-08-14 12:00:00'],
-            $capturedParams,
+            [
+                DiscoveryBudgetExhaustedException::REASON_EXHAUSTED => 3,
+                DiscoveryDeadlineExceededException::REASON => 1,
+            ],
+            $breakdown['reasons'],
         );
+
+        // Lookup kinds excluded: one resolution writes up to three of them
+        // besides its payload, so counting them would inflate the
+        // denominator by an amount that varies with the anchor count.
+        $this->assertStringContainsStringIgnoringCase('kind IN (:series, :author)', $capturedSql);
+        // Non-resolved entity rows excluded: they are journalled too, and
+        // would land in the denominator twice.
+        $this->assertStringContainsStringIgnoringCase('status = :resolved', $capturedSql);
+        $this->assertSame('series', $capturedParams['series']);
+        $this->assertSame('author', $capturedParams['author']);
+        $this->assertSame('resolved', $capturedParams['resolved']);
+        $this->assertSame('2026-08-21 12:00:00', $capturedParams['since']);
+    }
+
+    /**
+     * A cause added later (the deadline was, on 2026-08-25) has to appear
+     * without editing the query, or the split silently under-reports the
+     * newest failure mode.
+     */
+    public function testUnavailableBreakdownGroupsWhateverReasonWasWritten(): void
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->method('fetchOne')->willReturn('20');
+        $conn->method('fetchAllAssociative')->willReturn([
+            ['message' => 'author_unavailable', 'reason' => 'Inventaire returned HTTP 503', 'count' => '2'],
+            ['message' => 'author_unavailable', 'reason' => null, 'count' => '1'],
+        ]);
+
+        $breakdown = $this->repositoryWithConnection($conn)->unavailableBreakdownSince($this->now());
+
+        $this->assertSame(3, $breakdown['unavailable']);
+        $this->assertSame(
+            ['Inventaire returned HTTP 503' => 2, 'unspecified' => 1],
+            $breakdown['reasons'],
+        );
+    }
+
+    /** Below the statistical floor a percentage is noise dressed as signal. */
+    public function testUnavailableShareIsNullBelowTheSampleFloor(): void
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->method('fetchOne')->willReturn('1');
+        $conn->method('fetchAllAssociative')->willReturn([
+            ['message' => 'series_unavailable', 'reason' => 'x', 'count' => '1'],
+        ]);
+
+        $breakdown = $this->repositoryWithConnection($conn)->unavailableBreakdownSince($this->now());
+
+        $this->assertSame(2, $breakdown['total']);
+        $this->assertNull($breakdown['share_percent']);
+        // The raw counts stay readable even when the ratio is withheld.
+        $this->assertSame(1, $breakdown['unavailable']);
+    }
+
+    /**
+     * Refusing a resolution up front and dying halfway are both the budget
+     * hurting readers, so the source-pressure card must count both. It
+     * counted one reason only until the admission check existed.
+     */
+    public function testBudgetExhaustionCounterCoversBothBudgetReasons(): void
+    {
+        $capturedSql = null;
+        $capturedParams = null;
+
+        $conn = $this->createMock(Connection::class);
+        $conn->expects($this->once())
+            ->method('fetchOne')
+            ->willReturnCallback(function (string $sql, array $params) use (&$capturedSql, &$capturedParams) {
+                $capturedSql = $sql;
+                $capturedParams = $params;
+                return '5';
+            });
+
+        $count = $this->repositoryWithConnection($conn)->countBudgetExhaustionsSince($this->now());
+
+        $this->assertSame(5, $count);
+        $this->assertStringContainsStringIgnoringCase("channel = 'discovery'", $capturedSql);
+        $this->assertStringContainsStringIgnoringCase('IN (:exhausted, :insufficient)', $capturedSql);
+        $this->assertSame(DiscoveryBudgetExhaustedException::REASON_EXHAUSTED, $capturedParams['exhausted']);
+        $this->assertSame(DiscoveryBudgetExhaustedException::REASON_INSUFFICIENT, $capturedParams['insufficient']);
     }
 }
