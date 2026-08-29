@@ -137,6 +137,11 @@ php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS account_device_reg
 php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS account_auth_challenges (id SERIAL NOT NULL, account_id VARCHAR(64) NOT NULL, challenge VARCHAR(64) NOT NULL, purpose VARCHAR(16) NOT NULL, expires_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, PRIMARY KEY (id), CONSTRAINT fk_auth_chal_account FOREIGN KEY (account_id) REFERENCES accounts(account_id) ON DELETE CASCADE)" --env=$ENV --no-interaction || echo "WARNING: account_auth_challenges creation failed"
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_account_auth_chal_expires ON account_auth_challenges (expires_at)" --env=$ENV --no-interaction || true
 
+# accounts.recovery_verifier_hash (Version20260829120000 - ADR-042 section 16.3)
+# Nullable marker derived from the recovery key; null means "account created
+# before the marker existed" and is never backfilled server-side (16.5).
+php /app/bin/console dbal:run-sql "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS recovery_verifier_hash VARCHAR(128) DEFAULT NULL" --env=$ENV --no-interaction || true
+
 # discovery_cache (Version20260821060000 - ADR-060 external discovery resolver)
 # Pooled bibliographic cache keyed by (kind, cache_key); language-neutral
 # payloads, per-row expires_at swept by the nightly prune.

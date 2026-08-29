@@ -80,16 +80,26 @@ class AccountController extends AbstractController
         $authPk = self::base64Field($data, 'account_auth_pk', 32);
         $descriptorSig = self::base64Field($data, 'descriptor_sig', 64);
         $authVerifierHash = self::stringField($data, 'auth_verifier_hash', 128);
+        // Optional: clients older than the recovery marker (ADR-042 section 16.3)
+        // do not send it, and the column stays null for those accounts.
+        $recoveryVerifierHash = self::stringField($data, 'recovery_verifier_hash', 128);
         $authMethod = self::stringField($data, 'auth_method', 32);
         $aeadAlg = self::stringField($data, 'aead_alg', 32);
         $registryBlob = self::rawBase64Field($data, 'device_registry_blob', self::MAX_REGISTRY_BLOB_BYTES);
         $kdfParams = $data['kdf_params'] ?? null;
         $schemaVersion = $data['schema_version'] ?? null;
 
+        // A recovery marker that is present but malformed is refused rather than
+        // stored as null: null means "no marker was ever derived" and drives a
+        // later retrofit count (section 16.5), so it must not absorb bad input.
+        $recoveryVerifierMalformed = array_key_exists('recovery_verifier_hash', $data)
+            && $recoveryVerifierHash === null;
+
         if ($email === null || !filter_var($email, FILTER_VALIDATE_EMAIL)
             || $accountSalt === null || $authPk === null || $descriptorSig === null
             || $authVerifierHash === null || $authMethod === null || $aeadAlg === null
-            || $registryBlob === null || !is_array($kdfParams) || !is_int($schemaVersion)) {
+            || $registryBlob === null || !is_array($kdfParams) || !is_int($schemaVersion)
+            || $recoveryVerifierMalformed) {
             return $this->json(['error' => 'Missing or invalid account fields'], Response::HTTP_BAD_REQUEST);
         }
 
@@ -112,6 +122,7 @@ class AccountController extends AbstractController
             ->setKdfParams(json_encode($kdfParams, JSON_UNESCAPED_SLASHES))
             ->setAccountAuthPk($data['account_auth_pk'])
             ->setAuthVerifierHash($authVerifierHash)
+            ->setRecoveryVerifierHash($recoveryVerifierHash)
             ->setSchemaVersion($schemaVersion)
             ->setAuthMethod($authMethod)
             ->setAeadAlg($aeadAlg)

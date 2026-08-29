@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Unit\Entity;
 
+use App\Entity\Account;
 use App\Entity\AccountEntity;
 use Doctrine\ORM\Mapping as ORM;
 use PHPUnit\Framework\TestCase;
@@ -100,6 +101,35 @@ final class AccountStoreBlindnessTest extends TestCase
         }
         $this->assertStringContainsString('account_entities_change_seq', $migration);
         $this->assertStringContainsString('account_entities_change_seq', $entrypoint);
+    }
+
+    /**
+     * The recovery marker (ADR-042 section 16.3) lands in BOTH migration systems
+     * and stays nullable. Null is not an oversight, it is the readable marker of
+     * "no marker was ever derived", which only the account's own user can fix
+     * (16.5) and which a later admin count reads to size that population.
+     */
+    public function testRecoveryVerifierColumnIsNullableInBothMigrationSystems(): void
+    {
+        $root = dirname(__DIR__, 3);
+        $migration = file_get_contents($root . '/migrations/Version20260829120000.php');
+        $entrypoint = file_get_contents($root . '/docker-entrypoint.sh');
+
+        $this->assertNotFalse($migration);
+        $this->assertNotFalse($entrypoint);
+
+        $ddl = 'ADD COLUMN IF NOT EXISTS recovery_verifier_hash VARCHAR(128) DEFAULT NULL';
+        $this->assertStringContainsString($ddl, (string) $migration, 'migration missing the recovery marker');
+        $this->assertStringContainsString($ddl, (string) $entrypoint, 'entrypoint mirror missing the recovery marker');
+
+        $attributes = (new \ReflectionClass(Account::class))
+            ->getProperty('recoveryVerifierHash')
+            ->getAttributes(ORM\Column::class);
+        $this->assertNotEmpty($attributes, 'recoveryVerifierHash must be a mapped column');
+        $this->assertTrue(
+            $attributes[0]->newInstance()->nullable,
+            'the recovery marker must stay nullable (ADR-042 16.5 counts the nulls)',
+        );
     }
 
     /**

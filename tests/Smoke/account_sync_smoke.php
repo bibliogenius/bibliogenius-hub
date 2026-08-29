@@ -68,6 +68,7 @@ $email = 'smoke_' . bin2hex(random_bytes(4)) . '@example.org';
     'kdf_params' => ['algo' => 'argon2id', 'version' => 19, 'm' => 65536, 't' => 3, 'p' => 1, 'out' => 32],
     'account_auth_pk' => b64url($pk),
     'auth_verifier_hash' => hash('sha256', 'smoke'),
+    'recovery_verifier_hash' => hash('sha256', 'smoke-recovery'),
     'schema_version' => 1,
     'auth_method' => 'ed25519-cr-v1',
     'aead_alg' => 'aes-256-gcm',

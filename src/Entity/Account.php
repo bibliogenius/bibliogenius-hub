@@ -11,7 +11,8 @@ use Doctrine\ORM\Mapping as ORM;
  * Account identity, auth material, KDF params, and the pinned version triple
  * for E2EE multi-device sync (ADR-043, ADR-042). The hub holds no decrypting
  * secret here: account_auth_pk verifies logins, auth_verifier_hash gates the
- * keybundle download, none of them decrypts content.
+ * keybundle download, recovery_verifier_hash marks the holder of the recovery
+ * key, none of them decrypts content.
  */
 #[ORM\Entity(repositoryClass: AccountRepository::class)]
 #[ORM\Table(name: 'accounts')]
@@ -36,6 +37,13 @@ class Account
 
     #[ORM\Column(type: 'string', length: 128)]
     private string $authVerifierHash;
+
+    // Nullable, and null is meaningful: it marks an account created before the
+    // client derived this marker (ADR-042 section 16.3). Only its own user can
+    // retrofit it, from their recovery phrase (16.5), so the hub never backfills
+    // it and a null count is the measure of the remaining population.
+    #[ORM\Column(type: 'string', length: 128, nullable: true)]
+    private ?string $recoveryVerifierHash = null;
 
     #[ORM\Column(type: 'integer')]
     private int $schemaVersion;
@@ -140,6 +148,18 @@ class Account
     public function setAuthVerifierHash(string $authVerifierHash): static
     {
         $this->authVerifierHash = $authVerifierHash;
+
+        return $this;
+    }
+
+    public function getRecoveryVerifierHash(): ?string
+    {
+        return $this->recoveryVerifierHash;
+    }
+
+    public function setRecoveryVerifierHash(?string $recoveryVerifierHash): static
+    {
+        $this->recoveryVerifierHash = $recoveryVerifierHash;
 
         return $this;
     }
