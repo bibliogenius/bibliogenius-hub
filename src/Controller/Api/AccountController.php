@@ -93,7 +93,7 @@ class AccountController extends AbstractController
         // stored as null: null means "no marker was ever derived" and drives a
         // later retrofit count (section 16.5), so it must not absorb bad input.
         $recoveryVerifierMalformed = array_key_exists('recovery_verifier_hash', $data)
-            && $recoveryVerifierHash === null;
+            && !self::isRecoveryVerifierHash($recoveryVerifierHash);
 
         if ($email === null || !filter_var($email, FILTER_VALIDATE_EMAIL)
             || $accountSalt === null || $authPk === null || $descriptorSig === null
@@ -387,6 +387,27 @@ class AccountController extends AbstractController
         }
 
         return array_values($raw);
+    }
+
+    /**
+     * Whether a value has the shape of a recovery marker: the hex SHA-256 of an
+     * HKDF output, so exactly 64 hex characters (ADR-042 section 16.3).
+     *
+     * The shape is checked and not merely the presence, because a value of any
+     * other shape can only come from a client deriving the marker wrongly, and
+     * lot C explicitly adds implementations that must reproduce the derivation
+     * (the web client). Stored as-is such a value would never match at recovery
+     * AND would not be null, so it would escape the section 16.5 count: an
+     * account neither working nor recensed, and one the hub is forbidden from
+     * repairing since only its own user holds the phrase. Refusing at signup
+     * turns that silent, distant failure into an immediate, local one.
+     *
+     * `ctype_xdigit` returns false on the empty string, which is the wanted
+     * answer here; the length check makes it explicit rather than incidental.
+     */
+    private static function isRecoveryVerifierHash(?string $value): bool
+    {
+        return $value !== null && strlen($value) === 64 && ctype_xdigit($value);
     }
 
     private static function stringField(array $data, string $key, int $maxLen = 255): ?string
