@@ -88,6 +88,18 @@
     .stat-sub.sub-alert { color: #dc3545; font-weight: 600; }
     .stat-sub.sub-warn  { color: #e07b00; font-weight: 600; }
 
+    /* Plain-language line under a figure: what to CONCLUDE from it,
+       for a reader who does not know the ADR behind the card. */
+    .stat-hint {
+        font-size: 11px;
+        font-style: italic;
+        line-height: 1.35;
+        color: var(--text-muted, #6c757d);
+        margin-top: 6px;
+        padding-top: 5px;
+        border-top: 1px dashed var(--border-color, #dee2e6);
+    }
+
     /* ── Tooltip (info icon) ── */
     .tip {
         display: inline-flex;
@@ -749,6 +761,19 @@
     and <code>author</code> rows hold the resolved payloads every reader shares. Figures stay
     small until real client traffic exercises the endpoints.
 </p>
+<p class="section-legend">
+    <strong>Reading the two ratios below.</strong> They answer different questions and only one
+    of them raises an alarm. <em>Anchor Hit Rate</em> is about the SOURCES: how many of our ISBNs
+    Wikidata and Inventaire happen to index. It is low by nature on a French catalogue, so it
+    never alerts on its own value. <em>Resolution Quality</em> is about the ANSWERS: of the
+    entities we did identify and fetch, how many came back empty. That is what a silent schema
+    change makes happen, and it is the one the nightly check alerts on. Failures decided earlier,
+    between the two, are listed further down but carry no percentage: they can repeat on cached
+    lookups, so counting them as a rate would make the figure grow with traffic rather than with
+    breakage. That quality card is also the only one here that looks back
+    {{ discovery_quality_window_days }} days instead of one: entities are fetched cold only a few
+    times a day, and a percentage needs samples before it means anything.
+</p>
 <div class="stat-grid">
 
     <div class="stat-card {{ discovery_total_rows == 0 ? 'status-warn' : '' }}">
@@ -764,6 +789,7 @@
                 pooled rows, {{ (discovery_payload_bytes / 1048576)|round(1) }} MB of payload
             {% endif %}
         </div>
+        <div class="stat-hint">Answers readers share. The bigger it is, the less we ask the sources.</div>
     </div>
 
     {% set discovery_expiry_hours = discovery_next_expiry_at ? ((discovery_next_expiry_at|date("U")) - ("now"|date("U"))) / 3600 : null %}
@@ -790,38 +816,68 @@
                 {{ discovery_expiring_soon_7d }} row{{ discovery_expiring_soon_7d != 1 ? 's' : '' }} expiring &lt;7d
             {% endif %}
         </div>
+        <div class="stat-hint">When the next cached answer expires and must be asked again.</div>
     </div>
 
     <div class="stat-card">
         <div class="stat-label">
             Cache Writes (24h)
-            <i class="tip" data-tip="Cache writes in the last 24h, every outcome (resolved, ambiguous, unknown). One resolution writes up to four rows, so this is not a resolution count: the unavailable share further right is the one computed over outcomes. Same population the non-resolved share to the right is computed over.">i</i>
+            <i class="tip" data-tip="Rows written to the pool in the last 24h, every outcome (resolved, ambiguous, unknown). This is NOT a resolution count: one resolution writes up to four rows, one per anchor ISBN it looked up plus its payload. It is here as the raw volume the percentages on this row rest on: below a dozen, every ratio on this page is fragile.">i</i>
         </div>
         <div class="stat-value">{{ discovery_resolutions_24h }}</div>
         <div class="stat-sub">cache writes, all outcomes</div>
+        <div class="stat-hint">Raw volume, not resolutions. Small numbers make every % fragile.</div>
     </div>
 
-    <div class="stat-card {{ discovery_non_resolved_share_24h is not null and discovery_non_resolved_share_24h >= discovery_drift_alert_threshold ? 'status-alert' : (discovery_non_resolved_share_24h is not null ? 'status-ok' : '') }}">
+    {% set discovery_anchor_24h = discovery_anchor_coverage.last_24h %}
+    <div class="stat-card {{ discovery_anchor_coverage.collapsed ? 'status-warn' : '' }}">
         <div class="stat-label">
-            Non-resolved Share (24h)
-            <i class="tip" data-tip="Share of the 24h resolutions that ended ambiguous or unknown. At or above {{ discovery_drift_alert_threshold }}%, app:db:prune fires a source-drift warning (Hub Events, channel maintenance, message discovery_drift_degraded), deduplicated to once per 24h. Needs at least {{ discovery_drift_min_samples }} samples in the window, else it reads n/a as statistically meaningless.">i</i>
+            Anchor Hit Rate (24h)
+            <i class="tip" data-tip="Share of the anchor ISBNs looked up in the last 24h that Wikidata or Inventaire actually index. Only cold lookups are visible: an anchor already cached makes no source call and writes no row, on purpose. This is a fact about the SOURCES, not a defect of ours, and its normal value depends on the catalogue: series anchors match far less often than author ones, and French comics and manga are the thinnest of all. So it raises no alarm on its own value. Read it against the 7-day baseline instead: a fall to zero while the baseline was positive is the one thing an absolute threshold could never separate from a catalogue the sources simply do not index, and it turns this card orange. Needs at least {{ discovery_drift_min_samples }} lookups in the window, else it reads n/a.">i</i>
         </div>
         <div class="stat-value">
-            {% if discovery_non_resolved_share_24h is null %}
+            {% if discovery_anchor_24h.share_percent is null %}
                 n/a
             {% else %}
-                {{ discovery_non_resolved_share_24h }}%
+                {{ discovery_anchor_24h.share_percent }}%
             {% endif %}
         </div>
         <div class="stat-sub">
-            {% if discovery_non_resolved_share_24h is null %}
-                not enough samples yet
-            {% elseif discovery_non_resolved_share_24h >= discovery_drift_alert_threshold %}
-                <span class="sub-alert">at or above alert threshold ({{ discovery_drift_alert_threshold }}%)</span>
+            {% if discovery_anchor_coverage.collapsed %}
+                <span class="sub-warn">0 of {{ discovery_anchor_24h.total }} matched, 7d baseline {{ discovery_anchor_coverage.last_7d.share_percent }}%</span>
+            {% elseif discovery_anchor_24h.total == 0 %}
+                no anchor looked up in the window
             {% else %}
-                below alert threshold ({{ discovery_drift_alert_threshold }}%)
+                {{ discovery_anchor_24h.hits }} of {{ discovery_anchor_24h.total }} ISBNs matched{% if discovery_anchor_coverage.last_7d.share_percent is not null %}, 7d baseline {{ discovery_anchor_coverage.last_7d.share_percent }}%{% endif %}
             {% endif %}
         </div>
+        <div class="stat-hint">How many of our ISBNs the sources know. A low value is normal here.</div>
+    </div>
+
+    <div class="stat-card {{ discovery_quality.truncated ? 'status-warn' : (discovery_quality.share_percent is not null and discovery_quality.share_percent >= discovery_drift_alert_threshold ? 'status-alert' : (discovery_quality.share_percent is not null ? 'status-ok' : '')) }}">
+        <div class="stat-label">
+            Resolution Quality ({{ discovery_quality_window_days }}d)
+            <i class="tip" data-tip="Of the entities identified at the source and actually fetched in the last {{ discovery_quality_window_days }} days, the share that came back empty instead of with a usable payload: a series with no volume list, an author with no bibliography. This is the source-drift alarm: a healthy pipeline sits near 0% here, and a silent SPARQL or API change pushes it up within a day. At or above {{ discovery_drift_alert_threshold }}%, the nightly app:db:prune writes discovery_drift_degraded in Hub Events (channel maintenance), once per 24h at most. Both halves are counted on the same occasions, which is what makes the percentage honest: an entity served from the pool is never fetched and never counted, on either side. Everything decided before the entity stage is excluded and shown as raw counts below, everything lost to an outage is on the Unavailable Share card. This is the one card that does not read the last 24h: an entity is fetched cold only a few times a day and {{ discovery_drift_min_samples }} samples are needed before a percentage means anything, so it looks back {{ discovery_quality_window_days }} days. The alert it raises is still deduplicated to once per 24h. One case reads n/a in orange: Hub Events is capped in rows as well as in days, so once the hub writes more events per week than that cap, the nightly prune eats the far end of this window. Failures would then be under-counted while successes are not, and the percentage would read reassuringly low. The card refuses to compute it rather than show you that. Raising the cap, or exempting the discovery channel from it as maintenance already is, restores the measure.">i</i>
+        </div>
+        <div class="stat-value">
+            {% if discovery_quality.share_percent is null %}
+                n/a
+            {% else %}
+                {{ discovery_quality.share_percent }}%
+            {% endif %}
+        </div>
+        <div class="stat-sub">
+            {% if discovery_quality.truncated %}
+                <span class="sub-warn">Hub Events trimmed past the {{ discovery_quality_window_days }}d window, cannot judge</span>
+            {% elseif discovery_quality.share_percent is null %}
+                {{ discovery_quality.total }} entity fetch{{ discovery_quality.total != 1 ? 'es' : '' }} in {{ discovery_quality_window_days }}d, too few to judge
+            {% elseif discovery_quality.share_percent >= discovery_drift_alert_threshold %}
+                <span class="sub-alert">{{ discovery_quality.failed }} of {{ discovery_quality.total }} came back empty, threshold {{ discovery_drift_alert_threshold }}%</span>
+            {% else %}
+                {{ discovery_quality.failed }} of {{ discovery_quality.total }} came back empty, below the {{ discovery_drift_alert_threshold }}% threshold
+            {% endif %}
+        </div>
+        <div class="stat-hint">Entities found, then returned empty. Near 0% is healthy; this is the alarm.</div>
     </div>
 
     <div class="stat-card">
@@ -843,12 +899,13 @@
                 ago
             {% endif %}
         </div>
+        <div class="stat-hint">The last time the nightly check flagged the quality card above.</div>
     </div>
 
     <div class="stat-card {{ discovery_unavailable_24h.share_percent is not null and discovery_unavailable_24h.share_percent > 0 ? 'status-warn' : (discovery_unavailable_24h.share_percent is not null ? 'status-ok' : '') }}">
         <div class="stat-label">
             Unavailable Share (24h)
-            <i class="tip" data-tip="Share of the 24h outcomes that ended unavailable, the answer the non-resolved share to the left cannot give: an unavailable outcome never writes a cache row, so it is missing from both halves of that ratio. Denominator here is resolved entity rows plus every journalled discovery outcome, which is one trace per outcome and never two. It counts outcomes that reached a decision, not HTTP requests: a fully warm request touches no source and is invisible on purpose, a warm negative one is journalled and counts at zero outbound cost. Needs at least {{ discovery_drift_min_samples }} outcomes in the window, else it reads n/a.">i</i>
+            <i class="tip" data-tip="Share of the 24h outcomes that ended unavailable: the source failed, timed out, or the outbound budget refused the call. These never write a cache row, so no ratio computed over the pool can see them, which is why they get their own card. Denominator is resolved entity rows plus every journalled discovery outcome, one trace per outcome and never two. It counts outcomes that reached a decision, not HTTP requests: a fully warm request touches no source and is invisible on purpose, a warm negative one is journalled and counts at zero outbound cost. Needs at least {{ discovery_drift_min_samples }} outcomes in the window, else it reads n/a.">i</i>
         </div>
         <div class="stat-value">
             {% if discovery_unavailable_24h.share_percent is null %}
@@ -864,6 +921,7 @@
                 {{ discovery_unavailable_24h.unavailable }} of {{ discovery_unavailable_24h.total }} outcomes
             {% endif %}
         </div>
+        <div class="stat-hint">Lost to an outage or to our own budget, not to the data.</div>
     </div>
 
     <div class="stat-card {{ discovery_budget_exhausted_24h > 0 ? 'status-warn' : 'status-ok' }}">
@@ -879,12 +937,21 @@
                 {{ discovery_budget_exhausted_7d }} over 7 days
             {% endif %}
         </div>
+        <div class="stat-hint">Calls we refused ourselves, to stay a polite guest of the sources.</div>
     </div>
 
 </div>
 
+<p class="section-legend" style="margin-top: 12px;">
+    <strong>Pool breakdown.</strong> A <code>*_lookup</code> row maps one anchor ISBN to an entity
+    id; a <code>series</code> or <code>author</code> row holds the payload readers actually see.
+    Read a status by the row it sits on: <code>unknown</code> on a <code>*_lookup</code> row means
+    the sources never indexed that ISBN, which is ordinary, while <code>unknown</code> on a
+    <code>series</code> or <code>author</code> row means an entity was found but came back empty,
+    which is the shape source drift takes.
+</p>
 {% if discovery_by_kind_status is not empty %}
-<table class="hub-table" style="max-width: 420px; margin-top: 12px; margin-bottom: 20px;">
+<table class="hub-table" style="max-width: 420px; margin-bottom: 20px;">
     <thead>
         <tr>
             <th>Kind</th>
@@ -916,28 +983,48 @@
 
 <div class="section-title" style="margin-top: 8px;">Discovery Failure Reasons (24h)</div>
 <p class="section-legend">
-    Non-resolved outcomes on both completion pipelines, read from Hub Events (channel
-    <code>discovery</code>). <code>no_anchor_resolved</code>: none of the anchor ISBNs matched a
-    source entity (either lane). <code>disjoint_anchors</code>: the anchors resolved to unrelated
-    series. <code>no_clear_winner</code>: several candidate series survived and the optional name
-    tiebreaker did not settle it. <code>no_usable_members</code>: the series entity resolved but
-    its member list came back empty. <code>name_not_verified</code>: an anchor gave an author
-    entity whose label is not the name asked about, so the answer would have been a homonym's
-    bibliography. <code>no_usable_works</code>: the author entity resolved but its bibliography
-    came back empty. Outbound budget exhaustion is source pressure, not a resolution-quality
-    signal, and is tracked separately above.
+    Every non-resolved outcome of both lanes, read from Hub Events (channel <code>discovery</code>).
+    The <strong>Counts as</strong> column says what each reason is worth. <em>coverage</em>: about
+    what the sources index, reported by the Anchor Hit Rate card, never alerts. <em>alarm</em>:
+    watched by the Resolution Quality card, the two ways a fetched entity can come back empty.
+    <em>watch by eye</em>: real quality problems, but they can be decided again and again from
+    cached lookups, so any percentage built on them would rise with traffic rather than with
+    breakage. Read those as counts, and compare them with yesterday's. Outbound budget exhaustion
+    is source pressure and has its own card above. Mind the windows: the counts in this table
+    cover 24h, while the alarm card looks back {{ discovery_quality_window_days }} days, so a
+    reason can read zero here while that card is still red.
 </p>
-<table class="hub-table" style="max-width: 480px;">
+{% set discovery_reason_legend = {
+    'no_anchor_resolved': {'what': 'None of the anchor ISBNs is indexed by the sources.', 'counts': 'coverage'},
+    'disjoint_anchors': {'what': 'The anchor ISBNs pointed at unrelated series.', 'counts': 'watch'},
+    'no_clear_winner': {'what': 'Several candidate series survived and the name did not settle it.', 'counts': 'watch'},
+    'name_not_verified': {'what': 'The anchor gave an author whose label is not the name asked about, so the answer would have been a homonym\'s bibliography.', 'counts': 'watch'},
+    'no_usable_members': {'what': 'The series was found but its volume list came back empty.', 'counts': 'alarm'},
+    'no_usable_works': {'what': 'The author was found but the bibliography came back empty.', 'counts': 'alarm'}
+} %}
+<table class="hub-table" style="max-width: 760px;">
     <thead>
         <tr>
             <th>Reason</th>
+            <th>What happened</th>
+            <th>Counts as</th>
             <th style="text-align:right">Count (24h)</th>
         </tr>
     </thead>
     <tbody>
-        {% for reason in ['no_anchor_resolved', 'disjoint_anchors', 'no_clear_winner', 'no_usable_members', 'name_not_verified', 'no_usable_works'] %}
+        {% for reason, legend in discovery_reason_legend %}
         <tr>
             <td><code class="mono">{{ reason }}</code></td>
+            <td>{{ legend.what }}</td>
+            <td>
+                {% if legend.counts == 'coverage' %}
+                    <span class="badge badge-muted">coverage</span>
+                {% elseif legend.counts == 'watch' %}
+                    <span class="badge badge-info">watch by eye</span>
+                {% else %}
+                    <span class="badge badge-warning">alarm</span>
+                {% endif %}
+            </td>
             <td class="db-size-val"><strong>{{ discovery_failure_reasons_24h[reason]|default(0) }}</strong></td>
         </tr>
         {% endfor %}
@@ -1307,6 +1394,10 @@
             <td>
                 {# Plain-language explanations for known messages #}
                 {% set msg_tips = {
+                    'hub_events_capped':
+                        'This table hit its row cap and its oldest entries were deleted. Context: cutoff is the oldest entry still standing, deleted how many went. Expected on a busy hub, but any figure computed over a window reaching past that cutoff is missing events, which is why the Resolution Quality card stops answering.',
+                    'discovery_drift_degraded':
+                        'The discovery resolver found entities at Wikidata or Inventaire and they came back empty, past the alert threshold. Fix: run make test-discovery-prod, the sources most likely changed their schema. See the Resolution Quality card above.',
                     'deposit to non-existent mailbox':
                         'A peer is sending to a deleted mailbox. Fix: the sender needs a fresh invitation. No server action needed.',
                     'invalid write token':

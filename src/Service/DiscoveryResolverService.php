@@ -37,6 +37,30 @@ class DiscoveryResolverService
     public const STATUS_UNAVAILABLE = 'unavailable';
 
     /**
+     * Failure reason of an outcome whose anchor ISBNs are simply not
+     * indexed by the sources. On a French catalogue this is the normal
+     * baseline rather than a regression, which is why /admin reports it as
+     * source coverage and never alerts on it.
+     */
+    public const REASON_NO_ANCHOR_RESOLVED = 'no_anchor_resolved';
+
+    /**
+     * The two ENTITY-stage failures: a series or an author was identified
+     * at the source, and what came back was empty.
+     *
+     * /admin reads them back as its drift alarm, and they are the only
+     * reasons it can honestly compute a RATE over. Both are written on the
+     * cold path only, exactly like the resolved entity rows they would be
+     * divided by: a warm entity hit returns from the pool before any
+     * journalling. Every other failure reason is decided after a lookup
+     * that may have been served warm, so it re-journals on repeat traffic
+     * while its successful counterpart stays silent in the cache, and any
+     * ratio built on it climbs with traffic instead of with breakage.
+     */
+    public const REASON_NO_USABLE_MEMBERS = 'no_usable_members';
+    public const REASON_NO_USABLE_WORKS = 'no_usable_works';
+
+    /**
      * Seconds the client should wait before retrying an 'unavailable'
      * lookup, when the budget is what refused it.
      *
@@ -144,7 +168,7 @@ class DiscoveryResolverService
             if ($nonEmpty === []) {
                 $this->eventLogger->warning('discovery', 'series_unknown', [
                     'name' => $isbn13s[0] ?? '',
-                    'reason' => 'no_anchor_resolved',
+                    'reason' => self::REASON_NO_ANCHOR_RESOLVED,
                 ]);
 
                 return ['status' => self::STATUS_UNKNOWN];
@@ -272,7 +296,7 @@ class DiscoveryResolverService
                 $status = $anyCandidate ? self::STATUS_AMBIGUOUS : self::STATUS_UNKNOWN;
                 $this->eventLogger->warning('discovery', 'author_' . $status, [
                     'name' => $isbn13s[0] ?? '',
-                    'reason' => $anyCandidate ? 'name_not_verified' : 'no_anchor_resolved',
+                    'reason' => $anyCandidate ? 'name_not_verified' : self::REASON_NO_ANCHOR_RESOLVED,
                 ]);
 
                 return ['status' => $status];
@@ -366,7 +390,7 @@ class DiscoveryResolverService
             $this->cache->put(DiscoveryCache::KIND_SERIES, $seriesUri, DiscoveryCache::STATUS_UNKNOWN, null, null);
             $this->eventLogger->warning('discovery', 'series_unknown', [
                 'name' => $seriesUri,
-                'reason' => 'no_usable_members',
+                'reason' => self::REASON_NO_USABLE_MEMBERS,
             ]);
 
             return null;
@@ -445,7 +469,7 @@ class DiscoveryResolverService
             $this->cache->put(DiscoveryCache::KIND_AUTHOR, $authorUri, DiscoveryCache::STATUS_UNKNOWN, null, null);
             $this->eventLogger->warning('discovery', 'author_unknown', [
                 'name' => $authorUri,
-                'reason' => 'no_usable_works',
+                'reason' => self::REASON_NO_USABLE_WORKS,
             ]);
 
             return null;

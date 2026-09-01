@@ -327,6 +327,50 @@ final class PruneCommandTest extends TestCase
         $this->assertStringContainsString('Catalog coverage check failed', $tester->getDisplay());
     }
 
+    /**
+     * The prune applies the same row cap as HubEventLogger's own cleanup,
+     * from its own code path, so it must record the cut the same way: a
+     * monitoring window otherwise cannot tell deleted events from events
+     * that never happened.
+     */
+    public function testHubEventsCapRecordsTheCutThroughTheEventLog(): void
+    {
+        [, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo] = $this->quietCollaborators();
+
+        $conn = $this->createMock(Connection::class);
+        // Every DELETE reports rows removed, so the cap branch is taken.
+        $conn->method('executeStatement')->willReturn(200);
+        $conn->method('fetchOne')->willReturnCallback(
+            static fn (string $sql): mixed => str_contains($sql, 'COUNT(*) FROM hub_events') ? 1200 : 0,
+        );
+
+        $eventLogger = $this->createMock(HubEventLogger::class);
+        $eventLogger->expects($this->once())->method('recordCapCut')->with(200);
+
+        $tester = $this->buildCommandTester(
+            $conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo,
+            eventLogger: $eventLogger,
+        );
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+    }
+
+    /** Below the cap, nothing is cut and nothing is recorded. */
+    public function testHubEventsBelowTheCapRecordsNoCut(): void
+    {
+        [$conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo] = $this->quietCollaborators();
+
+        $eventLogger = $this->createMock(HubEventLogger::class);
+        $eventLogger->expects($this->never())->method('recordCapCut');
+
+        $tester = $this->buildCommandTester(
+            $conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo,
+            eventLogger: $eventLogger,
+        );
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+    }
+
     public function testDiscoveryCacheStepReportsCount(): void
     {
         // Guards the ADR-060 wiring: if pruneExpired stops being called, the
@@ -352,7 +396,7 @@ final class PruneCommandTest extends TestCase
         $discoveryRepo->expects($this->once())
             ->method('pruneExpired')
             ->willReturn(21);
-        $discoveryRepo->method('nonResolvedSharePercentLast24h')->willReturn(null);
+        $discoveryRepo->method('entityQualitySince')->willReturn(self::quality(null, 0, 0));
         $discoveryRepo->method('lastDriftAlertAt')->willReturn(null);
 
         $tester = $this->buildCommandTester(
@@ -376,13 +420,13 @@ final class PruneCommandTest extends TestCase
 
         $discoveryRepo = $this->createMock(DiscoveryCacheRepository::class);
         $discoveryRepo->method('pruneExpired')->willReturn(0);
-        $discoveryRepo->method('nonResolvedSharePercentLast24h')->willReturn(80);
+        $discoveryRepo->method('entityQualitySince')->willReturn(self::quality(80, 8, 10));
         $discoveryRepo->method('lastDriftAlertAt')->willReturn(null);
 
         $eventLogger = $this->createMock(HubEventLogger::class);
         $eventLogger->expects($this->once())
             ->method('warning')
-            ->with('maintenance', 'discovery_drift_degraded', ['count' => 80]);
+            ->with('maintenance', 'discovery_drift_degraded', ['count' => 80, 'failed' => 8, 'total' => 10]);
 
         $tester = $this->buildCommandTester(
             $conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo,
@@ -392,17 +436,24 @@ final class PruneCommandTest extends TestCase
         );
         $tester->execute([]);
         $tester->assertCommandIsSuccessful();
-        $this->assertStringContainsString('discovery drift', $tester->getDisplay());
+        $this->assertStringContainsString('discovery quality', $tester->getDisplay());
     }
 
-    public function testDiscoveryDriftStaysSilentBelowThresholdAndWithoutSamples(): void
+    /**
+     * A window the journal no longer covers cannot produce an honest share,
+     * only a reassuringly low one: failures are trimmed by the row cap
+     * while successes live on in the cache. The tripwire must then say
+     * nothing rather than alert or, worse, silently report health.
+     */
+    public function testDiscoveryDriftStaysSilentWhenTheJournalWasTrimmed(): void
     {
         [$conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo] = $this->quietCollaborators();
 
         $discoveryRepo = $this->createMock(DiscoveryCacheRepository::class);
         $discoveryRepo->method('pruneExpired')->willReturn(0);
-        // Below threshold: reported but no alert.
-        $discoveryRepo->method('nonResolvedSharePercentLast24h')->willReturn(20);
+        // Above the threshold, but computed over an incomplete window: the
+        // repository withholds the share and raises the flag.
+        $discoveryRepo->method('entityQualitySince')->willReturn(self::quality(null, 8, 10, true));
         $discoveryRepo->method('lastDriftAlertAt')->willReturn(null);
 
         $eventLogger = $this->createMock(HubEventLogger::class);
@@ -416,7 +467,34 @@ final class PruneCommandTest extends TestCase
         );
         $tester->execute([]);
         $tester->assertCommandIsSuccessful();
-        $this->assertStringContainsString('20% non-resolved', $tester->getDisplay());
+        $this->assertStringContainsString('hub_events trimmed past the 7d window', $tester->getDisplay());
+    }
+
+    public function testDiscoveryDriftStaysSilentBelowThresholdAndWithoutSamples(): void
+    {
+        [$conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo] = $this->quietCollaborators();
+
+        $discoveryRepo = $this->createMock(DiscoveryCacheRepository::class);
+        $discoveryRepo->method('pruneExpired')->willReturn(0);
+        // Below threshold: reported but no alert.
+        $discoveryRepo->method('entityQualitySince')->willReturn(self::quality(20, 2, 10));
+        $discoveryRepo->method('lastDriftAlertAt')->willReturn(null);
+
+        $eventLogger = $this->createMock(HubEventLogger::class);
+        $eventLogger->expects($this->never())->method('warning');
+
+        $tester = $this->buildCommandTester(
+            $conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo,
+            eventLogger: $eventLogger,
+            discoveryCacheRepo: $discoveryRepo,
+            discoveryDriftAlertThreshold: 50,
+        );
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+        // The window is part of the contract: entity fetches are too rare
+        // for 24h to ever gather enough samples, so the tripwire looks back
+        // a week and says so in its own output.
+        $this->assertStringContainsString('20% empty entities (2 of 10 over 7d', $tester->getDisplay());
     }
 
     /**
@@ -446,6 +524,24 @@ final class PruneCommandTest extends TestCase
         return [$conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo];
     }
 
+    /**
+     * The entity-quality struct the drift check reads. Built here so a
+     * change to its shape breaks one line, not seven.
+     *
+     * @return array{total: int, resolved: int, failed: int, reasons: array<string, int>, share_percent: ?int, truncated: bool}
+     */
+    private static function quality(?int $share, int $failed, int $total, bool $truncated = false): array
+    {
+        return [
+            'total' => $total,
+            'resolved' => $total - $failed,
+            'failed' => $failed,
+            'reasons' => [],
+            'share_percent' => $share,
+            'truncated' => $truncated,
+        ];
+    }
+
     private function buildCommandTester(
         Connection $conn,
         InviteTokenRepository $inviteRepo,
@@ -468,7 +564,7 @@ final class PruneCommandTest extends TestCase
             // so legacy tests keep their totals and stay alert-free.
             $discoveryCacheRepo = $this->createStub(DiscoveryCacheRepository::class);
             $discoveryCacheRepo->method('pruneExpired')->willReturn(0);
-            $discoveryCacheRepo->method('nonResolvedSharePercentLast24h')->willReturn(null);
+            $discoveryCacheRepo->method('entityQualitySince')->willReturn(self::quality(null, 0, 0));
             $discoveryCacheRepo->method('lastDriftAlertAt')->willReturn(null);
         }
 

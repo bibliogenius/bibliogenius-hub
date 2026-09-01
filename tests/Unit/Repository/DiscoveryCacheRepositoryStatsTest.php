@@ -8,6 +8,7 @@ use App\Entity\DiscoveryCache;
 use App\Repository\DiscoveryCacheRepository;
 use App\Service\Discovery\DiscoveryBudgetExhaustedException;
 use App\Service\Discovery\DiscoveryDeadlineExceededException;
+use App\Service\DiscoveryResolverService;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\ClassMetadata;
@@ -22,9 +23,12 @@ use PHPUnit\Framework\TestCase;
  *    dashboard can tell "no rows" from "rows but all unknown";
  *  - the expiring-soon window excludes rows already past expires_at (a
  *    prune-lag artefact, not an upcoming-expiry signal);
- *  - the 24h resolutions counter reads the same population and column
- *    (updated_at) as the existing nonResolvedSharePercentLast24h(), so the
- *    two figures shown side by side on the dashboard actually agree;
+ *  - the 24h cache-writes counter reads updated_at, the column the pool
+ *    is dated by, so the volume shown next to the ratios is the volume
+ *    those ratios rest on;
+ *  - the drift tripwire judges resolution QUALITY only: missing anchors
+ *    (source coverage) and outages (source pressure) stay out of it, each
+ *    measured by its own figure;
  *  - failure-reason and budget-exhaustion counters read hub_events context
  *    as jsonb, bound as parameters, never interpolated, on channel
  *    'discovery' only.
@@ -196,7 +200,7 @@ final class DiscoveryCacheRepositoryStatsTest extends TestCase
     // Resolution pressure (24h)
     // -------------------------------------------------------------------
 
-    public function testCountResolutionsLast24hUsesSameColumnAsNonResolvedShare(): void
+    public function testCountResolutionsLast24hDatesThePoolByUpdatedAt(): void
     {
         $capturedSql = null;
         $capturedParams = null;
@@ -398,5 +402,257 @@ final class DiscoveryCacheRepositoryStatsTest extends TestCase
         $this->assertStringContainsStringIgnoringCase('IN (:exhausted, :insufficient)', $capturedSql);
         $this->assertSame(DiscoveryBudgetExhaustedException::REASON_EXHAUSTED, $capturedParams['exhausted']);
         $this->assertSame(DiscoveryBudgetExhaustedException::REASON_INSUFFICIENT, $capturedParams['insufficient']);
+    }
+
+    // -------------------------------------------------------------------
+    // Entity-stage quality: the drift tripwire, rebased 2026-09-01
+    // -------------------------------------------------------------------
+
+    /**
+     * The tripwire divides two things counted on the same occasions: cold
+     * entity fetches that came back empty, over cold entity fetches. Every
+     * other outcome is out, and each for its own reason. Missing anchors
+     * are source coverage. Outages are source pressure. The anchor-stage
+     * verdicts are the subtle one: they are decided after lookups that may
+     * have been served warm, so they re-journal on repeat traffic while
+     * their successful counterparts stay silent in the cache, and a ratio
+     * built on them would climb with traffic instead of with breakage,
+     * which is the exact failure this rebase removes.
+     */
+    public function testEntityQualityCountsOnlyWhatIsCountedOnTheSameOccasions(): void
+    {
+        $capturedSql = null;
+
+        $conn = $this->createMock(Connection::class);
+        $conn->method('fetchOne')
+            ->willReturnCallback(function (string $sql) use (&$capturedSql) {
+                $capturedSql = $sql;
+
+                return '9';
+            });
+        $conn->method('fetchAllAssociative')->willReturn([
+            ['message' => 'series_unknown', 'reason' => DiscoveryResolverService::REASON_NO_ANCHOR_RESOLVED, 'count' => '40'],
+            ['message' => 'author_unavailable', 'reason' => DiscoveryDeadlineExceededException::REASON, 'count' => '3'],
+            ['message' => 'series_ambiguous', 'reason' => 'no_clear_winner', 'count' => '7'],
+            ['message' => 'author_ambiguous', 'reason' => 'name_not_verified', 'count' => '5'],
+            ['message' => 'series_unknown', 'reason' => DiscoveryResolverService::REASON_NO_USABLE_MEMBERS, 'count' => '1'],
+        ]);
+
+        $quality = $this->repositoryWithConnection($conn)->entityQualitySince($this->now());
+
+        // 9 cold entity resolutions that produced a payload + the one that
+        // came back empty. The other 55 journalled outcomes are none of
+        // this ratio's business.
+        $this->assertSame(10, $quality['total']);
+        $this->assertSame(9, $quality['resolved']);
+        $this->assertSame(1, $quality['failed']);
+        $this->assertSame(10, $quality['share_percent']);
+        $this->assertSame([DiscoveryResolverService::REASON_NO_USABLE_MEMBERS => 1], $quality['reasons']);
+        // Successes are entity rows only: lookup rows would inflate the
+        // denominator by an amount that varies with the anchor count.
+        $this->assertStringContainsStringIgnoringCase('kind IN (:series, :author)', $capturedSql);
+    }
+
+    /**
+     * Production, 2026-09-01: 11 outcomes whose anchors were simply not
+     * indexed, one homonym refusal, zero resolutions. The old ratio read
+     * 92% and fired the nightly alarm; the rebased one has nothing to
+     * judge and must say so instead of inventing a signal.
+     */
+    public function testEntityQualityWithholdsTheRatioBelowTheSampleFloor(): void
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->method('fetchOne')->willReturn('0');
+        $conn->method('fetchAllAssociative')->willReturn([
+            ['message' => 'series_unknown', 'reason' => DiscoveryResolverService::REASON_NO_ANCHOR_RESOLVED, 'count' => '11'],
+            ['message' => 'author_ambiguous', 'reason' => 'name_not_verified', 'count' => '1'],
+        ]);
+
+        $quality = $this->repositoryWithConnection($conn)->entityQualitySince($this->now());
+
+        $this->assertSame(0, $quality['total']);
+        $this->assertSame(0, $quality['failed']);
+        $this->assertNull($quality['share_percent']);
+    }
+
+    /**
+     * The two halves of the ratio are trimmed by different rules: cache
+     * rows by a 30-day TTL, journal rows by the prune's row cap, oldest
+     * first. Once that cap eats the far end of the window, failures
+     * under-report while successes do not, and the share reads reassuringly
+     * low. Refusing to answer is the only honest output.
+     */
+    public function testEntityQualityWithholdsTheRatioWhenTheCapCutIntoTheWindow(): void
+    {
+        // The prune cut and left its frontier INSIDE the window: events
+        // older than that are gone, so the window is no longer whole.
+        $quality = $this->qualityWithCapMarker([
+            'created_at' => '2026-08-19 03:00:00',
+            'cutoff' => '2026-08-17 22:00:00',
+        ]);
+
+        $this->assertTrue($quality['truncated']);
+        $this->assertNull($quality['share_percent']);
+        // The raw counts stay readable even when the ratio is withheld.
+        $this->assertSame(10, $quality['total']);
+        $this->assertSame(1, $quality['failed']);
+    }
+
+    /**
+     * The guard reads positive evidence, never an absence. Three windows
+     * that ARE whole and must be judged: no cut ever recorded, a cut whose
+     * frontier predates the window, and a cut that left nothing standing
+     * but happened before the window opened.
+     *
+     * The middle case is the one the first version of this guard got
+     * wrong: it inferred a trim from "no event survives from before the
+     * window", which is also what a quiet week and a week of nothing but
+     * successful resolutions look like, successes being unjournalled.
+     */
+    public function testEntityQualityJudgesAWindowNoCutEverReachedInto(): void
+    {
+        $noCutEver = $this->qualityWithCapMarker(null);
+        $this->assertFalse($noCutEver['truncated']);
+        $this->assertSame(10, $noCutEver['share_percent']);
+
+        $cutBeforeTheWindow = $this->qualityWithCapMarker([
+            'created_at' => '2026-08-10 03:00:00',
+            'cutoff' => '2026-08-02 07:00:00',
+        ]);
+        $this->assertFalse($cutBeforeTheWindow['truncated']);
+        $this->assertSame(10, $cutBeforeTheWindow['share_percent']);
+
+        // Nothing survived that cut, so the cut's own timestamp is the
+        // frontier: still older than the window, so the window is whole.
+        $wipedBeforeTheWindow = $this->qualityWithCapMarker([
+            'created_at' => '2026-08-11 03:00:00',
+            'cutoff' => null,
+        ]);
+        $this->assertFalse($wipedBeforeTheWindow['truncated']);
+        $this->assertSame(10, $wipedBeforeTheWindow['share_percent']);
+    }
+
+    /**
+     * The frontier is read out of the TEXT context column, not a typed
+     * timestamp one, so an unparseable value is reachable without the
+     * schema being violated. It must fail open: the dashboard controller
+     * does not wrap these calls, so throwing here would 500 /admin over a
+     * bookkeeping row.
+     */
+    public function testEntityQualityJudgesTheWindowWhenTheMarkerCannotBeDated(): void
+    {
+        $quality = $this->qualityWithCapMarker([
+            'created_at' => 'not a date either',
+            'cutoff' => 'not a date',
+        ]);
+
+        $this->assertFalse($quality['truncated']);
+        $this->assertSame(10, $quality['share_percent']);
+    }
+
+    /** A cut that left nothing standing, inside the window: unreadable. */
+    public function testEntityQualityTreatsAWipeInsideTheWindowAsUncovered(): void
+    {
+        $quality = $this->qualityWithCapMarker([
+            'created_at' => '2026-08-18 03:00:00',
+            'cutoff' => null,
+        ]);
+
+        $this->assertTrue($quality['truncated']);
+        $this->assertNull($quality['share_percent']);
+    }
+
+    /**
+     * One resolved entity short of the floor, nine plus one failure at it:
+     * the fixture is always 9 successes and 1 empty entity, so every case
+     * above would read 10% if its window were whole. $capMarker is the
+     * latest hub_events_capped row, or null when the cap never cut.
+     *
+     * @param array<string, string|null>|null $capMarker
+     *
+     * @return array{total: int, resolved: int, failed: int, reasons: array<string, int>, share_percent: ?int, truncated: bool}
+     */
+    private function qualityWithCapMarker(?array $capMarker): array
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->method('fetchOne')->willReturn('9');
+        $conn->method('fetchAllAssociative')->willReturn([
+            ['message' => 'series_unknown', 'reason' => DiscoveryResolverService::REASON_NO_USABLE_MEMBERS, 'count' => '1'],
+        ]);
+        $conn->method('fetchAssociative')->willReturn($capMarker ?? false);
+
+        // Window: the seven days before self::NOW.
+        return $this->repositoryWithConnection($conn)
+            ->entityQualitySince($this->now()->modify('-7 days'));
+    }
+
+    // -------------------------------------------------------------------
+    // Anchor coverage: a source fact, read against its own baseline    // -------------------------------------------------------------------
+    // Anchor coverage: a source fact, read against its own baseline
+    // -------------------------------------------------------------------
+
+    public function testAnchorCoverageReadsLookupRowsOverBothWindows(): void
+    {
+        $capturedSql = null;
+        $capturedParams = null;
+
+        $conn = $this->createMock(Connection::class);
+        $conn->expects($this->once())
+            ->method('fetchAssociative')
+            ->willReturnCallback(function (string $sql, array $params) use (&$capturedSql, &$capturedParams) {
+                $capturedSql = $sql;
+                $capturedParams = $params;
+
+                return ['total_24' => '12', 'hits_24' => '3', 'total_7d' => '40', 'hits_7d' => '10'];
+            });
+
+        $coverage = $this->repositoryWithConnection($conn)->anchorCoverage($this->now());
+
+        $this->assertSame(25, $coverage['last_24h']['share_percent']);
+        $this->assertSame(25, $coverage['last_7d']['share_percent']);
+        $this->assertSame(3, $coverage['last_24h']['hits']);
+        $this->assertFalse($coverage['collapsed']);
+        // Entity rows carry no anchor and must stay out of this ratio.
+        $this->assertStringContainsStringIgnoringCase('kind IN (:series_lookup, :author_lookup)', $capturedSql);
+        $this->assertSame(DiscoveryCache::KIND_SERIES_LOOKUP, $capturedParams['series_lookup']);
+        $this->assertSame(DiscoveryCache::KIND_AUTHOR_LOOKUP, $capturedParams['author_lookup']);
+        $this->assertSame('2026-08-20 12:00:00', $capturedParams['since24']);
+        $this->assertSame('2026-08-14 12:00:00', $capturedParams['since7']);
+    }
+
+    /**
+     * The one case an absolute threshold could never separate from a
+     * catalogue the sources do not index: nothing matched today, while the
+     * baseline says it used to. Both windows need enough samples, or a
+     * quiet night alone would raise it.
+     */
+    public function testAnchorCoverageFlagsACollapseOnlyAgainstAPositiveBaseline(): void
+    {
+        $collapsed = $this->coverageOf(['total_24' => '15', 'hits_24' => '0', 'total_7d' => '60', 'hits_7d' => '18']);
+        $this->assertTrue($collapsed['collapsed']);
+        $this->assertSame(0, $collapsed['last_24h']['share_percent']);
+
+        // Baseline never matched anything either: a thin catalogue, not a
+        // broken anchor query.
+        $neverMatched = $this->coverageOf(['total_24' => '15', 'hits_24' => '0', 'total_7d' => '60', 'hits_7d' => '0']);
+        $this->assertFalse($neverMatched['collapsed']);
+
+        // Too few lookups today to conclude anything at all.
+        $quietDay = $this->coverageOf(['total_24' => '2', 'hits_24' => '0', 'total_7d' => '60', 'hits_7d' => '18']);
+        $this->assertFalse($quietDay['collapsed']);
+        $this->assertNull($quietDay['last_24h']['share_percent']);
+    }
+
+    /**
+     * @param array<string, string> $row the aggregate row Postgres returns
+     *
+     * @return array{last_24h: array{total: int, hits: int, share_percent: ?int}, last_7d: array{total: int, hits: int, share_percent: ?int}, collapsed: bool}
+     */
+    private function coverageOf(array $row): array
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->method('fetchAssociative')->willReturn($row);
+
+        return $this->repositoryWithConnection($conn)->anchorCoverage($this->now());
     }
 }

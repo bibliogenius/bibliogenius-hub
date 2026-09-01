@@ -281,6 +281,13 @@ class PruneCommand extends Command
             $capDeleted = (int) $this->connection->executeStatement(
                 "DELETE FROM hub_events WHERE id IN (SELECT id FROM hub_events WHERE channel <> 'maintenance' ORDER BY created_at ASC LIMIT $excess)",
             );
+            if ($capDeleted > 0) {
+                // State the frontier this cut landed on, so a monitoring
+                // window can tell deleted events from events that never
+                // happened. Same recorder as the logger's own cleanup,
+                // which applies this very cap far more often than nightly.
+                $this->eventLogger->recordCapCut($capDeleted);
+            }
         }
 
         $io->writeln(sprintf(
@@ -358,19 +365,49 @@ class PruneCommand extends Command
 
     /**
      * Source-drift tripwire (ADR-060 section 3.5): SPARQL schemas and API
-     * shapes change silently, so the share of non-resolved outcomes over
-     * the last 24h of cache writes is computed nightly and a hub_events
-     * warning fires past the threshold. A quality regression then shows up
-     * in /admin within a day instead of as weeks of silently empty external
-     * cards. Best-effort: a monitoring failure must never fail the prune.
+     * shapes change silently, so a hub_events warning fires nightly past
+     * the threshold and a quality regression shows up in /admin within a
+     * day instead of as weeks of silently empty external cards.
+     *
+     * What it watches, since 2026-09-01, is the share of entities that
+     * were identified at the source and came back empty, over the last
+     * QUALITY_WINDOW_DAYS days rather than the last 24h: cold entity
+     * fetches are rare, and a window too short leaves the alarm disarmed
+     * for want of samples. The alert itself stays deduplicated to once per
+     * 24h, so a lasting regression pages once a night, not once a week. It used to be the
+     * share of non-resolved cache writes, which counted every anchor ISBN
+     * the sources do not index and therefore alerted every single night on
+     * a healthy pipeline; entityQualitySince() carries the full reasoning,
+     * including why the anchor-stage failures are deliberately not in it.
+     * Best-effort: a monitoring failure must never fail the prune.
      */
     private function checkDiscoveryDrift(SymfonyStyle $io): void
     {
         try {
             $now = new \DateTimeImmutable();
-            $share = $this->discoveryCacheRepository->nonResolvedSharePercentLast24h($now);
+            $quality = $this->discoveryCacheRepository->entityQualitySince(
+                $now->modify(sprintf('-%d days', DiscoveryCacheRepository::QUALITY_WINDOW_DAYS)),
+            );
+            $share = $quality['share_percent'];
+            if ($quality['truncated']) {
+                // The journal no longer covers the window, so any ratio over
+                // it would under-report failures and read reassuringly low.
+                // Silence beats a comforting number: the /admin card says the
+                // same thing, in orange.
+                $io->writeln(sprintf(
+                    '  discovery quality: <comment>hub_events trimmed past the %dd window, not judging</comment>',
+                    DiscoveryCacheRepository::QUALITY_WINDOW_DAYS,
+                ));
+
+                return;
+            }
             if ($share === null) {
-                $io->writeln('  discovery drift: <info>not enough samples</info>');
+                $io->writeln(sprintf(
+                    '  discovery quality: <info>not enough samples</info> (%d cold entity resolution%s in %dd)',
+                    $quality['total'],
+                    $quality['total'] === 1 ? '' : 's',
+                    DiscoveryCacheRepository::QUALITY_WINDOW_DAYS,
+                ));
 
                 return;
             }
@@ -381,18 +418,26 @@ class PruneCommand extends Command
                 $this->discoveryCacheRepository->lastDriftAlertAt(),
                 $now,
             )) {
+                // 'count' stays the share, the shape the alert dedup and
+                // the /admin marker already read; the raw pair rides along
+                // so the event says how many outcomes it judged.
                 $this->eventLogger->warning('maintenance', 'discovery_drift_degraded', [
                     'count' => $share,
+                    'failed' => $quality['failed'],
+                    'total' => $quality['total'],
                 ]);
             }
 
             $io->writeln(sprintf(
-                '  discovery drift: <info>%d%% non-resolved</info> (alert threshold %d%%)',
+                '  discovery quality: <info>%d%% empty entities</info> (%d of %d over %dd, alert threshold %d%%)',
                 $share,
+                $quality['failed'],
+                $quality['total'],
+                DiscoveryCacheRepository::QUALITY_WINDOW_DAYS,
                 $this->discoveryDriftAlertThreshold,
             ));
         } catch (\Throwable $e) {
-            $io->warning(sprintf('Discovery drift check failed: %s', $e->getMessage()));
+            $io->warning(sprintf('Discovery quality check failed: %s', $e->getMessage()));
         }
     }
 

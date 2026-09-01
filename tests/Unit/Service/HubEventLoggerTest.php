@@ -106,4 +106,74 @@ final class HubEventLoggerTest extends TestCase
 
         (new HubEventLogger($conn, $logger))->error('directory', 'some failure');
     }
+
+    /**
+     * The row cap is the only thing that removes journal rows a monitoring
+     * window may still need, and its cut is invisible afterwards: a deleted
+     * event and an event that never happened look identical. So every cut
+     * states the frontier it landed on, and readers stop guessing.
+     */
+    public function testRecordCapCutRefreshesTheSingleMarkerWithTheSurvivingFrontier(): void
+    {
+        $params = null;
+        $conn = $this->createMock(Connection::class);
+        $conn->method('fetchOne')->willReturn('2026-08-19 03:00:00');
+        $conn->expects($this->once())
+            ->method('executeStatement')
+            ->willReturnCallback(function (string $sql, array $p) use (&$params): int {
+                $this->assertStringContainsStringIgnoringCase('UPDATE hub_events', $sql);
+                $params = $p;
+
+                return 1; // the marker already existed
+            });
+        // Refreshed in place, never appended: the marker sits on the one
+        // channel the cap cannot touch, so appending would grow the very
+        // table the cap defends.
+        $conn->expects($this->never())->method('insert');
+
+        (new HubEventLogger($conn, $this->createStub(LoggerInterface::class)))->recordCapCut(200);
+
+        $this->assertSame(HubEventLogger::MARKER_HUB_EVENTS_CAPPED, $params['marker']);
+        $this->assertSame(
+            ['cutoff' => '2026-08-19 03:00:00', 'deleted' => 200],
+            json_decode($params['context'], true),
+        );
+    }
+
+    /** First cut ever: nothing to refresh, so the marker is created. */
+    public function testRecordCapCutCreatesTheMarkerWhenNoneExists(): void
+    {
+        $insertArgs = null;
+        $conn = $this->createMock(Connection::class);
+        // No ordinary event survived the cut: the frontier is then the
+        // marker's own timestamp, and the cutoff is null to say so.
+        $conn->method('fetchOne')->willReturn(null);
+        $conn->method('executeStatement')->willReturn(0);
+        $conn->expects($this->once())
+            ->method('insert')
+            ->willReturnCallback(function (string $table, array $data) use (&$insertArgs): int {
+                $insertArgs = [$table, $data];
+
+                return 1;
+            });
+
+        (new HubEventLogger($conn, $this->createStub(LoggerInterface::class)))->recordCapCut(5);
+
+        [$table, $data] = $insertArgs;
+        $this->assertSame('hub_events', $table);
+        $this->assertSame('maintenance', $data['channel'], 'the evidence must outlive the cap it describes');
+        $this->assertSame(HubEventLogger::MARKER_HUB_EVENTS_CAPPED, $data['message']);
+        $this->assertSame(['cutoff' => null, 'deleted' => 5], json_decode($data['context'], true));
+    }
+
+    /** Bookkeeping must never break the write or the prune that triggered it. */
+    public function testRecordCapCutSwallowsDatabaseFailures(): void
+    {
+        $conn = $this->createMock(Connection::class);
+        $conn->method('fetchOne')->willThrowException(new \RuntimeException('db down'));
+
+        (new HubEventLogger($conn, $this->createStub(LoggerInterface::class)))->recordCapCut(1);
+
+        $this->addToAssertionCount(1);
+    }
 }

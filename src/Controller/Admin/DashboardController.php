@@ -233,14 +233,20 @@ class DashboardController extends AbstractDashboardController
         $discoveryNextExpiryAt = $this->discoveryCache->nextExpiryAt();
         $discoveryExpiringSoon7d = $this->discoveryCache->countExpiringWithinDays(7, $now);
         $discoveryResolutions24h = $this->discoveryCache->countResolutionsLast24h($now);
-        $discoveryNonResolvedShare24h = $this->discoveryCache->nonResolvedSharePercentLast24h($now);
+        // Entity-stage quality: the drift tripwire. Anchor coverage is a
+        // separate figure on purpose, the repository explains at length why
+        // the two cannot share one ratio, and why this one alone looks back
+        // further than 24h.
+        $discoveryQuality = $this->discoveryCache->entityQualitySince(
+            $now->modify(sprintf('-%d days', DiscoveryCacheRepository::QUALITY_WINDOW_DAYS)),
+        );
+        $discoveryAnchorCoverage = $this->discoveryCache->anchorCoverage($now);
         $discoveryLastDriftAlertAt = $this->discoveryCache->lastDriftAlertAt();
         $discoveryFailureReasons24h = $this->discoveryCache->countFailureReasonsLast24h($now);
         $discoveryBudgetExhausted24h = $this->discoveryCache->countBudgetExhaustionsSince($now->modify('-24 hours'));
         $discoveryBudgetExhausted7d = $this->discoveryCache->countBudgetExhaustionsSince($now->modify('-7 days'));
-        // The failure RATE, which the non-resolved share cannot express:
-        // 'unavailable' never writes a cache row, so it is absent from
-        // both halves of that ratio.
+        // The failure RATE, which no ratio over the pool can express:
+        // 'unavailable' never writes a cache row at all.
         $discoveryUnavailable24h = $this->discoveryCache->unavailableBreakdownSince($now->modify('-24 hours'));
 
         // DB table sizes (PostgreSQL)
@@ -295,7 +301,9 @@ class DashboardController extends AbstractDashboardController
             'discovery_next_expiry_at' => $discoveryNextExpiryAt,
             'discovery_expiring_soon_7d' => $discoveryExpiringSoon7d,
             'discovery_resolutions_24h' => $discoveryResolutions24h,
-            'discovery_non_resolved_share_24h' => $discoveryNonResolvedShare24h,
+            'discovery_quality' => $discoveryQuality,
+            'discovery_quality_window_days' => DiscoveryCacheRepository::QUALITY_WINDOW_DAYS,
+            'discovery_anchor_coverage' => $discoveryAnchorCoverage,
             'discovery_drift_alert_threshold' => $this->discoveryDriftAlertThreshold,
             'discovery_last_drift_alert_at' => $discoveryLastDriftAlertAt,
             'discovery_failure_reasons_24h' => $discoveryFailureReasons24h,

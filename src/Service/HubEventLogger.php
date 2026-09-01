@@ -20,6 +20,18 @@ use Psr\Log\LoggerInterface;
 class HubEventLogger
 {
     /** Max critical events kept in DB (~200 bytes each, ~200 KB at cap). */
+    /**
+     * Marker written by app:db:prune when its row cap actually cuts into
+     * the journal, on the 'maintenance' channel so the evidence survives
+     * the very cap it describes. Its context carries 'cutoff', the oldest
+     * ordinary event still standing afterwards, which is the frontier
+     * every reader of a time window needs to know whether its window is
+     * still whole. Named here rather than in either party because it is
+     * the event log's own vocabulary: PruneCommand writes it,
+     * DiscoveryCacheRepository reads it, neither owns it.
+     */
+    public const MARKER_HUB_EVENTS_CAPPED = 'hub_events_capped';
+
     private const MAX_ENTRIES = 1000;
     private const TTL_DAYS = 30;
     private const CLEANUP_PROBABILITY = 50;
@@ -117,6 +129,64 @@ class HubEventLogger
         return $safe;
     }
 
+    /**
+     * Record where a row-cap cut just landed, so that readers of a time
+     * window can tell "these events were deleted" from "these events never
+     * happened". Nothing else can tell them apart after the fact, and
+     * guessing from an absence is wrong in both directions: a quiet period
+     * and a period where everything succeeded look exactly like a cut.
+     *
+     * Called by both cutters, this logger's own probabilistic cleanup and
+     * app:db:prune, which is why it is public. The context is written
+     * directly rather than through write(): 'cutoff' and 'deleted' are
+     * machine-generated bookkeeping, not caller input, and the sanitizer
+     * would drop both.
+     *
+     * Kept to ONE row, refreshed in place: the frontier only ever moves
+     * forward, so the latest cut is all a reader needs, and appending
+     * instead would grow the very table the cap is defending, on the
+     * maintenance channel the cap cannot touch. The 30-day TTL eventually
+     * collects it, which is correct: a cut that old cannot overlap any
+     * window this marker serves.
+     *
+     * Best-effort: losing the marker must never break a write or a prune.
+     * It only makes one monitoring window unreadable, which is the
+     * conservative direction.
+     */
+    public function recordCapCut(int $deleted): void
+    {
+        try {
+            $cutoff = $this->connection->fetchOne(
+                "SELECT MIN(created_at) FROM hub_events WHERE channel <> 'maintenance'"
+            );
+            $context = json_encode(
+                [
+                    // NULL means the cut left no ordinary event at all, and
+                    // the marker's own timestamp is then the frontier.
+                    'cutoff' => is_string($cutoff) && $cutoff !== '' ? $cutoff : null,
+                    'deleted' => $deleted,
+                ],
+                JSON_UNESCAPED_UNICODE
+            );
+
+            $refreshed = (int) $this->connection->executeStatement(
+                "UPDATE hub_events SET created_at = NOW(), level = 'info', context = :context
+                  WHERE channel = 'maintenance' AND message = :marker",
+                ['context' => $context, 'marker' => self::MARKER_HUB_EVENTS_CAPPED]
+            );
+            if ($refreshed === 0) {
+                $this->connection->insert('hub_events', [
+                    'level' => 'info',
+                    'channel' => 'maintenance',
+                    'message' => self::MARKER_HUB_EVENTS_CAPPED,
+                    'context' => $context,
+                ]);
+            }
+        } catch (\Throwable) {
+            // Best-effort
+        }
+    }
+
     private function cleanup(): void
     {
         try {
@@ -130,9 +200,12 @@ class HubEventLogger
             $count = (int) $this->connection->fetchOne('SELECT COUNT(*) FROM hub_events');
             if ($count > self::MAX_ENTRIES) {
                 $excess = $count - self::MAX_ENTRIES;
-                $this->connection->executeStatement(
+                $cut = (int) $this->connection->executeStatement(
                     "DELETE FROM hub_events WHERE id IN (SELECT id FROM hub_events WHERE channel <> 'maintenance' ORDER BY created_at ASC LIMIT $excess)"
                 );
+                if ($cut > 0) {
+                    $this->recordCapCut($cut);
+                }
             }
         } catch (\Throwable) {
             // Best-effort

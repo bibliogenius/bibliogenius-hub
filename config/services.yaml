@@ -11,11 +11,16 @@ parameters:
     # a regression above that baseline. Override via the
     # CATALOG_COVERAGE_ALERT_THRESHOLD env var (lower it as the fleet heals).
     catalog_coverage_alert_threshold_default: '40'
-    # Discovery source-drift alert threshold (ADR-060): percent of
-    # non-resolved outcomes among the last 24h of discovery_cache writes.
-    # SPARQL schemas and API shapes change silently; past this share the
-    # nightly prune emits a hub_events warning so the regression shows up
-    # in /admin within a day. Override via DISCOVERY_DRIFT_ALERT_THRESHOLD.
+    # Discovery source-drift alert threshold (ADR-060): percent of the
+    # entities fetched cold over the tripwire's window (7 days, see
+    # DiscoveryCacheRepository::QUALITY_WINDOW_DAYS) that came back EMPTY
+    # instead of with a usable payload. SPARQL schemas and API shapes change
+    # silently; past this share the nightly prune emits a hub_events warning,
+    # deduplicated to once per 24h, so the regression shows up in /admin
+    # within a day. Deliberately narrow: both halves of the ratio are counted
+    # on the same occasions, so it cannot drift with traffic the way the
+    # cache-writes share it replaced did.
+    # Override via DISCOVERY_DRIFT_ALERT_THRESHOLD.
     discovery_drift_alert_threshold_default: '50'
 
 services:
