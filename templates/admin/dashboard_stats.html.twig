@@ -1231,6 +1231,48 @@
     </div>
 </div>
 
+<p class="section-legend">{{ 'follows.section_lead'|trans }}</p>
+
+<div class="stat-grid" style="margin-bottom: 20px;">
+    <div class="stat-card {{ reciprocal_pairs > 0 ? 'status-ok' : '' }}">
+        <div class="stat-label">
+            {{ 'follows.pairs.label'|trans }}
+            <i class="tip" data-tip="{{ 'follows.pairs.tip'|trans }}">i</i>
+        </div>
+        <div class="stat-value">{{ reciprocal_pairs }}</div>
+        <div class="stat-sub">
+            {% if reciprocal_pairs > 0 %}
+                {{ 'follows.pairs.sub'|trans({'%libraries%': libraries_with_active_edge}) }}
+            {% else %}
+                {{ 'follows.pairs.sub_empty'|trans }}
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">
+            {{ 'follows.active.label'|trans }}
+            <i class="tip" data-tip="{{ 'follows.active.tip'|trans }}">i</i>
+        </div>
+        <div class="stat-value">{{ follows_by_status.active }}</div>
+        <div class="stat-sub">{{ 'follows.active.sub'|trans({'%total%': follows_total}) }}</div>
+    </div>
+
+    <div class="stat-card {{ follows_by_status.pending > 0 ? 'status-warn' : '' }}">
+        <div class="stat-label">
+            {{ 'follows.pending.label'|trans }}
+            <i class="tip" data-tip="{{ 'follows.pending.tip'|trans }}">i</i>
+        </div>
+        <div class="stat-value">{{ follows_by_status.pending }}</div>
+        <div class="stat-sub">
+            {{ 'follows.pending.sub'|trans({
+                '%rejected%': follows_by_status.rejected,
+                '%blocked%': follows_by_status.blocked,
+            }) }}
+        </div>
+    </div>
+</div>
+
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 8px;">
     <div>
         <div style="font-size: 12px; font-weight: 600; color: var(--text-muted,#6c757d); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.4px;">

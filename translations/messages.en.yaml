@@ -84,3 +84,18 @@ discovery:
     writes.label: "Cache Writes (24h)"
     writes.sub: "cache writes, all outcomes"
     writes.tip: "Rows written to the pool in the last 24h, every outcome (resolved, ambiguous, unknown). This is NOT a resolution count: one resolution writes up to four rows, one per anchor ISBN it looked up plus its payload. It is here as the raw volume the percentages on this row rest on: below a dozen, every ratio on this page is fragile."
+
+# Relationship counters on the /admin dashboard. Plain prose on purpose: no
+# markup in these values, so the template renders them without |raw.
+follows:
+    active.label: "Active Follows"
+    active.sub: "of %total% follow rows"
+    active.tip: "Accepted follow edges, one row per direction. Two rows between the same two libraries is one mutual pair."
+    pairs.label: "Mutual Pairs"
+    pairs.sub: "%libraries% libraries in an active follow"
+    pairs.sub_empty: "no mutual relationship yet"
+    pairs.tip: "Pairs of libraries that follow each other, both directions active. Counted once per pair, and a node following itself is excluded. This is the only figure here that means two libraries are actually connected."
+    pending.label: "Pending Follows"
+    pending.sub: "%rejected% rejected, %blocked% blocked"
+    pending.tip: "Follow requests waiting for the followed library to approve or reject. A number that only grows suggests requests are not surfacing in the app."
+    section_lead: "Relationship shape. A follow is directed, so the total counts gestures, not connections: many libraries following one showcase library produce a high total and no mutual pair. Reciprocity is the figure any exchange, group or peer-suggestion feature rests on. Direct P2P pairings stay on the device by design (ADR-044) and never reach the hub, so these are a floor for the real graph, not a census of it."

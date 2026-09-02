@@ -84,3 +84,18 @@ discovery:
     writes.label: "Écritures en cache (24 h)"
     writes.sub: "écritures en cache, toutes issues"
     writes.tip: "Lignes écrites dans le pool ces 24 dernières heures, toutes issues confondues (résolue, ambiguë, inconnue). Ce n'est PAS un compte de résolutions : une résolution écrit jusqu'à quatre lignes, une par ISBN d'ancrage interrogé plus sa charge utile. C'est le volume brut sur lequel reposent les pourcentages de cette ligne : en dessous d'une douzaine, tous les ratios de cette page sont fragiles."
+
+# Relationship counters on the /admin dashboard. Plain prose on purpose: no
+# markup in these values, so the template renders them without |raw.
+follows:
+    active.label: "Abonnements actifs"
+    active.sub: "sur %total% lignes d'abonnement"
+    active.tip: "Arêtes d'abonnement acceptées, une ligne par sens. Deux lignes entre les deux mêmes bibliothèques forment une seule paire mutuelle."
+    pairs.label: "Paires mutuelles"
+    pairs.sub: "%libraries% bibliothèques dans un abonnement actif"
+    pairs.sub_empty: "aucune relation mutuelle pour l'instant"
+    pairs.tip: "Paires de bibliothèques qui s'abonnent l'une à l'autre, les deux sens actifs. Comptées une seule fois par paire, et un nœud qui s'abonne à lui-même est exclu. C'est le seul chiffre ici qui signifie que deux bibliothèques sont réellement reliées."
+    pending.label: "Abonnements en attente"
+    pending.sub: "%rejected% refusés, %blocked% bloqués"
+    pending.tip: "Demandes d'abonnement en attente d'acceptation ou de refus par la bibliothèque suivie. Un nombre qui ne fait que croître suggère que les demandes ne remontent pas dans l'application."
+    section_lead: "Forme du réseau. Un abonnement est orienté, donc le total compte des gestes et non des liens : de nombreuses bibliothèques suivant une même bibliothèque vitrine produisent un total élevé et aucune paire mutuelle. La réciprocité est le chiffre sur lequel reposent l'échange, les groupes et les suggestions entre pairs. Les appairages P2P directs restent sur l'appareil par conception (ADR-044) et n'atteignent jamais le hub : ces compteurs sont donc un plancher du graphe réel, pas son recensement."

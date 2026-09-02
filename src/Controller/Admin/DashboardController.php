@@ -5,6 +5,7 @@ namespace App\Controller\Admin;
 use App\Repository\Deposit404LogRepository;
 use App\Repository\DirectoryHealthRepository;
 use App\Repository\DiscoveryCacheRepository;
+use App\Repository\FollowRepository;
 use App\Repository\RelayMailboxRepository;
 use App\Service\Discovery\OutboundBudget;
 use App\Service\HubEventLogger;
@@ -29,6 +30,7 @@ class DashboardController extends AbstractDashboardController
         private readonly Deposit404LogRepository $deposit404Log,
         private readonly DirectoryHealthRepository $directoryHealth,
         private readonly DiscoveryCacheRepository $discoveryCache,
+        private readonly FollowRepository $followRepository,
         #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%env(int:default:catalog_coverage_alert_threshold_default:CATALOG_COVERAGE_ALERT_THRESHOLD)%')]
         private readonly int $catalogCoverageAlertThreshold = 40,
         #[\Symfony\Component\DependencyInjection\Attribute\Autowire('%env(int:default:discovery_drift_alert_threshold_default:DISCOVERY_DRIFT_ALERT_THRESHOLD)%')]
@@ -259,6 +261,12 @@ class DashboardController extends AbstractDashboardController
              ORDER BY total_bytes DESC",
         );
 
+        // Relationship shape. A follows row is directed, so the total answers
+        // "how many follow gestures happened"; only the reciprocal count says
+        // how many libraries are actually connected to each other, which is
+        // what any exchange, group or peer-suggestion feature rests on.
+        $relationships = $this->followRepository->relationshipStats();
+
         return $this->render('admin/dashboard_stats.html.twig', [
             'total_profiles' => $totalProfiles,
             'active_profiles' => $activeProfiles,
@@ -290,6 +298,10 @@ class DashboardController extends AbstractDashboardController
             'table_sizes' => $tableSizes,
             'total_books' => $totalBooks,
             'borrowing_enabled_count' => $borrowingEnabledCount,
+            'follows_total' => $relationships['total'],
+            'follows_by_status' => $relationships['by_status'],
+            'reciprocal_pairs' => $relationships['reciprocal_pairs'],
+            'libraries_with_active_edge' => $relationships['libraries_with_active_edge'],
             'total_loans' => $totalLoans,
             'accepted_loans' => $acceptedLoans,
             'recent_loans' => $recentLoans,

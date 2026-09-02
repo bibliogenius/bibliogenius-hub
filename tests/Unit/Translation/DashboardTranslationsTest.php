@@ -14,7 +14,8 @@ use Symfony\Component\Yaml\Yaml;
  * the locale nobody was testing.
  *
  *  - the English and French catalogues hold exactly the same keys;
- *  - every discovery key the dashboard template asks for exists in both;
+ *  - every dotted key the dashboard template asks for exists in both,
+ *    whatever its namespace;
  *  - a translation carries the same %placeholders% as its counterpart, so
  *    a figure cannot vanish from one language.
  */
@@ -65,7 +66,11 @@ final class DashboardTranslationsTest extends TestCase
     public function testEveryKeyTheDashboardAsksForExists(): void
     {
         $template = file_get_contents(self::TEMPLATE);
-        preg_match_all("/'(discovery\.[a-z0-9_.]+)'\s*\|\s*trans/i", $template, $matches);
+        // Namespace-agnostic on purpose: a key is any dotted name piped to
+        // trans, so a section translated later is covered the day it lands
+        // rather than the day someone remembers to widen this regex. Flat
+        // keys carry no dot and belong to the untranslated remainder.
+        preg_match_all("/'([a-z][a-z0-9_]*\.[a-z0-9_.]+)'\s*\|\s*trans/i", $template, $matches);
         $used = array_unique(array_merge($matches[1], self::DYNAMIC_KEYS));
         sort($used);
 
