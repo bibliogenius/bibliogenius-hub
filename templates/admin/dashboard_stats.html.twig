@@ -88,6 +88,20 @@
     .stat-sub.sub-alert { color: #dc3545; font-weight: 600; }
     .stat-sub.sub-warn  { color: #e07b00; font-weight: 600; }
 
+    /* Long legends show their first sentence and hide the rest behind a
+       native disclosure: no JS, keyboard reachable, and the summary is
+       announced as a button by screen readers. */
+    .legend-more { display: inline; }
+    .legend-more > summary {
+        display: inline;
+        cursor: pointer;
+        color: var(--primary-color, #0d6efd);
+        text-decoration: underline;
+        list-style: none;
+    }
+    .legend-more > summary::-webkit-details-marker { display: none; }
+    .legend-more[open] > summary { display: block; margin-bottom: 4px; }
+
     /* Plain-language line under a figure: what to CONCLUDE from it,
        for a reader who does not know the ADR behind the card. */
     .stat-hint {
@@ -753,50 +767,44 @@
 {% endif %}
 
 {# — Discovery resolver (series/author completion, ADR-060) — #}
-<div class="section-title" style="margin-top: 24px;">Discovery Resolver (ADR-060)</div>
-<p class="section-legend">
-    Read-only view of the pooled series/author completion cache and the pressure it puts on
-    Wikidata/Inventaire. Both lanes are shipped and share this pool: <code>series_lookup</code>
-    and <code>author_lookup</code> rows map one anchor ISBN to entity ids, <code>series</code>
-    and <code>author</code> rows hold the resolved payloads every reader shares. Figures stay
-    small until real client traffic exercises the endpoints.
-</p>
-<p class="section-legend">
-    <strong>Reading the two ratios below.</strong> They answer different questions and only one
-    of them raises an alarm. <em>Anchor Hit Rate</em> is about the SOURCES: how many of our ISBNs
-    Wikidata and Inventaire happen to index. It is low by nature on a French catalogue, so it
-    never alerts on its own value. <em>Resolution Quality</em> is about the ANSWERS: of the
-    entities we did identify and fetch, how many came back empty. That is what a silent schema
-    change makes happen, and it is the one the nightly check alerts on. Failures decided earlier,
-    between the two, are listed further down but carry no percentage: they can repeat on cached
-    lookups, so counting them as a rate would make the figure grow with traffic rather than with
-    breakage. That quality card is also the only one here that looks back
-    {{ discovery_quality_window_days }} days instead of one: entities are fetched cold only a few
-    times a day, and a percentage needs samples before it means anything.
-</p>
+<div class="section-title" style="margin-top: 24px;">{{ 'discovery.section_title'|trans }}</div>
+<div class="section-legend">
+    {{ 'discovery.intro_lead'|trans|raw }}
+    <details class="legend-more">
+        <summary>{{ 'discovery.read_more'|trans }}</summary>
+        {{ 'discovery.intro_more'|trans|raw }}
+    </details>
+</div>
+<div class="section-legend">
+    {{ 'discovery.ratios_lead'|trans|raw }}
+    <details class="legend-more">
+        <summary>{{ 'discovery.read_more'|trans }}</summary>
+        {{ 'discovery.ratios_more'|trans({'%days%': discovery_quality_window_days})|raw }}
+    </details>
+</div>
 <div class="stat-grid">
 
     <div class="stat-card {{ discovery_total_rows == 0 ? 'status-warn' : '' }}">
         <div class="stat-label">
-            Cache Pool
-            <i class="tip" data-tip="Total rows in discovery_cache, all kinds and statuses, with the payload weight underneath. Zero means the feature has never been exercised yet. The weight is uncompressed payload, what the nightly prune budgets; on disk Postgres compresses it by roughly 2.6x. The prune caps the payloads at 128 MB (freshest expiry kept first) and logs discovery_cache_over_budget in Hub Events when it has to cut.">i</i>
+            {{ 'discovery.pool.label'|trans }}
+            <i class="tip" data-tip="{{ 'discovery.pool.tip'|trans }}">i</i>
         </div>
         <div class="stat-value">{{ discovery_total_rows }}</div>
         <div class="stat-sub">
             {% if discovery_total_rows == 0 %}
-                <span class="sub-warn">feature never exercised</span>
+                <span class="sub-warn">{{ 'discovery.pool.sub_empty'|trans }}</span>
             {% else %}
-                pooled rows, {{ (discovery_payload_bytes / 1048576)|round(1) }} MB of payload
+                {{ 'discovery.pool.sub'|trans({'%mb%': (discovery_payload_bytes / 1048576)|round(1)}) }}
             {% endif %}
         </div>
-        <div class="stat-hint">Answers readers share. The bigger it is, the less we ask the sources.</div>
+        <div class="stat-hint">{{ 'discovery.pool.hint'|trans }}</div>
     </div>
 
     {% set discovery_expiry_hours = discovery_next_expiry_at ? ((discovery_next_expiry_at|date("U")) - ("now"|date("U"))) / 3600 : null %}
     <div class="stat-card">
         <div class="stat-label">
-            Next Expiry
-            <i class="tip" data-tip="Soonest expires_at still in the pool. Resolved rows live 30 days, ambiguous/unknown rows 7 days (ADR-060 section 3.3). Swept nightly by app:db:prune.">i</i>
+            {{ 'discovery.expiry.label'|trans }}
+            <i class="tip" data-tip="{{ 'discovery.expiry.tip'|trans }}">i</i>
         </div>
         <div class="stat-value">
             {% if discovery_next_expiry_at is null %}
@@ -811,29 +819,29 @@
         </div>
         <div class="stat-sub">
             {% if discovery_next_expiry_at is null %}
-                pool empty
+                {{ 'discovery.expiry.sub_empty'|trans }}
             {% else %}
-                {{ discovery_expiring_soon_7d }} row{{ discovery_expiring_soon_7d != 1 ? 's' : '' }} expiring &lt;7d
+                {{ 'discovery.expiry.sub'|trans({'%count%': discovery_expiring_soon_7d}) }}
             {% endif %}
         </div>
-        <div class="stat-hint">When the next cached answer expires and must be asked again.</div>
+        <div class="stat-hint">{{ 'discovery.expiry.hint'|trans }}</div>
     </div>
 
     <div class="stat-card">
         <div class="stat-label">
-            Cache Writes (24h)
-            <i class="tip" data-tip="Rows written to the pool in the last 24h, every outcome (resolved, ambiguous, unknown). This is NOT a resolution count: one resolution writes up to four rows, one per anchor ISBN it looked up plus its payload. It is here as the raw volume the percentages on this row rest on: below a dozen, every ratio on this page is fragile.">i</i>
+            {{ 'discovery.writes.label'|trans }}
+            <i class="tip" data-tip="{{ 'discovery.writes.tip'|trans }}">i</i>
         </div>
         <div class="stat-value">{{ discovery_resolutions_24h }}</div>
-        <div class="stat-sub">cache writes, all outcomes</div>
-        <div class="stat-hint">Raw volume, not resolutions. Small numbers make every % fragile.</div>
+        <div class="stat-sub">{{ 'discovery.writes.sub'|trans }}</div>
+        <div class="stat-hint">{{ 'discovery.writes.hint'|trans }}</div>
     </div>
 
     {% set discovery_anchor_24h = discovery_anchor_coverage.last_24h %}
     <div class="stat-card {{ discovery_anchor_coverage.collapsed ? 'status-warn' : '' }}">
         <div class="stat-label">
-            Anchor Hit Rate (24h)
-            <i class="tip" data-tip="Share of the anchor ISBNs looked up in the last 24h that Wikidata or Inventaire actually index. Only cold lookups are visible: an anchor already cached makes no source call and writes no row, on purpose. This is a fact about the SOURCES, not a defect of ours, and its normal value depends on the catalogue: series anchors match far less often than author ones, and French comics and manga are the thinnest of all. So it raises no alarm on its own value. Read it against the 7-day baseline instead: a fall to zero while the baseline was positive is the one thing an absolute threshold could never separate from a catalogue the sources simply do not index, and it turns this card orange. Needs at least {{ discovery_drift_min_samples }} lookups in the window, else it reads n/a.">i</i>
+            {{ 'discovery.anchor.label'|trans }}
+            <i class="tip" data-tip="{{ 'discovery.anchor.tip'|trans({'%min%': discovery_drift_min_samples}) }}">i</i>
         </div>
         <div class="stat-value">
             {% if discovery_anchor_24h.share_percent is null %}
@@ -844,20 +852,20 @@
         </div>
         <div class="stat-sub">
             {% if discovery_anchor_coverage.collapsed %}
-                <span class="sub-warn">0 of {{ discovery_anchor_24h.total }} matched, 7d baseline {{ discovery_anchor_coverage.last_7d.share_percent }}%</span>
+                <span class="sub-warn">{{ 'discovery.anchor.sub_collapsed'|trans({'%total%': discovery_anchor_24h.total, '%baseline%': discovery_anchor_coverage.last_7d.share_percent}) }}</span>
             {% elseif discovery_anchor_24h.total == 0 %}
-                no anchor looked up in the window
+                {{ 'discovery.anchor.sub_idle'|trans }}
             {% else %}
-                {{ discovery_anchor_24h.hits }} of {{ discovery_anchor_24h.total }} ISBNs matched{% if discovery_anchor_coverage.last_7d.share_percent is not null %}, 7d baseline {{ discovery_anchor_coverage.last_7d.share_percent }}%{% endif %}
+                {{ 'discovery.anchor.sub'|trans({'%hits%': discovery_anchor_24h.hits, '%total%': discovery_anchor_24h.total}) }}{% if discovery_anchor_coverage.last_7d.share_percent is not null %}{{ 'discovery.anchor.sub_baseline'|trans({'%baseline%': discovery_anchor_coverage.last_7d.share_percent}) }}{% endif %}
             {% endif %}
         </div>
-        <div class="stat-hint">How many of our ISBNs the sources know. A low value is normal here.</div>
+        <div class="stat-hint">{{ 'discovery.anchor.hint'|trans }}</div>
     </div>
 
     <div class="stat-card {{ discovery_quality.truncated ? 'status-warn' : (discovery_quality.share_percent is not null and discovery_quality.share_percent >= discovery_drift_alert_threshold ? 'status-alert' : (discovery_quality.share_percent is not null ? 'status-ok' : '')) }}">
         <div class="stat-label">
-            Resolution Quality ({{ discovery_quality_window_days }}d)
-            <i class="tip" data-tip="Of the entities identified at the source and actually fetched in the last {{ discovery_quality_window_days }} days, the share that came back empty instead of with a usable payload: a series with no volume list, an author with no bibliography. This is the source-drift alarm: a healthy pipeline sits near 0% here, and a silent SPARQL or API change pushes it up within a day. At or above {{ discovery_drift_alert_threshold }}%, the nightly app:db:prune writes discovery_drift_degraded in Hub Events (channel maintenance), once per 24h at most. Both halves are counted on the same occasions, which is what makes the percentage honest: an entity served from the pool is never fetched and never counted, on either side. Everything decided before the entity stage is excluded and shown as raw counts below, everything lost to an outage is on the Unavailable Share card. This is the one card that does not read the last 24h: an entity is fetched cold only a few times a day and {{ discovery_drift_min_samples }} samples are needed before a percentage means anything, so it looks back {{ discovery_quality_window_days }} days. The alert it raises is still deduplicated to once per 24h. One case reads n/a in orange: Hub Events is capped in rows as well as in days, so once the hub writes more events per week than that cap, the nightly prune eats the far end of this window. Failures would then be under-counted while successes are not, and the percentage would read reassuringly low. The card refuses to compute it rather than show you that. Raising the cap, or exempting the discovery channel from it as maintenance already is, restores the measure.">i</i>
+            {{ 'discovery.quality.label'|trans({'%days%': discovery_quality_window_days}) }}
+            <i class="tip" data-tip="{{ 'discovery.quality.tip'|trans({'%days%': discovery_quality_window_days, '%min%': discovery_drift_min_samples, '%threshold%': discovery_drift_alert_threshold}) }}">i</i>
         </div>
         <div class="stat-value">
             {% if discovery_quality.share_percent is null %}
@@ -868,44 +876,44 @@
         </div>
         <div class="stat-sub">
             {% if discovery_quality.truncated %}
-                <span class="sub-warn">Hub Events trimmed past the {{ discovery_quality_window_days }}d window, cannot judge</span>
+                <span class="sub-warn">{{ 'discovery.quality.sub_trimmed'|trans({'%days%': discovery_quality_window_days}) }}</span>
             {% elseif discovery_quality.share_percent is null %}
-                {{ discovery_quality.total }} entity fetch{{ discovery_quality.total != 1 ? 'es' : '' }} in {{ discovery_quality_window_days }}d, too few to judge
+                {{ 'discovery.quality.sub_low'|trans({'%count%': discovery_quality.total, '%days%': discovery_quality_window_days}) }}
             {% elseif discovery_quality.share_percent >= discovery_drift_alert_threshold %}
-                <span class="sub-alert">{{ discovery_quality.failed }} of {{ discovery_quality.total }} came back empty, threshold {{ discovery_drift_alert_threshold }}%</span>
+                <span class="sub-alert">{{ 'discovery.quality.sub_alert'|trans({'%failed%': discovery_quality.failed, '%total%': discovery_quality.total, '%threshold%': discovery_drift_alert_threshold}) }}</span>
             {% else %}
-                {{ discovery_quality.failed }} of {{ discovery_quality.total }} came back empty, below the {{ discovery_drift_alert_threshold }}% threshold
+                {{ 'discovery.quality.sub_ok'|trans({'%failed%': discovery_quality.failed, '%total%': discovery_quality.total, '%threshold%': discovery_drift_alert_threshold}) }}
             {% endif %}
         </div>
-        <div class="stat-hint">Entities found, then returned empty. Near 0% is healthy; this is the alarm.</div>
+        <div class="stat-hint">{{ 'discovery.quality.hint'|trans }}</div>
     </div>
 
     <div class="stat-card">
         <div class="stat-label">
-            Last Drift Alert
-            <i class="tip" data-tip="When app:db:prune last emitted the source-drift warning (Hub Events, channel maintenance, message discovery_drift_degraded). Never means it has not fired yet.">i</i>
+            {{ 'discovery.last_alert.label'|trans }}
+            <i class="tip" data-tip="{{ 'discovery.last_alert.tip'|trans }}">i</i>
         </div>
         <div class="stat-value">
             {% if discovery_last_drift_alert_at is null %}
-                never
+                {{ 'discovery.last_alert.never'|trans }}
             {% else %}
                 <time datetime="{{ discovery_last_drift_alert_at|date('c', 'UTC') }}" data-utc data-format="date">{{ discovery_last_drift_alert_at|date('Y-m-d H:i', 'UTC') }}</time> UTC
             {% endif %}
         </div>
         <div class="stat-sub">
             {% if discovery_last_drift_alert_at is null %}
-                no source-drift alert yet
+                {{ 'discovery.last_alert.sub_never'|trans }}
             {% else %}
-                ago
+                {{ 'discovery.last_alert.sub'|trans }}
             {% endif %}
         </div>
-        <div class="stat-hint">The last time the nightly check flagged the quality card above.</div>
+        <div class="stat-hint">{{ 'discovery.last_alert.hint'|trans }}</div>
     </div>
 
     <div class="stat-card {{ discovery_unavailable_24h.share_percent is not null and discovery_unavailable_24h.share_percent > 0 ? 'status-warn' : (discovery_unavailable_24h.share_percent is not null ? 'status-ok' : '') }}">
         <div class="stat-label">
-            Unavailable Share (24h)
-            <i class="tip" data-tip="Share of the 24h outcomes that ended unavailable: the source failed, timed out, or the outbound budget refused the call. These never write a cache row, so no ratio computed over the pool can see them, which is why they get their own card. Denominator is resolved entity rows plus every journalled discovery outcome, one trace per outcome and never two. It counts outcomes that reached a decision, not HTTP requests: a fully warm request touches no source and is invisible on purpose, a warm negative one is journalled and counts at zero outbound cost. Needs at least {{ discovery_drift_min_samples }} outcomes in the window, else it reads n/a.">i</i>
+            {{ 'discovery.unavailable.label'|trans }}
+            <i class="tip" data-tip="{{ 'discovery.unavailable.tip'|trans({'%min%': discovery_drift_min_samples}) }}">i</i>
         </div>
         <div class="stat-value">
             {% if discovery_unavailable_24h.share_percent is null %}
@@ -916,47 +924,46 @@
         </div>
         <div class="stat-sub">
             {% if discovery_unavailable_24h.share_percent is null %}
-                not enough outcomes yet
+                {{ 'discovery.unavailable.sub_low'|trans }}
             {% else %}
-                {{ discovery_unavailable_24h.unavailable }} of {{ discovery_unavailable_24h.total }} outcomes
+                {{ 'discovery.unavailable.sub'|trans({'%count%': discovery_unavailable_24h.unavailable, '%total%': discovery_unavailable_24h.total}) }}
             {% endif %}
         </div>
-        <div class="stat-hint">Lost to an outage or to our own budget, not to the data.</div>
+        <div class="stat-hint">{{ 'discovery.unavailable.hint'|trans }}</div>
     </div>
 
     <div class="stat-card {{ discovery_budget_exhausted_24h > 0 ? 'status-warn' : 'status-ok' }}">
         <div class="stat-label">
-            Outbound Budget Exhausted
-            <i class="tip" data-tip="Times the hub-wide outbound token bucket to Wikidata/Inventaire was empty (ADR-060 section 3.4), returning 'unavailable' instead of resolving. Occasional hits are expected under legitimate traffic; a sustained rise means the shared budget is too tight.">i</i>
+            {{ 'discovery.budget.label'|trans }}
+            <i class="tip" data-tip="{{ 'discovery.budget.tip'|trans }}">i</i>
         </div>
         <div class="stat-value">{{ discovery_budget_exhausted_24h }}</div>
         <div class="stat-sub">
             {% if discovery_budget_exhausted_24h > 0 %}
-                <span class="sub-warn">{{ discovery_budget_exhausted_7d }} over 7 days</span>
+                <span class="sub-warn">{{ 'discovery.budget.sub'|trans({'%count%': discovery_budget_exhausted_7d}) }}</span>
             {% else %}
-                {{ discovery_budget_exhausted_7d }} over 7 days
+                {{ 'discovery.budget.sub'|trans({'%count%': discovery_budget_exhausted_7d}) }}
             {% endif %}
         </div>
-        <div class="stat-hint">Calls we refused ourselves, to stay a polite guest of the sources.</div>
+        <div class="stat-hint">{{ 'discovery.budget.hint'|trans }}</div>
     </div>
 
 </div>
 
-<p class="section-legend" style="margin-top: 12px;">
-    <strong>Pool breakdown.</strong> A <code>*_lookup</code> row maps one anchor ISBN to an entity
-    id; a <code>series</code> or <code>author</code> row holds the payload readers actually see.
-    Read a status by the row it sits on: <code>unknown</code> on a <code>*_lookup</code> row means
-    the sources never indexed that ISBN, which is ordinary, while <code>unknown</code> on a
-    <code>series</code> or <code>author</code> row means an entity was found but came back empty,
-    which is the shape source drift takes.
-</p>
+<div class="section-legend" style="margin-top: 12px;">
+    {{ 'discovery.pool_table_lead'|trans|raw }}
+    <details class="legend-more">
+        <summary>{{ 'discovery.read_more'|trans }}</summary>
+        {{ 'discovery.pool_table_more'|trans|raw }}
+    </details>
+</div>
 {% if discovery_by_kind_status is not empty %}
 <table class="hub-table" style="max-width: 420px; margin-bottom: 20px;">
     <thead>
         <tr>
-            <th>Kind</th>
-            <th>Status</th>
-            <th style="text-align:right">Rows</th>
+            <th>{{ 'discovery.th_kind'|trans }}</th>
+            <th>{{ 'discovery.th_status'|trans }}</th>
+            <th style="text-align:right">{{ 'discovery.th_rows'|trans }}</th>
         </tr>
     </thead>
     <tbody>
@@ -978,51 +985,46 @@
     </tbody>
 </table>
 {% else %}
-<p class="muted" style="padding: 4px 0 16px;">Pool empty, nothing to break down yet.</p>
+<p class="muted" style="padding: 4px 0 16px;">{{ 'discovery.pool_empty'|trans }}</p>
 {% endif %}
 
-<div class="section-title" style="margin-top: 8px;">Discovery Failure Reasons (24h)</div>
-<p class="section-legend">
-    Every non-resolved outcome of both lanes, read from Hub Events (channel <code>discovery</code>).
-    The <strong>Counts as</strong> column says what each reason is worth. <em>coverage</em>: about
-    what the sources index, reported by the Anchor Hit Rate card, never alerts. <em>alarm</em>:
-    watched by the Resolution Quality card, the two ways a fetched entity can come back empty.
-    <em>watch by eye</em>: real quality problems, but they can be decided again and again from
-    cached lookups, so any percentage built on them would rise with traffic rather than with
-    breakage. Read those as counts, and compare them with yesterday's. Outbound budget exhaustion
-    is source pressure and has its own card above. Mind the windows: the counts in this table
-    cover 24h, while the alarm card looks back {{ discovery_quality_window_days }} days, so a
-    reason can read zero here while that card is still red.
-</p>
+<div class="section-title" style="margin-top: 8px;">{{ 'discovery.reasons_title'|trans }}</div>
+<div class="section-legend">
+    {{ 'discovery.reasons_lead'|trans|raw }}
+    <details class="legend-more">
+        <summary>{{ 'discovery.read_more'|trans }}</summary>
+        {{ 'discovery.reasons_more'|trans({'%days%': discovery_quality_window_days})|raw }}
+    </details>
+</div>
 {% set discovery_reason_legend = {
-    'no_anchor_resolved': {'what': 'None of the anchor ISBNs is indexed by the sources.', 'counts': 'coverage'},
-    'disjoint_anchors': {'what': 'The anchor ISBNs pointed at unrelated series.', 'counts': 'watch'},
-    'no_clear_winner': {'what': 'Several candidate series survived and the name did not settle it.', 'counts': 'watch'},
-    'name_not_verified': {'what': 'The anchor gave an author whose label is not the name asked about, so the answer would have been a homonym\'s bibliography.', 'counts': 'watch'},
-    'no_usable_members': {'what': 'The series was found but its volume list came back empty.', 'counts': 'alarm'},
-    'no_usable_works': {'what': 'The author was found but the bibliography came back empty.', 'counts': 'alarm'}
+    'no_anchor_resolved': 'coverage',
+    'disjoint_anchors': 'watch',
+    'no_clear_winner': 'watch',
+    'name_not_verified': 'watch',
+    'no_usable_members': 'alarm',
+    'no_usable_works': 'alarm'
 } %}
 <table class="hub-table" style="max-width: 760px;">
     <thead>
         <tr>
-            <th>Reason</th>
-            <th>What happened</th>
-            <th>Counts as</th>
+            <th>{{ 'discovery.th_reason'|trans }}</th>
+            <th>{{ 'discovery.th_what'|trans }}</th>
+            <th>{{ 'discovery.th_counts_as'|trans }}</th>
             <th style="text-align:right">Count (24h)</th>
         </tr>
     </thead>
     <tbody>
-        {% for reason, legend in discovery_reason_legend %}
+        {% for reason, counts_as in discovery_reason_legend %}
         <tr>
             <td><code class="mono">{{ reason }}</code></td>
-            <td>{{ legend.what }}</td>
+            <td>{{ ('discovery.reason.' ~ reason)|trans }}</td>
             <td>
-                {% if legend.counts == 'coverage' %}
-                    <span class="badge badge-muted">coverage</span>
-                {% elseif legend.counts == 'watch' %}
-                    <span class="badge badge-info">watch by eye</span>
+                {% if counts_as == 'coverage' %}
+                    <span class="badge badge-muted">{{ 'discovery.badge_coverage'|trans }}</span>
+                {% elseif counts_as == 'watch' %}
+                    <span class="badge badge-info">{{ 'discovery.badge_watch'|trans }}</span>
                 {% else %}
-                    <span class="badge badge-warning">alarm</span>
+                    <span class="badge badge-warning">{{ 'discovery.badge_alarm'|trans }}</span>
                 {% endif %}
             </td>
             <td class="db-size-val"><strong>{{ discovery_failure_reasons_24h[reason]|default(0) }}</strong></td>
@@ -1031,27 +1033,21 @@
     </tbody>
 </table>
 
-<div class="section-title" style="margin-top: 8px;">Discovery Unavailable Causes (24h)</div>
-<p class="section-legend">
-    Why the {{ discovery_unavailable_24h.unavailable }} unavailable outcome{{ discovery_unavailable_24h.unavailable != 1 ? 's' : '' }}
-    of the last 24h gave up, read from Hub Events (channel <code>discovery</code>). These never
-    reach the pool, so they are the one population the cache cannot account for.
-    <code>outbound_budget_exhausted</code>: the global bucket emptied while the resolution was
-    already running, so the calls it had already paid for bought nothing.
-    <code>outbound_budget_insufficient</code>: the bucket could not cover a cold resolution and it
-    was refused before its first call, which costs nothing and leaves the tokens to a resolution
-    that can finish. <code>resolution_deadline_exceeded</code>: the resolution spent its
-    {{ discovery_resolution_deadline_seconds }}s wall-clock allowance, so the hub gave up before
-    the client's 8s rather than hold a worker for an answer nobody would read. Anything else is a
-    source-side failure (timeout, 5xx, undecodable body), truncated to its first 100 characters.
-</p>
+<div class="section-title" style="margin-top: 8px;">{{ 'discovery.causes_title'|trans }}</div>
+<div class="section-legend">
+    {{ 'discovery.causes_lead'|trans|raw }}
+    <details class="legend-more">
+        <summary>{{ 'discovery.read_more'|trans }}</summary>
+        {{ 'discovery.causes_more'|trans({'%deadline%': discovery_resolution_deadline_seconds})|raw }}
+    </details>
+</div>
 {% if discovery_unavailable_24h.reasons is empty %}
-<p class="muted" style="padding: 4px 0 16px;">No unavailable outcome in the window.</p>
+<p class="muted" style="padding: 4px 0 16px;">{{ 'discovery.no_unavailable'|trans }}</p>
 {% else %}
 <table class="hub-table" style="max-width: 640px;">
     <thead>
         <tr>
-            <th>Cause</th>
+            <th>{{ 'discovery.th_cause'|trans }}</th>
             <th style="text-align:right">Count (24h)</th>
         </tr>
     </thead>

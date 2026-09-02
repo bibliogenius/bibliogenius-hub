@@ -12,6 +12,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminDashboard;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Assets;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Dashboard;
+use EasyCorp\Bundle\EasyAdminBundle\Config\Locale;
 use EasyCorp\Bundle\EasyAdminBundle\Config\MenuItem;
 use EasyCorp\Bundle\EasyAdminBundle\Controller\AbstractDashboardController;
 use Symfony\Component\HttpFoundation\Request;
@@ -339,7 +340,14 @@ class DashboardController extends AbstractDashboardController
     public function configureDashboard(): Dashboard
     {
         return Dashboard::new()
-            ->setTitle('BiblioGenius Hub');
+            ->setTitle('BiblioGenius Hub')
+            // Renders the language switcher in the header user menu. Only
+            // the discovery monitoring section is translated so far; every
+            // other section stays English whichever locale is picked.
+            ->setLocales([
+                Locale::new('en', 'English'),
+                Locale::new('fr', 'Français'),
+            ]);
     }
 
     public function configureAssets(): Assets
