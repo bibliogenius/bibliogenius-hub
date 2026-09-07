@@ -52,6 +52,7 @@ class AccountController extends AbstractController
         private readonly RateLimiterFactoryInterface $accountChallengeAnonLimiter,
         private readonly RateLimiterFactoryInterface $accountLoginAnonLimiter,
         private readonly RateLimiterFactoryInterface $accountKeybundleAnonLimiter,
+        private readonly RateLimiterFactoryInterface $accountRotateLimiter,
     ) {
     }
 
@@ -97,8 +98,8 @@ class AccountController extends AbstractController
 
         if ($email === null || !filter_var($email, FILTER_VALIDATE_EMAIL)
             || $accountSalt === null || $authPk === null || $descriptorSig === null
-            || $authVerifierHash === null || $authMethod === null || $aeadAlg === null
-            || $registryBlob === null || !is_array($kdfParams) || !is_int($schemaVersion)
+            || !self::isVerifierHash($authVerifierHash) || $authMethod === null || $aeadAlg === null
+            || $registryBlob === null || !self::isAcceptedKdfProfile($kdfParams) || !is_int($schemaVersion)
             || $recoveryVerifierMalformed) {
             return $this->json(['error' => 'Missing or invalid account fields'], Response::HTTP_BAD_REQUEST);
         }
@@ -311,6 +312,90 @@ class AccountController extends AbstractController
     }
 
     /**
+     * POST /api/account/passphrase - rotate the passphrase copy of the
+     * trousseau from an already enrolled device (ADR-042 section 7 and 16.2).
+     *
+     * Replaces, in ONE transaction, the four things the passphrase derives:
+     * account_salt, kdf_params, auth_verifier_hash, descriptor_sig, plus the
+     * kind=passphrase wrapped copy. Everything else is deliberately out of
+     * reach: the kind=recovery copy and recovery_verifier_hash (the recovery
+     * kit stays valid), account_auth_pk (the trousseau is unchanged), the
+     * device registry and the lanes (no blob is re-encrypted).
+     *
+     * Gate: bearer session AND a fresh `rotate` challenge signed by
+     * account_auth_sk. Never the old AuthVerifier, which the user may have lost
+     * (this is the ordinary recovery path). The step-up exists because a
+     * credential change must not ride on a leaked 30-minute token alone.
+     */
+    #[Route('/passphrase', name: 'rotate_passphrase', methods: ['POST'])]
+    public function rotatePassphrase(Request $request): JsonResponse
+    {
+        $accountId = $this->auth->authenticate($request);
+        if ($accountId === null) {
+            return $this->json(['error' => 'Unauthorized'], Response::HTTP_UNAUTHORIZED);
+        }
+        if (($limited = $this->enforce($this->accountRotateLimiter, $accountId)) !== null) {
+            return $limited;
+        }
+        if (($tooLarge = $this->rejectIfBodyTooLarge($request, self::MAX_AUTH_BODY_BYTES)) !== null) {
+            return $tooLarge;
+        }
+
+        $data = $this->decodeJson($request);
+        if ($data === null) {
+            return $this->json(['error' => 'Invalid JSON body'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $challenge = self::stringField($data, 'challenge');
+        $signature = self::stringField($data, 'signature');
+        $accountSalt = self::base64Field($data, 'account_salt', 32);
+        $descriptorSig = self::base64Field($data, 'descriptor_sig', 64);
+        $authVerifierHash = self::stringField($data, 'auth_verifier_hash', 128);
+        $wrappedKey = self::rawBase64Field($data, 'wrapped_key', self::MAX_WRAPPED_KEY_BYTES);
+        $kdfParams = $data['kdf_params'] ?? null;
+
+        if ($challenge === null || $signature === null || $accountSalt === null
+            || $descriptorSig === null || !self::isVerifierHash($authVerifierHash)
+            || $wrappedKey === null || !self::isAcceptedKdfProfile($kdfParams)) {
+            return $this->json(['error' => 'Missing or invalid rotation fields'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $account = $this->accounts->find($accountId);
+        if ($account === null) {
+            // A session that outlived its account (purged meanwhile).
+            return $this->json(['error' => 'Unauthorized'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        // Consume first (atomic, replay-safe), then verify against the account's
+        // OWN key: only a device holding the unlocked trousseau can pass.
+        if (!$this->auth->consumeChallenge($accountId, AccountAuthChallenge::PURPOSE_ROTATE, $challenge)
+            || !$this->auth->verifyLoginSignature($account->getAccountAuthPk(), $challenge, $signature)) {
+            return $this->json(['error' => 'Authentication failed'], Response::HTTP_UNAUTHORIZED);
+        }
+
+        try {
+            // Salt, verifier and wrapped copy must move together: a crash between
+            // them would leave path A permanently unopenable for this account.
+            $this->entityManager->wrapInTransaction(function () use ($account, $accountId, $data, $kdfParams, $authVerifierHash, $wrappedKey): void {
+                $account->setAccountSalt($data['account_salt'])
+                    ->setKdfParams(json_encode($kdfParams, JSON_UNESCAPED_SLASHES))
+                    ->setAuthVerifierHash($authVerifierHash)
+                    ->setDescriptorSig($data['descriptor_sig'])
+                    ->touch();
+                $this->wrappedKeys->upsert($accountId, WrappedAccountKey::KIND_PASSPHRASE, $wrappedKey);
+                $this->entityManager->flush();
+            });
+        } catch (\Throwable $e) {
+            $this->eventLogger->error('account_sync', 'passphrase rotation failed', ['reason' => $e->getMessage()]);
+            return $this->json(['error' => 'Failed to rotate passphrase'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        $this->eventLogger->info('account_sync', 'passphrase rotated', []);
+
+        return $this->json(['status' => 'rotated']);
+    }
+
+    /**
      * DELETE /api/account - RGPD purge (L4). Cascade-deletes lanes, wrapped
      * keys, registry, and challenges via the DB-level ON DELETE CASCADE.
      */
@@ -407,7 +492,57 @@ class AccountController extends AbstractController
      */
     private static function isRecoveryVerifierHash(?string $value): bool
     {
+        return self::isVerifierHash($value);
+    }
+
+    /**
+     * Shape of every verifier the hub stores (auth and recovery alike): the hex
+     * SHA-256 of an HKDF output, so exactly 64 hex characters. Applied to
+     * auth_verifier_hash at signup and at rotation for the same reason as the
+     * recovery marker: a wrong-shaped value would be stored, never match the
+     * keybundle MAC, and silently close path A for that account with nothing
+     * to tell the user why. Refusing it makes a client bug loud and local.
+     */
+    private static function isVerifierHash(?string $value): bool
+    {
         return $value !== null && strlen($value) === 64 && ctype_xdigit($value);
+    }
+
+    // Argon2id account profile floor (ADR-042 section 3 and 14/H4, mirrored
+    // from the client's validate_profile). The hub stores the params and every
+    // joining device REFUSES a profile below this floor, so accepting a weaker
+    // one at signup or rotation would create an account nobody can join
+    // through path A. Version 0x13 = 19; p is pinned to 1 (WASM parity).
+    private const KDF_ALGO = 'argon2id';
+    private const KDF_VERSION = 19;
+    private const KDF_MIN_M = 65536;
+    private const KDF_MIN_T = 3;
+    private const KDF_P = 1;
+    // Upper bounds are robustness, not security: only the account's own client
+    // can set them, but a profile a phone cannot execute (1 GiB, dozens of
+    // passes) would close path A just as surely as one below the floor.
+    private const KDF_MAX_M = 1048576; // 1 GiB
+    private const KDF_MAX_T = 10;
+
+    /**
+     * Whether a client-supplied kdf_params object is a profile a joining
+     * device will accept. Extra keys (e.g. `out`) are tolerated: the pinned
+     * fields are what the descriptor signature and the client floor cover.
+     */
+    private static function isAcceptedKdfProfile(mixed $kdf): bool
+    {
+        if (!is_array($kdf)) {
+            return false;
+        }
+        $m = $kdf['m'] ?? null;
+        $t = $kdf['t'] ?? null;
+        $p = $kdf['p'] ?? null;
+
+        return ($kdf['algo'] ?? null) === self::KDF_ALGO
+            && ($kdf['version'] ?? null) === self::KDF_VERSION
+            && is_int($m) && $m >= self::KDF_MIN_M && $m <= self::KDF_MAX_M
+            && is_int($t) && $t >= self::KDF_MIN_T && $t <= self::KDF_MAX_T
+            && is_int($p) && $p === self::KDF_P;
     }
 
     private static function stringField(array $data, string $key, int $maxLen = 255): ?string

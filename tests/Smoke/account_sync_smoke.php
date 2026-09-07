@@ -129,6 +129,50 @@ $registry = base64_encode('SIGNED-REGISTRY-' . random_bytes(24));
 [$c, $j] = http('GET', "$base/api/account/registry", null, $token);
 check('registry publish + fetch -> blob round-trips', $c === 200 && ($j['blob'] ?? null) === $registry);
 
+// 7b. passphrase rotation (ADR-042 section 16.2): bearer + a `rotate` challenge
+//     signed by the account key; afterwards the keybundle gate only honors the
+//     NEW verifier hash, and the recovery/registry material is untouched.
+[$c, $j] = http('POST', "$base/api/account/challenge", ['email' => $email, 'purpose' => 'rotate']);
+check('rotate challenge -> 200 + nonce', $c === 200 && !empty($j['challenge']));
+$rotChallenge = $j['challenge'] ?? '';
+$rotSig = b64url(sodium_crypto_sign_detached(base64_decode(strtr($rotChallenge, '-_', '+/')), $sk));
+$newVerifier = hash('sha256', 'smoke-rotated');
+[$c, $j] = http('POST', "$base/api/account/passphrase", [
+    'challenge' => $rotChallenge,
+    'signature' => $rotSig,
+    'account_salt' => b64url(random_bytes(32)),
+    'kdf_params' => ['algo' => 'argon2id', 'version' => 19, 'm' => 65536, 't' => 3, 'p' => 1, 'out' => 32],
+    'auth_verifier_hash' => $newVerifier,
+    'descriptor_sig' => b64url(random_bytes(64)),
+    'wrapped_key' => base64_encode(random_bytes(120)),
+], $token);
+check('passphrase rotation -> 200 rotated', $c === 200 && ($j['status'] ?? null) === 'rotated');
+[$c, $j] = http('POST', "$base/api/account/challenge", ['email' => $email, 'purpose' => 'keybundle']);
+$kbChallenge = $j['challenge'] ?? '';
+[$c] = http('POST', "$base/api/account/keybundle", [
+    'email' => $email, 'challenge' => $kbChallenge,
+    'mac' => hash_hmac('sha256', $kbChallenge, hash('sha256', 'smoke')),
+]);
+check('keybundle with the OLD verifier after rotation -> 401', $c === 401);
+[$c, $j] = http('POST', "$base/api/account/challenge", ['email' => $email, 'purpose' => 'keybundle']);
+$kbChallenge = $j['challenge'] ?? '';
+[$c, $j] = http('POST', "$base/api/account/keybundle", [
+    'email' => $email, 'challenge' => $kbChallenge,
+    'mac' => hash_hmac('sha256', $kbChallenge, $newVerifier),
+]);
+check('keybundle with the NEW verifier after rotation -> 200', $c === 200 && count($j['wrapped_keys'] ?? []) === 1);
+[$c, $j] = http('GET', "$base/api/account/registry", null, $token);
+check('registry untouched by the rotation', $c === 200 && ($j['blob'] ?? null) === $registry);
+// A rotation without the step-up signature must be refused even with a valid session.
+[$c] = http('POST', "$base/api/account/passphrase", [
+    'challenge' => $rotChallenge, 'signature' => $rotSig,
+    'account_salt' => b64url(random_bytes(32)),
+    'kdf_params' => ['algo' => 'argon2id', 'version' => 19, 'm' => 65536, 't' => 3, 'p' => 1, 'out' => 32],
+    'auth_verifier_hash' => hash('sha256', 'replay'), 'descriptor_sig' => b64url(random_bytes(64)),
+    'wrapped_key' => base64_encode(random_bytes(120)),
+], $token);
+check('rotate challenge replay -> 401', $c === 401);
+
 // 8. unauthorized push rejected
 [$c] = http('POST', "$base/api/account/push", ['device_id' => 'devA', 'lanes' => []], 'bogus-token');
 check('push with bad token -> 401', $c === 401);

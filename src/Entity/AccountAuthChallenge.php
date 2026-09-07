@@ -9,7 +9,8 @@ use Doctrine\ORM\Mapping as ORM;
 
 /**
  * A one-time, short-lived nonce for account auth challenge-response (ADR-043).
- * `purpose` is `login` (Ed25519) or `keybundle` (AuthVerifier HMAC). The row
+ * `purpose` is `login` (Ed25519), `keybundle` (AuthVerifier HMAC) or `rotate`
+ * (Ed25519 step-up for a passphrase rotation, ADR-042 section 16.2). The row
  * is consumed (deleted) on successful verification; expired rows are GC'd.
  */
 #[ORM\Entity(repositoryClass: AccountAuthChallengeRepository::class)]
@@ -19,7 +20,9 @@ class AccountAuthChallenge
 {
     public const PURPOSE_LOGIN = 'login';
     public const PURPOSE_KEYBUNDLE = 'keybundle';
-    public const PURPOSES = [self::PURPOSE_LOGIN, self::PURPOSE_KEYBUNDLE];
+    // Own purpose so a login nonce can never authorize a rotation, nor the reverse.
+    public const PURPOSE_ROTATE = 'rotate';
+    public const PURPOSES = [self::PURPOSE_LOGIN, self::PURPOSE_KEYBUNDLE, self::PURPOSE_ROTATE];
 
     #[ORM\Id]
     #[ORM\GeneratedValue]

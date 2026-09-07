@@ -55,6 +55,13 @@ framework:
             policy: 'token_bucket'
             limit: 120
             rate: { interval: '1 minute', amount: 120 }
+        # Passphrase rotation (ADR-042 section 16.2), keyed on the authenticated
+        # account id. A credential change is rare by nature; the tight budget
+        # bounds what a stolen session token could churn.
+        account_rotate:
+            policy: 'token_bucket'
+            limit: 5
+            rate: { interval: '1 hour', amount: 5 }
 
         # External discovery resolver (ADR-060). discovery_anon keys on the
         # client IP like the other anonymous endpoints; discovery_source_budget
