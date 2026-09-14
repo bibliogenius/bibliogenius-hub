@@ -4,348 +4,75 @@
 {% block content_header %}{% endblock %}
 
 {% block main %}
-<style>
-    /* ── Alert banner ── */
-    .hub-alert {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 14px 18px;
-        border-radius: 8px;
-        margin-bottom: 24px;
-        font-size: 14px;
-        font-weight: 500;
-    }
-    .hub-alert-error  { background: #f8d7da; color: #58151c; border: 1px solid #f1aeb5; }
-    .hub-alert-warn   { background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; }
-    .hub-alert-icon   { font-size: 20px; flex-shrink: 0; }
-    .hub-alert a      { color: inherit; font-weight: 700; text-decoration: underline; }
-
-    /* ── Section headers ── */
-    .section-title {
-        font-size: 13px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.6px;
-        color: var(--text-muted, #6c757d);
-        margin: 28px 0 10px;
-    }
-    .section-legend {
-        font-size: 13px;
-        color: var(--text-muted, #6c757d);
-        margin: -4px 0 14px;
-        line-height: 1.6;
-        max-width: 820px;
-    }
-    .section-legend strong { color: var(--text-color, #212529); }
-    .section-legend code   { font-size: 12px; }
-
-    /* ── Stat cards ── */
-    .stat-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-        gap: 12px;
-        margin-bottom: 6px;
-    }
-    .stat-card {
-        background: var(--white, #fff);
-        border: 1px solid var(--border-color, #dee2e6);
-        border-radius: 8px;
-        padding: 14px 16px 12px;
-        position: relative;
-    }
-    .stat-card.status-alert { border-color: #f1aeb5; background: #fff8f8; }
-    .stat-card.status-warn  { border-color: #ffe69c; background: #fffdf0; }
-    .stat-card.status-ok    { border-color: #a3cfbb; background: #f0faf4; }
-
-    .stat-label {
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        color: var(--text-muted, #6c757d);
-        margin-bottom: 4px;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-    .stat-value {
-        font-size: 30px;
-        font-weight: 700;
-        color: var(--text-color, #212529);
-        line-height: 1;
-        margin-bottom: 4px;
-    }
-    .stat-card.status-alert .stat-value { color: #dc3545; }
-    .stat-card.status-warn  .stat-value { color: #e07b00; }
-    .stat-card.status-ok    .stat-value { color: #198754; }
-
-    .stat-sub {
-        font-size: 11px;
-        color: var(--text-muted, #6c757d);
-        line-height: 1.4;
-    }
-    .stat-sub.sub-alert { color: #dc3545; font-weight: 600; }
-    .stat-sub.sub-warn  { color: #e07b00; font-weight: 600; }
-
-    /* Long legends show their first sentence and hide the rest behind a
-       native disclosure: no JS, keyboard reachable, and the summary is
-       announced as a button by screen readers. */
-    .legend-more { display: inline; }
-    .legend-more > summary {
-        display: inline;
-        cursor: pointer;
-        color: var(--primary-color, #0d6efd);
-        text-decoration: underline;
-        list-style: none;
-    }
-    .legend-more > summary::-webkit-details-marker { display: none; }
-    .legend-more[open] > summary { display: block; margin-bottom: 4px; }
-
-    /* Plain-language line under a figure: what to CONCLUDE from it,
-       for a reader who does not know the ADR behind the card. */
-    .stat-hint {
-        font-size: 11px;
-        font-style: italic;
-        line-height: 1.35;
-        color: var(--text-muted, #6c757d);
-        margin-top: 6px;
-        padding-top: 5px;
-        border-top: 1px dashed var(--border-color, #dee2e6);
-    }
-
-    /* ── Tooltip (info icon) ── */
-    .tip {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        background: var(--border-color, #dee2e6);
-        color: var(--text-muted, #6c757d);
-        font-size: 9px;
-        font-weight: 700;
-        cursor: help;
-        position: relative;
-        font-style: normal;
-        flex-shrink: 0;
-    }
-    .tip::after {
-        content: attr(data-tip);
-        position: absolute;
-        bottom: 130%;
-        left: 50%;
-        transform: translateX(-50%);
-        background: #1a1a2e;
-        color: #fff;
-        padding: 7px 11px;
-        border-radius: 6px;
-        font-size: 12px;
-        font-weight: 400;
-        white-space: normal;
-        width: max-content;
-        max-width: 260px;
-        line-height: 1.5;
-        z-index: 100;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.15s;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.25);
-        text-transform: none;
-        letter-spacing: 0;
-    }
-    .tip:hover::after { opacity: 1; }
-
-    /* ── Tables ── */
-    .hub-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 13px;
-    }
-    .hub-table th, .hub-table td {
-        padding: 8px 12px;
-        text-align: left;
-        border-bottom: 1px solid var(--border-color, #dee2e6);
-        vertical-align: middle;
-    }
-    .hub-table th {
-        font-weight: 600;
-        background: var(--table-header-bg, #f8f9fa);
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.4px;
-        color: #495057;
-    }
-
-    /* ── Badges ── */
-    .badge {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: 600;
-        white-space: nowrap;
-    }
-    .badge-error     { background: #f8d7da; color: #842029; }
-    .badge-warning   { background: #fff3cd; color: #856404; }
-    .badge-ok        { background: #d1e7dd; color: #0f5132; }
-    .badge-info      { background: #cff4fc; color: #055160; }
-    .badge-relay     { background: #e2e3e5; color: #41464b; }
-    .badge-directory { background: #d1e7dd; color: #0f5132; }
-    .badge-muted     { background: #f1f3f5; color: #6c757d; }
-
-    /* ── Action suggestions ── */
-    .action-box {
-        font-size: 12px;
-        line-height: 1.5;
-    }
-    .action-box .action-label {
-        font-weight: 600;
-        margin-bottom: 2px;
-    }
-    .action-box .action-desc {
-        color: var(--text-muted, #6c757d);
-    }
-
-    /* ── Delete button ── */
-    .btn-delete-sm {
-        display: inline-block;
-        padding: 3px 10px;
-        border: 1px solid #dc3545;
-        border-radius: 4px;
-        background: #fff;
-        color: #dc3545;
-        font-size: 11px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: background 0.15s, color 0.15s;
-    }
-    .btn-delete-sm:hover { background: #dc3545; color: #fff; }
-
-    /* ── Misc ── */
-    .mono { font-family: monospace; font-size: 12px; }
-    .muted { color: var(--text-muted, #6c757d); }
-    .evt-date { font-size: 11px; color: var(--text-muted, #6c757d); }
-    .context-cell {
-        max-width: 280px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        font-family: monospace;
-        font-size: 12px;
-        color: var(--text-muted, #6c757d);
-    }
-
-    /* ── DB size bar ── */
-    .db-bar-wrap { display: flex; align-items: center; gap: 8px; }
-    .db-bar {
-        height: 7px;
-        background: #0d6efd;
-        border-radius: 4px;
-        min-width: 2px;
-    }
-    .db-size-val {
-        white-space: nowrap;
-        min-width: 64px;
-        text-align: right;
-        font-variant-numeric: tabular-nums;
-        font-size: 13px;
-    }
-</style>
 
 {# ────────────────────────────────────────────────
-   D — Alert banner (shown only when actionable)
+   Status strip. Every tile that turns red or amber further down also
+   lands here, so the state of the hub is readable without scrolling.
+   Built by DashboardAlerts from the same conditions the tiles use.
    ──────────────────────────────────────────────── #}
-{% if recent_errors > 0 %}
-<div class="hub-alert hub-alert-error">
-    <span class="hub-alert-icon">🔴</span>
-    <div>
-        <strong>{{ recent_errors }} error{{ recent_errors > 1 ? 's' : '' }} in the last 24 hours.</strong>
-        Requires investigation — check <a href="#hub-events">Hub Events</a> below for details.
+{% set alert_level = alerts.errors > 0 ? 'error' : (alerts.warnings > 0 ? 'warn' : 'ok') %}
+<section class="hub-alert hub-alert-{{ alert_level }}" role="status" aria-label="Hub status">
+    <span class="hub-alert-icon" aria-hidden="true">{{ alert_level == 'error' ? '🔴' : (alert_level == 'warn' ? '🟡' : '🟢') }}</span>
+    <div class="hub-alert-body">
+        {% if alerts.items is empty %}
+            <strong>No active alert.</strong> Every monitored invariant is within range.
+        {% else %}
+            <strong>{{ alerts.errors }} to fix, {{ alerts.warnings }} to watch.</strong>
+            <ul class="hub-alert-list">
+                {% for alert in alerts.items %}
+                <li>
+                    <span class="badge {{ alert.level == 'error' ? 'badge-error' : 'badge-warning' }}">{{ alert.level == 'error' ? 'fix' : 'watch' }}</span>
+                    <a href="#{{ alert.anchor }}">{{ alert.text }}</a>
+                </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+        <div class="hub-alert-meta">
+            Figures computed at <time datetime="{{ computed_at|date('c', 'UTC') }}" data-utc data-format="time">{{ computed_at|date('H:i:s', 'UTC') }} UTC</time>,
+            cached for {{ cache_ttl_seconds }} s.
+            <form method="post" action="{{ path('admin_dashboard_refresh') }}" class="hub-alert-refresh">
+                <input type="hidden" name="_token" value="{{ csrf_token('dashboard-refresh') }}">
+                <button type="submit" class="btn-link-sm">Recompute now</button>
+            </form>
+        </div>
     </div>
-</div>
-{% elseif recent_warnings > 5 %}
-<div class="hub-alert hub-alert-warn">
-    <span class="hub-alert-icon">🟡</span>
-    <div>
-        <strong>{{ recent_warnings }} warnings in the last 24 hours.</strong>
-        Worth reviewing — check <a href="#hub-events">Hub Events</a> for recurring patterns.
-    </div>
-</div>
-{% endif %}
+</section>
 
-{# ────────────────────────────────────────────────
-   B — Stat cards, grouped by concern
-   ──────────────────────────────────────────────── #}
-
-{# — Directory — #}
-<div class="section-title">Directory</div>
+{# — Health — #}
+<div class="section-title" id="health" style="margin-top: 24px;">Health</div>
 <div class="stat-grid">
 
-    <div class="stat-card {{ total_profiles == 0 ? 'status-warn' : '' }}">
+    <div class="stat-card {{ recent_warnings > 5 ? 'status-warn' : '' }}">
         <div class="stat-label">
-            Profiles
-            <i class="tip" data-tip="Total library profiles registered on this hub. Grows when new peers connect for the first time.">i</i>
+            Warnings (24h)
+            <i class="tip" data-tip="Warning-level events in the last 24 hours. Warnings don't break functionality but may indicate client-side issues (stale tokens, invalid requests) or slow degradation.">i</i>
         </div>
-        <div class="stat-value">{{ total_profiles }}</div>
-        <div class="stat-sub">registered libraries</div>
-    </div>
-
-    <div class="stat-card {{ active_profiles == 0 ? 'status-warn' : 'status-ok' }}">
-        <div class="stat-label">
-            Active (24h)
-            <i class="tip" data-tip="Profiles that contacted the hub in the last 24 hours (heartbeat or sync). If this drops to 0, clients may not be reaching the hub.">i</i>
-        </div>
-        <div class="stat-value">{{ active_profiles }}</div>
-        <div class="stat-sub">of {{ total_profiles }} total
-            {% if active_profiles == 0 and total_profiles > 0 %}
-            <span class="sub-warn">— check hub reachability</span>
+        <div class="stat-value">{{ recent_warnings }}</div>
+        <div class="stat-sub">
+            {% if recent_warnings > 5 %}
+                <span class="sub-warn">review Hub Events</span>
+            {% else %}
+                within normal range
             {% endif %}
         </div>
     </div>
 
-    <div class="stat-card">
+    <div class="stat-card {{ recent_errors > 0 ? 'status-alert' : 'status-ok' }}">
         <div class="stat-label">
-            With Relay
-            <i class="tip" data-tip="Profiles that have configured a relay mailbox — they can receive encrypted messages even when offline.">i</i>
+            Errors (24h)
+            <i class="tip" data-tip="Error-level events: database failures, unhandled exceptions. Any error requires investigation. Check Hub Events for the full context.">i</i>
         </div>
-        <div class="stat-value">{{ profiles_with_relay }}</div>
-        <div class="stat-sub">of {{ total_profiles }} total</div>
-    </div>
-
-    <div class="stat-card {{ invite_token_count > 200 ? 'status-warn' : '' }}">
-        <div class="stat-label">
-            Invite Tokens
-            <i class="tip" data-tip="Short invite links stored in DB (TTL 30 days, pruned nightly by app:db:prune). A high count means cleanup is not running.">i</i>
-        </div>
-        <div class="stat-value">{{ invite_token_count }}</div>
+        <div class="stat-value">{{ recent_errors }}</div>
         <div class="stat-sub">
-            {% if invite_token_count > 200 %}
-                <span class="sub-warn">run app:db:prune</span>
+            {% if recent_errors > 0 %}
+                <span class="sub-alert">see Hub Events below</span>
             {% else %}
-                30-day TTL
-            {% endif %}
-        </div>
-    </div>
-
-    <div class="stat-card {{ registration_failure_count > 100 ? 'status-warn' : '' }}">
-        <div class="stat-label">
-            Reg. Failures
-            <i class="tip" data-tip="Registration attempts rejected by the hub (missing write token, invalid format, etc). A high count may indicate an outdated client version or repeated invalid attempts from one node.">i</i>
-        </div>
-        <div class="stat-value">{{ registration_failure_count }}</div>
-        <div class="stat-sub">
-            {% if registration_failure_count > 100 %}
-                <span class="sub-warn">check for repeated attempts</span>
-            {% else %}
-                logged, 90-day TTL
+                no logged error (uncaught 500s only reach docker logs)
             {% endif %}
         </div>
     </div>
 
     {% set prune_age_hours = last_prune_at ? ((("now"|date("U")) - (last_prune_at|date("U"))) / 3600) : null %}
-    {% set prune_stale = last_prune_at is null or prune_age_hours > 48 %}
     <div class="stat-card {{ prune_stale ? 'status-warn' : 'status-ok' }}">
         <div class="stat-label">
             Last Prune
@@ -375,41 +102,8 @@
 
 </div>
 
-{# — Client Versions — #}
-{% if version_distribution is not empty %}
-<div class="section-title" style="margin-top: 24px;">Client Versions (Active 24h)</div>
-<p class="section-legend">
-    Client app versions reporting in the last 24 hours. Use this to correlate
-    hub-side anomalies (orphan mailboxes, failed registrations, stale tokens)
-    with a specific release. <code>unknown</code> means the client is older
-    than v0.9.0 (pre-<code>app_version</code>) or never sent the field.
-</p>
-<table class="hub-table" style="max-width: 520px;">
-    <thead>
-        <tr>
-            <th>Version</th>
-            <th style="text-align:right">Clients</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for row in version_distribution %}
-        <tr>
-            <td>
-                {% if row.version == 'unknown' %}
-                    <span class="badge badge-muted">unknown</span>
-                {% else %}
-                    <code class="mono">{{ row.version }}</code>
-                {% endif %}
-            </td>
-            <td class="db-size-val"><strong>{{ row.count }}</strong></td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% endif %}
-
 {# — Relay — #}
-<div class="section-title" style="margin-top: 24px;">Relay</div>
+<div class="section-title" id="relay" style="margin-top: 24px;">Relay</div>
 <div class="stat-grid">
 
     <div class="stat-card">
@@ -450,7 +144,7 @@
         </div>
     </div>
 
-    <div class="stat-card {{ deposit_404s > 0 ? 'status-alert' : 'status-ok' }}">
+    <div class="stat-card {{ deposit_404s > 0 ? 'status-warn' : 'status-ok' }}">
         <div class="stat-label">
             Deposit 404s (24h)
             <i class="tip" data-tip="Peers tried to send a message to a mailbox that no longer exists. This happens when a peer holds a stale invitation. Not a server error, the sender needs a fresh invitation link.">i</i>
@@ -458,7 +152,7 @@
         <div class="stat-value">{{ deposit_404s }}</div>
         <div class="stat-sub">
             {% if deposit_404s > 0 %}
-                <span class="sub-alert">stale invitations on sender side</span>
+                <span class="sub-warn">stale invitations on sender side</span>
             {% else %}
                 no stale invitations
             {% endif %}
@@ -513,7 +207,7 @@
 </div>
 
 {% if orphan_mailbox_refs|length > 0 %}
-<div class="section-title" style="margin-top: 24px;">Orphan Mailbox References (broken relay link)</div>
+<div class="section-title" id="relay-orphans" style="margin-top: 24px;">Orphan Mailbox References (broken relay link)</div>
 <p class="section-legend">
     Each row is a profile whose <code>relay_mailbox_id</code> points to a mailbox no longer present in
     <code>relay_mailboxes</code>. Peers depositing to it get continuous 404s.
@@ -548,7 +242,7 @@
 {% endif %}
 
 {% if shared_mailbox_refs|length > 0 %}
-<div class="section-title" style="margin-top: 24px;">Shared Mailbox References (hijack signal)</div>
+<div class="section-title" id="relay-shared" style="margin-top: 24px;">Shared Mailbox References (hijack signal)</div>
 <p class="section-legend">
     Each row shows a <code>relay_mailbox_id</code> referenced by multiple profiles. Expected count is always 1.
     <strong>Action:</strong> open each affected profile in the Library Profiles admin, compare <code>node_id</code>
@@ -574,7 +268,7 @@
 {% endif %}
 
 {% if hijack_offenders|length > 0 %}
-<div class="section-title" style="margin-top: 24px;">Hijack Attempts by Profile (cumulative)</div>
+<div class="section-title" id="relay-hijack" style="margin-top: 24px;">Hijack Attempts by Profile (cumulative)</div>
 <p class="section-legend">
     Profiles with at least one mailbox ownership violation caught by the service-level check (ADR-031).
     The count is monotonic since the feature shipped and is NOT reset by <code>hub_events</code> TTL cleanup.
@@ -603,8 +297,9 @@
 </table>
 {% endif %}
 
+
 {# — Directory Health (catalog keep-alive invariants, ADR-027) — #}
-<div class="section-title" style="margin-top: 24px;">Directory Health</div>
+<div class="section-title" id="directory-health" style="margin-top: 24px;">Directory Health</div>
 <div class="stat-grid">
 
     <div class="stat-card {{ catalog_coverage_gaps > 0 ? 'status-alert' : 'status-ok' }}">
@@ -766,8 +461,9 @@
 </table>
 {% endif %}
 
+
 {# — Discovery resolver (series/author completion, ADR-060) — #}
-<div class="section-title" style="margin-top: 24px;">{{ 'discovery.section_title'|trans }}</div>
+<div class="section-title" id="discovery" style="margin-top: 24px;">{{ 'discovery.section_title'|trans }}</div>
 <div class="section-legend">
     {{ 'discovery.intro_lead'|trans|raw }}
     <details class="legend-more">
@@ -1062,47 +758,114 @@
 </table>
 {% endif %}
 
-{# — Health — #}
-<div class="section-title" style="margin-top: 24px;">Health</div>
+
+{# — Directory — #}
+<div class="section-title" id="directory" style="margin-top: 24px;">Directory</div>
 <div class="stat-grid">
 
-    <div class="stat-card {{ recent_warnings > 5 ? 'status-warn' : '' }}">
+    <div class="stat-card {{ total_profiles == 0 ? 'status-warn' : '' }}">
         <div class="stat-label">
-            Warnings (24h)
-            <i class="tip" data-tip="Warning-level events in the last 24 hours. Warnings don't break functionality but may indicate client-side issues (stale tokens, invalid requests) or slow degradation.">i</i>
+            Profiles
+            <i class="tip" data-tip="Total library profiles registered on this hub. Grows when new peers connect for the first time.">i</i>
         </div>
-        <div class="stat-value">{{ recent_warnings }}</div>
-        <div class="stat-sub">
-            {% if recent_warnings > 5 %}
-                <span class="sub-warn">review Hub Events</span>
-            {% else %}
-                within normal range
+        <div class="stat-value">{{ total_profiles }}</div>
+        <div class="stat-sub">registered libraries</div>
+    </div>
+
+    <div class="stat-card {{ active_profiles == 0 ? 'status-warn' : 'status-ok' }}">
+        <div class="stat-label">
+            Active (24h)
+            <i class="tip" data-tip="Profiles that contacted the hub in the last 24 hours (heartbeat or sync). If this drops to 0, clients may not be reaching the hub.">i</i>
+        </div>
+        <div class="stat-value">{{ active_profiles }}</div>
+        <div class="stat-sub">of {{ total_profiles }} total
+            {% if active_profiles == 0 and total_profiles > 0 %}
+            <span class="sub-warn">— check hub reachability</span>
             {% endif %}
         </div>
     </div>
 
-    <div class="stat-card {{ recent_errors > 0 ? 'status-alert' : 'status-ok' }}">
+    <div class="stat-card">
         <div class="stat-label">
-            Errors (24h)
-            <i class="tip" data-tip="Error-level events: database failures, unhandled exceptions. Any error requires investigation. Check Hub Events for the full context.">i</i>
+            With Relay
+            <i class="tip" data-tip="Profiles that have configured a relay mailbox — they can receive encrypted messages even when offline.">i</i>
         </div>
-        <div class="stat-value">{{ recent_errors }}</div>
+        <div class="stat-value">{{ profiles_with_relay }}</div>
+        <div class="stat-sub">of {{ total_profiles }} total</div>
+    </div>
+
+    <div class="stat-card {{ invite_token_count > 200 ? 'status-warn' : '' }}">
+        <div class="stat-label">
+            Invite Tokens
+            <i class="tip" data-tip="Short invite links stored in DB (TTL 30 days, pruned nightly by app:db:prune). A high count means cleanup is not running.">i</i>
+        </div>
+        <div class="stat-value">{{ invite_token_count }}</div>
         <div class="stat-sub">
-            {% if recent_errors > 0 %}
-                <span class="sub-alert">see Hub Events below</span>
+            {% if invite_token_count > 200 %}
+                <span class="sub-warn">run app:db:prune</span>
             {% else %}
-                system healthy
+                30-day TTL
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="stat-card {{ registration_failure_count > 100 ? 'status-warn' : '' }}">
+        <div class="stat-label">
+            Reg. Failures
+            <i class="tip" data-tip="Registration attempts rejected by the hub (missing write token, invalid format, etc). A high count may indicate an outdated client version or repeated invalid attempts from one node.">i</i>
+        </div>
+        <div class="stat-value">{{ registration_failure_count }}</div>
+        <div class="stat-sub">
+            {% if registration_failure_count > 100 %}
+                <span class="sub-warn">check for repeated attempts</span>
+            {% else %}
+                logged, 90-day TTL
             {% endif %}
         </div>
     </div>
 
 </div>
 
+
+{# — Client Versions — #}
+{% if version_distribution is not empty %}
+<div class="section-title" style="margin-top: 24px;">Client Versions (Active 24h)</div>
+<p class="section-legend">
+    Client app versions reporting in the last 24 hours. Use this to correlate
+    hub-side anomalies (orphan mailboxes, failed registrations, stale tokens)
+    with a specific release. <code>unknown</code> means the client is older
+    than v0.9.0 (pre-<code>app_version</code>) or never sent the field.
+</p>
+<table class="hub-table" style="max-width: 520px;">
+    <thead>
+        <tr>
+            <th>Version</th>
+            <th style="text-align:right">Clients</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in version_distribution %}
+        <tr>
+            <td>
+                {% if row.version == 'unknown' %}
+                    <span class="badge badge-muted">unknown</span>
+                {% else %}
+                    <code class="mono">{{ row.version }}</code>
+                {% endif %}
+            </td>
+            <td class="db-size-val"><strong>{{ row.count }}</strong></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+
 {# ────────────────────────────────────────────────
    C — Mailboxes with pending messages
    ──────────────────────────────────────────────── #}
 {% if busy_mailboxes is not empty %}
-<div class="section-title" style="margin-top: 32px;">Mailboxes with Pending Messages</div>
+<div class="section-title" id="mailboxes" style="margin-top: 32px;">Mailboxes with Pending Messages</div>
 <p class="section-legend">
     Encrypted messages waiting to be collected. Having pending messages is <strong>normal</strong> — the recipient peer hasn't polled yet.
     Watch for: <strong>Inactive</strong> (no collection in 7+ days) → the peer is likely gone, delete the mailbox to free space.
@@ -1176,6 +939,7 @@
     </tbody>
 </table>
 {% endif %}
+
 
 {# ────────────────────────────────────────────────
    Activity
@@ -1258,7 +1022,7 @@
         <div class="stat-sub">{{ 'follows.active.sub'|trans({'%total%': follows_total}) }}</div>
     </div>
 
-    <div class="stat-card {{ follows_by_status.pending > 0 ? 'status-warn' : '' }}">
+    <div class="stat-card">
         <div class="stat-label">
             {{ 'follows.pending.label'|trans }}
             <i class="tip" data-tip="{{ 'follows.pending.tip'|trans }}">i</i>
@@ -1288,57 +1052,11 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script>
-(function () {
-    const gridColor = 'rgba(0,0,0,0.06)';
-    const defaults = {
-        responsive: true,
-        plugins: { legend: { display: false } },
-        scales: {
-            x: { grid: { display: false }, ticks: { font: { size: 11 } } },
-            y: { grid: { color: gridColor }, ticks: { font: { size: 11 }, precision: 0 }, beginAtZero: true },
-        },
-    };
+{# Series for public/static/js/dashboard-charts.js. json_encode output is
+   safe inside application/json (no </script> can appear: slashes are escaped). #}
+<script type="application/json" id="chart-loans-data">{{ loans_per_day|json_encode|raw }}</script>
+<script type="application/json" id="chart-growth-data">{{ library_growth|json_encode|raw }}</script>
 
-    // Fill missing days with 0 for loans chart
-    const loanRaw = {{ loans_per_day|json_encode|raw }};
-    const loanMap = Object.fromEntries(loanRaw.map(r => [r.day, parseInt(r.count)]));
-    const loanLabels = [], loanData = [];
-    for (let i = 29; i >= 0; i--) {
-        const d = new Date(); d.setDate(d.getDate() - i);
-        const key = d.toISOString().slice(0, 10);
-        loanLabels.push(i === 0 ? 'Today' : key.slice(5)); // MM-DD
-        loanData.push(loanMap[key] ?? 0);
-    }
-
-    new Chart(document.getElementById('chart-loans'), {
-        type: 'bar',
-        data: {
-            labels: loanLabels,
-            datasets: [{ data: loanData, backgroundColor: '#0d6efd', borderRadius: 3 }],
-        },
-        options: {
-            ...defaults,
-            scales: {
-                ...defaults.scales,
-                x: { ...defaults.scales.x, ticks: { font: { size: 10 }, maxTicksLimit: 10 } },
-            },
-        },
-    });
-
-    // Library growth chart
-    const growthRaw = {{ library_growth|json_encode|raw }};
-    new Chart(document.getElementById('chart-growth'), {
-        type: 'bar',
-        data: {
-            labels: growthRaw.map(r => r.week.slice(5, 10)), // MM-DD
-            datasets: [{ data: growthRaw.map(r => parseInt(r.count)), backgroundColor: '#198754', borderRadius: 3 }],
-        },
-        options: defaults,
-    });
-})();
-</script>
 
 {# ────────────────────────────────────────────────
    DB Size
@@ -1378,6 +1096,7 @@
     </tbody>
 </table>
 {% endif %}
+
 
 {# ────────────────────────────────────────────────
    Hub Events
@@ -1430,37 +1149,9 @@
                 {% endif %}
             </td>
             <td>
-                {# Plain-language explanations for known messages #}
-                {% set msg_tips = {
-                    'hub_events_capped':
-                        'This table hit its row cap and its oldest entries were deleted. Context: cutoff is the oldest entry still standing, deleted how many went. Expected on a busy hub, but any figure computed over a window reaching past that cutoff is missing events, which is why the Resolution Quality card stops answering.',
-                    'discovery_drift_degraded':
-                        'The discovery resolver found entities at Wikidata or Inventaire and they came back empty, past the alert threshold. Fix: run make test-discovery-prod, the sources most likely changed their schema. See the Resolution Quality card above.',
-                    'deposit to non-existent mailbox':
-                        'A peer is sending to a deleted mailbox. Fix: the sender needs a fresh invitation. No server action needed.',
-                    'invalid write token':
-                        'Peer is using an expired or revoked invitation link. Fix: regenerate an invitation.',
-                    'collect from non-existent mailbox':
-                        'Collection from a non-existent mailbox. The peer needs to re-register with the hub.',
-                    'mailbox creation failed':
-                        'Mailbox creation failed — database issue. Check the Context column for the error detail.',
-                    'deposit failed':
-                        'Message deposit failed — database issue. Check the Context column.',
-                    'registration rejected (missing write_token)':
-                        'Missing write token. Outdated client (pre-v0.8) or unauthorized attempt. Suspicious if recurring.',
-                    'upsert forbidden':
-                        'Profile update rejected: peer tried to modify a profile it does not own.',
-                    'upsert failed':
-                        'Profile update failed — database issue. Check Context for detail.',
-                    'recovery failed (invalid code)':
-                        'Invalid recovery code entered. Suspicious if repeated from different sources.',
-                    'profile recovered via recovery code':
-                        'Profile successfully recovered via recovery code. Informational, no action needed.',
-                    'profile lookup: not found':
-                        'Profile lookup returned no result. Normal if the node_id is unknown to this hub.',
-                } %}
-                {% if msg_tips[evt.message] is defined %}
-                    <span title="{{ msg_tips[evt.message] }}" style="cursor: help; border-bottom: 1px dotted #adb5bd;">{{ evt.message }}</span>
+                {# Explanations live in App\Service\HubEventGlossary, keyed by the logged message. #}
+                {% if event_tips[evt.message] is defined %}
+                    <span title="{{ event_tips[evt.message] }}" style="cursor: help; border-bottom: 1px dotted #adb5bd;">{{ evt.message }}</span>
                 {% else %}
                     {{ evt.message }}
                 {% endif %}

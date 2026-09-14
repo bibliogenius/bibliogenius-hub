@@ -7,10 +7,13 @@ use App\Repository\DirectoryHealthRepository;
 use App\Repository\DiscoveryCacheRepository;
 use App\Repository\FollowRepository;
 use App\Repository\RelayMailboxRepository;
+use App\Service\DashboardAlerts;
 use App\Service\Discovery\OutboundBudget;
+use App\Service\HubEventGlossary;
 use App\Service\HubEventLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminDashboard;
+use EasyCorp\Bundle\EasyAdminBundle\Config\Asset;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Assets;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Dashboard;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Locale;
@@ -19,12 +22,24 @@ use EasyCorp\Bundle\EasyAdminBundle\Controller\AbstractDashboardController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Contracts\Cache\CacheInterface;
+use Symfony\Contracts\Cache\ItemInterface;
 
 #[AdminDashboard(routePath: '/admin', routeName: 'admin')]
 class DashboardController extends AbstractDashboardController
 {
+    /**
+     * The page runs ~45 aggregate queries (including pg_total_relation_size
+     * over every table). Their result is shared by every admin for this
+     * long; the strip at the top shows when the figures were computed and
+     * offers a forced recompute (POST admin_dashboard_refresh).
+     */
+    public const CACHE_TTL_SECONDS = 60;
+    private const CACHE_KEY = 'admin_dashboard_stats';
+
     public function __construct(
         private readonly EntityManagerInterface $em,
+        private readonly CacheInterface $cache,
         private readonly RelayMailboxRepository $mailboxRepository,
         private readonly HubEventLogger $eventLogger,
         private readonly Deposit404LogRepository $deposit404Log,
@@ -39,6 +54,29 @@ class DashboardController extends AbstractDashboardController
     }
 
     public function index(): Response
+    {
+        $stats = $this->cache->get(self::CACHE_KEY, function (ItemInterface $item): array {
+            $item->expiresAfter(self::CACHE_TTL_SECONDS);
+
+            return $this->collectStats();
+        });
+
+        return $this->render('admin/dashboard_stats.html.twig', $stats + [
+            'alerts' => DashboardAlerts::build($stats),
+            'cache_ttl_seconds' => self::CACHE_TTL_SECONDS,
+            'event_tips' => HubEventGlossary::TIPS,
+        ]);
+    }
+
+    /**
+     * Every figure of the page, as the template variables. Alert emission
+     * (coverage, duplicates) happens here too, so it runs at most once per
+     * cache TTL from the dashboard; the nightly prune is the other path and
+     * the 24h dedup inside each shouldEmit* keeps both idempotent.
+     *
+     * @return array<string, mixed>
+     */
+    private function collectStats(): array
     {
         $conn = $this->em->getConnection();
         $now = new \DateTimeImmutable();
@@ -181,9 +219,13 @@ class DashboardController extends AbstractDashboardController
         $registrationFailureCount = (int) $conn->fetchOne('SELECT COUNT(*) FROM registration_failures');
 
         // Nightly prune marker (written by app:db:prune). null => never ran.
+        // Stale past 48h: one missed night is tolerated, two means the cron
+        // is broken. The template renders the age, the alert strip the flag.
         $lastPruneAt = $conn->fetchOne(
             "SELECT MAX(created_at) FROM hub_events WHERE channel = 'maintenance' AND message = 'prune_run'",
         ) ?: null;
+        $pruneStale = $lastPruneAt === null
+            || new \DateTimeImmutable($lastPruneAt) < $now->modify('-48 hours');
 
         // Activity stats
         $totalBooks = (int) $conn->fetchOne('SELECT COALESCE(SUM(book_count), 0) FROM library_profiles');
@@ -267,7 +309,8 @@ class DashboardController extends AbstractDashboardController
         // what any exchange, group or peer-suggestion feature rests on.
         $relationships = $this->followRepository->relationshipStats();
 
-        return $this->render('admin/dashboard_stats.html.twig', [
+        return [
+            'computed_at' => $now,
             'total_profiles' => $totalProfiles,
             'active_profiles' => $activeProfiles,
             'profiles_with_relay' => $profilesWithRelay,
@@ -295,6 +338,7 @@ class DashboardController extends AbstractDashboardController
             'invite_token_count' => $inviteTokenCount,
             'registration_failure_count' => $registrationFailureCount,
             'last_prune_at' => $lastPruneAt,
+            'prune_stale' => $pruneStale,
             'table_sizes' => $tableSizes,
             'total_books' => $totalBooks,
             'borrowing_enabled_count' => $borrowingEnabledCount,
@@ -325,7 +369,24 @@ class DashboardController extends AbstractDashboardController
             'discovery_drift_min_samples' => DiscoveryCacheRepository::DRIFT_MIN_SAMPLES,
             'discovery_unavailable_24h' => $discoveryUnavailable24h,
             'discovery_resolution_deadline_seconds' => OutboundBudget::RESOLUTION_DEADLINE_SECONDS,
-        ]);
+        ];
+    }
+
+    /**
+     * Forced recompute from the status strip. A POST with a CSRF token
+     * like the mailbox deletion below: the effect is only a cache purge,
+     * but a GET with a side effect is not a pattern to leave lying around.
+     */
+    #[Route('/admin/dashboard/refresh', name: 'admin_dashboard_refresh', methods: ['POST'])]
+    public function refresh(Request $request): Response
+    {
+        if ($this->isCsrfTokenValid('dashboard-refresh', $request->request->get('_token'))) {
+            $this->cache->delete(self::CACHE_KEY);
+        } else {
+            $this->addFlash('danger', 'Invalid CSRF token.');
+        }
+
+        return $this->redirectToRoute('admin');
     }
 
     #[Route('/admin/mailbox/{uuid}/delete', name: 'admin_mailbox_delete', methods: ['POST'])]
@@ -344,6 +405,8 @@ class DashboardController extends AbstractDashboardController
 
         $this->mailboxRepository->deleteWithMessages($uuid);
         $this->eventLogger->warning('relay', 'mailbox purged from dashboard (inactive)', ['uuid' => $uuid]);
+        // The admin lands back on the dashboard: show the mailbox gone now.
+        $this->cache->delete(self::CACHE_KEY);
         $this->addFlash('success', sprintf('Mailbox %s... and its messages deleted.', substr($uuid, 0, 8)));
 
         return $this->redirectToRoute('admin');
@@ -364,9 +427,17 @@ class DashboardController extends AbstractDashboardController
 
     public function configureAssets(): Assets
     {
-        // Rewrites every [data-utc] timestamp to the admin's local timezone.
+        // Everything is served from public/static: the back office must not
+        // depend on a third-party CDN being reachable (or unchanged).
+        // Chart.js and the chart script are deferred so they run once the
+        // canvases and their JSON data blocks exist; deferred scripts keep
+        // their declaration order.
         return Assets::new()
-            ->addJsFile('static/js/local-time.js');
+            ->addCssFile('static/css/dashboard.css')
+            // Rewrites every [data-utc] timestamp to the admin's local timezone.
+            ->addJsFile('static/js/local-time.js')
+            ->addJsFile(Asset::new('static/js/chart.umd.min.js')->defer())
+            ->addJsFile(Asset::new('static/js/dashboard-charts.js')->defer());
     }
 
     public function configureMenuItems(): iterable
