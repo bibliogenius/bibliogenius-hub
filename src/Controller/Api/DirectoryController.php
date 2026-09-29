@@ -644,8 +644,11 @@ class DirectoryController extends AbstractController
             $this->profileRepository->getEntityManager()->flush();
         }
 
+        // An unlisted profile can be followed: a paired library materializes
+        // its pairing as a follow (ADR-053) whether or not it is listed. The
+        // service keeps such a follow pending until the owner approves it.
         $followed = $this->profileRepository->findByNodeId($nodeId);
-        if ($followed === null || !$followed->isListed()) {
+        if ($followed === null) {
             return $this->error('Library not found.', Response::HTTP_NOT_FOUND);
         }
 

@@ -753,7 +753,11 @@ class DirectoryService
     /**
      * Sends a follow request from follower to followed.
      *
-     * If followed.requires_approval=false: auto-approved.
+     * If followed is listed and requires_approval=false: auto-approved.
+     * An unlisted followed profile always starts pending, whatever its
+     * requires_approval says: otherwise knowing a node id would be enough to
+     * receive its catalog and sealed contact card. Paired peers are approved
+     * by the owner's client (ADR-053), never here.
      * If followed.accept_from restricts requester type: returns null (rejected silently).
      *
      * Returns null if the request is silently rejected (accept_from mismatch or already blocked).
@@ -789,7 +793,7 @@ class DirectoryService
 
         $follow = $existing ?? new Follow($follower->getNodeId(), $followed->getNodeId());
 
-        if (!$followed->isRequiresApproval()) {
+        if ($followed->isListed() && !$followed->isRequiresApproval()) {
             $follow->approve();
         }
 
