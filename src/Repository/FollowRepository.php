@@ -109,7 +109,9 @@ class FollowRepository extends ServiceEntityRepository
      *     total: int,
      *     by_status: array<string, int>,
      *     reciprocal_pairs: int,
-     *     libraries_with_active_edge: int
+     *     libraries_with_active_edge: int,
+     *     libraries_with_active_follower: int,
+     *     libraries_sharing_contact: int
      * }
      */
     public function relationshipStats(): array
@@ -156,11 +158,35 @@ class FollowRepository extends ServiceEntityRepository
             [Follow::STATUS_ACTIVE, Follow::STATUS_ACTIVE],
         );
 
+        // Contact card uptake (ADR-067): of the libraries someone actually
+        // follows, how many hand their followers a way to reach them. Counts
+        // only: the sealed blob is never selected, just tested for emptiness.
+        // An empty blob is a withdrawn card, NULL one never filled; neither
+        // reaches the follower. A self-follow waits on nobody.
+        $librariesWithActiveFollower = (int) $conn->fetchOne(
+            'SELECT COUNT(DISTINCT followed_node_id)
+             FROM follows
+             WHERE status = ?
+               AND follower_node_id <> followed_node_id',
+            [Follow::STATUS_ACTIVE],
+        );
+        $librariesSharingContact = (int) $conn->fetchOne(
+            "SELECT COUNT(DISTINCT followed_node_id)
+             FROM follows
+             WHERE status = ?
+               AND follower_node_id <> followed_node_id
+               AND encrypted_contact IS NOT NULL
+               AND encrypted_contact <> ''",
+            [Follow::STATUS_ACTIVE],
+        );
+
         return [
-            'total'                      => array_sum($byStatus),
-            'by_status'                  => $byStatus,
-            'reciprocal_pairs'           => $reciprocalPairs,
-            'libraries_with_active_edge' => $librariesWithActiveEdge,
+            'total'                          => array_sum($byStatus),
+            'by_status'                      => $byStatus,
+            'reciprocal_pairs'               => $reciprocalPairs,
+            'libraries_with_active_edge'     => $librariesWithActiveEdge,
+            'libraries_with_active_follower' => $librariesWithActiveFollower,
+            'libraries_sharing_contact'      => $librariesSharingContact,
         ];
     }
 

@@ -1024,6 +1024,15 @@
 
     <div class="stat-card">
         <div class="stat-label">
+            {{ 'follows.contact.label'|trans }}
+            <i class="tip" data-tip="{{ 'follows.contact.tip'|trans }}">i</i>
+        </div>
+        <div class="stat-value">{{ libraries_sharing_contact }}</div>
+        <div class="stat-sub">{{ 'follows.contact.sub'|trans({'%followed%': libraries_with_active_follower}) }}</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">
             {{ 'follows.pending.label'|trans }}
             <i class="tip" data-tip="{{ 'follows.pending.tip'|trans }}">i</i>
         </div>

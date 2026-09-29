@@ -346,6 +346,8 @@ class DashboardController extends AbstractDashboardController
             'follows_by_status' => $relationships['by_status'],
             'reciprocal_pairs' => $relationships['reciprocal_pairs'],
             'libraries_with_active_edge' => $relationships['libraries_with_active_edge'],
+            'libraries_with_active_follower' => $relationships['libraries_with_active_follower'],
+            'libraries_sharing_contact' => $relationships['libraries_sharing_contact'],
             'total_loans' => $totalLoans,
             'accepted_loans' => $acceptedLoans,
             'recent_loans' => $recentLoans,

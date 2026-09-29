@@ -28,7 +28,10 @@ use PHPUnit\Framework\TestCase;
  *  - both directions must be active: a pending answer to an active follow
  *    is not a relationship yet;
  *  - the status breakdown always carries the four known statuses, so a
- *    template can index it without guarding every key.
+ *    template can index it without guarding every key;
+ *  - the contact card counters are aggregates over active follows only, and
+ *    an empty or NULL sealed blob is what a withdrawn or never-filled card
+ *    looks like (ADR-067), so neither counts as sharing.
  *
  * FollowRepository extends ServiceEntityRepository, so it is built here
  * through a mocked ManagerRegistry / EntityManager pair, exactly what that
@@ -179,6 +182,109 @@ final class FollowRepositoryStatsTest extends TestCase
         $this->assertSame(0, $stats['total']);
         $this->assertSame(0, $stats['reciprocal_pairs']);
         $this->assertSame(0, $stats['libraries_with_active_edge']);
+        $this->assertSame(0, $stats['libraries_with_active_follower']);
+        $this->assertSame(0, $stats['libraries_sharing_contact']);
         $this->assertSame(0, $stats['by_status'][Follow::STATUS_ACTIVE]);
+    }
+
+    /**
+     * Records every fetchOne() call and answers with the value whose marker
+     * appears in the SQL, so each counter can be told apart from the others.
+     *
+     * @param array<string,int>                            $answers marker => value
+     * @param list<array{sql: string, params: array<mixed>}> $calls
+     */
+    private function connectionRecording(array $answers, ?array &$calls = null): Connection
+    {
+        $calls = [];
+        $conn = $this->createMock(Connection::class);
+        $conn->method('fetchAllAssociative')->willReturn([]);
+        $conn->method('fetchOne')->willReturnCallback(
+            function (string $sql, array $params = []) use ($answers, &$calls) {
+                $calls[] = ['sql' => $sql, 'params' => $params];
+                foreach ($answers as $marker => $value) {
+                    if (str_contains($sql, $marker)) {
+                        return (string) $value;
+                    }
+                }
+
+                return '0';
+            },
+        );
+
+        return $conn;
+    }
+
+    /**
+     * @param list<array{sql: string, params: array<mixed>}> $calls
+     *
+     * @return array{sql: string, params: array<mixed>}
+     */
+    private function callContaining(array $calls, string $needle, ?string $without = null): array
+    {
+        foreach ($calls as $call) {
+            if (str_contains($call['sql'], $needle)
+                && ($without === null || !str_contains($call['sql'], $without))) {
+                return $call;
+            }
+        }
+        $this->fail(sprintf('No query containing "%s"', $needle));
+    }
+
+    public function testLibrariesWithActiveFollowerCountsDistinctFollowedLibraries(): void
+    {
+        $calls = null;
+        $conn = $this->connectionRecording(
+            ['encrypted_contact' => 2, 'COUNT(DISTINCT followed_node_id)' => 5],
+            $calls,
+        );
+
+        $stats = $this->repositoryWithConnection($conn)->relationshipStats();
+
+        $this->assertSame(5, $stats['libraries_with_active_follower']);
+
+        $call = $this->callContaining($calls, 'COUNT(DISTINCT followed_node_id)', 'encrypted_contact');
+        // One library followed by ten readers is one library, and only an
+        // accepted follow means someone is waiting on its card.
+        $this->assertStringContainsString('status = ?', $call['sql']);
+        $this->assertSame([Follow::STATUS_ACTIVE], $call['params']);
+        // A node following itself is nobody waiting on anything.
+        $this->assertStringContainsString('follower_node_id <> followed_node_id', $call['sql']);
+    }
+
+    public function testLibrariesSharingContactExcludesEmptyAndNullBlobs(): void
+    {
+        $calls = null;
+        $conn = $this->connectionRecording(
+            ['encrypted_contact' => 2, 'COUNT(DISTINCT followed_node_id)' => 5],
+            $calls,
+        );
+
+        $stats = $this->repositoryWithConnection($conn)->relationshipStats();
+
+        $this->assertSame(2, $stats['libraries_sharing_contact']);
+
+        $call = $this->callContaining($calls, 'encrypted_contact');
+        $this->assertStringContainsString('COUNT(DISTINCT followed_node_id)', $call['sql']);
+        // Withdrawal stores an empty blob, a card never filled stores NULL:
+        // both mean nothing reaches the follower.
+        $this->assertStringContainsString('encrypted_contact IS NOT NULL', $call['sql']);
+        $this->assertStringContainsString("encrypted_contact <> ''", $call['sql']);
+        $this->assertStringContainsString('status = ?', $call['sql']);
+        $this->assertSame([Follow::STATUS_ACTIVE], $call['params']);
+        $this->assertStringContainsString('follower_node_id <> followed_node_id', $call['sql']);
+    }
+
+    public function testContactCountersNeverSelectTheBlobItself(): void
+    {
+        // Aggregates only: the admin must not read, even transiently, what it
+        // refuses to display.
+        $calls = null;
+        $conn = $this->connectionRecording([], $calls);
+
+        $this->repositoryWithConnection($conn)->relationshipStats();
+
+        $call = $this->callContaining($calls, 'encrypted_contact');
+        $this->assertMatchesRegularExpression('/^\s*SELECT\s+COUNT\(/i', $call['sql']);
     }
 }
