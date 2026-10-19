@@ -56,6 +56,8 @@ final class PruneCommandTest extends TestCase
         // Cached-catalogs prune: 12 expired rows dropped. Mirrors the audit
         // finding of 18/61 expired rows that motivated wiring this in.
         $profileRepo->method('pruneExpiredCatalogs')->willReturn(12);
+        // Catalogs nobody may read: 3 rows dropped.
+        $profileRepo->method('pruneUnsharedCatalogs')->willReturn(3);
         // Orphan-cover sweep (ADR-033): 2 files deleted across all nodes.
         $directoryService->method('pruneOrphanCoversForAllNodes')->willReturn(2);
 
@@ -84,8 +86,8 @@ final class PruneCommandTest extends TestCase
         $this->assertArrayHasKey('total_deleted', $context);
         $this->assertArrayHasKey('per_table', $context);
 
-        // 10 + (3+2) + 6 + 7 + 4 + 9 + 12 + 2 + 0 = 55
-        $this->assertSame(55, $context['total_deleted']);
+        // 10 + (3+2) + 6 + 7 + 4 + 9 + 12 + 3 + 2 + 0 = 58
+        $this->assertSame(58, $context['total_deleted']);
         $this->assertSame(
             [
                 'relay_messages' => 10,
@@ -95,6 +97,8 @@ final class PruneCommandTest extends TestCase
                 'hub_events' => 4,
                 'deposit_404_log' => 9,
                 'cached_catalogs' => 12,
+                'unshared_catalogs' => 3,
+                'unshared_covers' => 0,
                 'orphan_covers' => 2,
                 'discovery_cache' => 0,
             ],
@@ -208,6 +212,67 @@ final class PruneCommandTest extends TestCase
         $context = json_decode($insertArgs['context'], true);
         $this->assertSame(18, $context['per_table']['cached_catalogs']);
         $this->assertStringContainsString('cached_catalogs', $tester->getDisplay());
+    }
+
+    public function testUnsharedCatalogsStepRunsNightlyAndReportsCount(): void
+    {
+        // The clear-text catalog of a library nobody may read (unlisted, no
+        // follow of any status) must not outlive its grace period. If this
+        // step is unwired, abandoned installs keep their copy forever.
+        [$conn, $inviteRepo, $deposit404Repo, $directoryService] = $this->quietCollaborators();
+        $profileRepo = $this->createMock(LibraryProfileRepository::class);
+        $profileRepo->method('pruneExpiredCatalogs')->willReturn(0);
+        $profileRepo->expects($this->once())
+            ->method('pruneUnsharedCatalogs')
+            ->willReturn(130);
+
+        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo);
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+
+        $this->assertMatchesRegularExpression('/unshared_catalogs.*130 deleted/', $tester->getDisplay());
+    }
+
+    public function testUnsharedCoversStepRunsAfterTheCatalogPurgeAndReportsCount(): void
+    {
+        // The cover sweep keeps every node that still has a catalog row, so
+        // it must run after the catalog purge of the same night, or the
+        // covers of a purged catalog would survive one more day.
+        [$conn, $inviteRepo, $deposit404Repo] = $this->quietCollaborators();
+        $calls = [];
+        $profileRepo = $this->createStub(LibraryProfileRepository::class);
+        $profileRepo->method('pruneUnsharedCatalogs')->willReturnCallback(function () use (&$calls): int {
+            $calls[] = 'catalogs';
+
+            return 0;
+        });
+        $directoryService = $this->createStub(DirectoryService::class);
+        $directoryService->method('pruneUnsharedCovers')->willReturnCallback(function () use (&$calls): int {
+            $calls[] = 'covers';
+
+            return 42;
+        });
+
+        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo);
+        $tester->execute([]);
+        $tester->assertCommandIsSuccessful();
+
+        $this->assertSame(['catalogs', 'covers'], $calls);
+        $this->assertMatchesRegularExpression('/unshared_covers.*42 deleted/', $tester->getDisplay());
+    }
+
+    public function testUnsharedCoversStepFailureDoesNotBreakCommand(): void
+    {
+        [$conn, $inviteRepo, $deposit404Repo, , $profileRepo] = $this->quietCollaborators();
+        $directoryService = $this->createStub(DirectoryService::class);
+        $directoryService->method('pruneUnsharedCovers')
+            ->willThrowException(new \RuntimeException('DB unavailable'));
+
+        $tester = $this->buildCommandTester($conn, $inviteRepo, $deposit404Repo, $directoryService, $profileRepo);
+        $tester->execute([]);
+
+        $tester->assertCommandIsSuccessful();
+        $this->assertStringContainsString('Unshared cover sweep failed', $tester->getDisplay());
     }
 
     public function testDanglingMailboxReferencesClearedOnEveryRun(): void

@@ -29,7 +29,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *   registration_failures - TTL 90 days (audit trail)
  *   hub_events            - TTL 30 days + cap 1000 rows
  *   deposit_404_log       - TTL 30 days (aggregated, so cap is implicit)
- *   cached_catalogs       - per-row expires_at (ADR-027 catalog cache)
+ *   cached_catalogs       - per-row expires_at (ADR-027 catalog cache), plus
+ *                           every catalog nobody may read (unlisted, no follow)
+ *                           past a 7-day grace period, and its covers
  *   orphan_covers         - catalog-driven filesystem sweep (ADR-033)
  *   discovery_cache       - per-row expires_at + payload byte cap (ADR-060)
  */
@@ -92,6 +94,9 @@ class PruneCommand extends Command
             'hub_events' => $this->pruneHubEvents($io),
             'deposit_404_log' => $this->pruneDeposit404Log($io),
             'cached_catalogs' => $this->pruneCachedCatalogs($io),
+            'unshared_catalogs' => $this->pruneUnsharedCatalogs($io),
+            // After the catalog purge: it keeps every node with a catalog row.
+            'unshared_covers' => $this->pruneUnsharedCovers($io),
             'orphan_covers' => $this->pruneOrphanCovers($io),
             'discovery_cache' => $this->pruneDiscoveryCache($io),
         ];
@@ -325,6 +330,43 @@ class PruneCommand extends Command
     {
         $deleted = $this->profileRepository->pruneExpiredCatalogs(new \DateTimeImmutable());
         $io->writeln(sprintf('  cached_catalogs  (per-row expires_at): <info>%d deleted</info>', $deleted));
+
+        return $deleted;
+    }
+
+    /**
+     * Drops the clear-text catalogs of unlisted libraries without any follow
+     * row whose last push is older than the grace period
+     * (LibraryProfileRepository::pruneUnsharedCatalogs): dormant and
+     * abandoned installs, since active clients re-push on every launch.
+     */
+    private function pruneUnsharedCatalogs(SymfonyStyle $io): int
+    {
+        $deleted = $this->profileRepository->pruneUnsharedCatalogs(new \DateTimeImmutable());
+        $io->writeln(sprintf(
+            '  unshared_catalogs (no listing, no follow, %d-day grace): <info>%d deleted</info>',
+            LibraryProfileRepository::UNSHARED_CATALOG_GRACE_DAYS,
+            $deleted,
+        ));
+
+        return $deleted;
+    }
+
+    /**
+     * Removes the cover directories left without catalog or audience
+     * (DirectoryService::pruneUnsharedCovers). Counts directories, not files.
+     * Best-effort like the orphan sweep: a filesystem or query failure must
+     * not abort the other prune steps, and it deletes nothing.
+     */
+    private function pruneUnsharedCovers(SymfonyStyle $io): int
+    {
+        try {
+            $deleted = $this->directoryService->pruneUnsharedCovers(new \DateTimeImmutable());
+        } catch (\Throwable $e) {
+            $io->warning(sprintf('Unshared cover sweep failed: %s', $e->getMessage()));
+            $deleted = 0;
+        }
+        $io->writeln(sprintf('  unshared_covers  (directories, same rule): <info>%d deleted</info>', $deleted));
 
         return $deleted;
     }

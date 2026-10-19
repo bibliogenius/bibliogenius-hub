@@ -456,6 +456,5 @@ class DashboardController extends AbstractDashboardController
         yield MenuItem::linkToCrud('Hub Events', 'fas fa-clipboard-list', \App\Entity\HubEvent::class);
         yield MenuItem::section('System');
         yield MenuItem::linkToCrud('Users', 'fas fa-users', \App\Entity\User::class);
-        yield MenuItem::linkToRoute('Backup DB', 'fas fa-download', 'admin_backup');
     }
 }

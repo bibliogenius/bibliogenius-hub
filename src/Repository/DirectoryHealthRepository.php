@@ -57,7 +57,10 @@ class DirectoryHealthRepository
     /**
      * Counts alive libraries (seen within 7 days, book_count > 0) that have
      * no valid cached catalog: the row is either absent or already expired.
-     * Expected to converge to 0 as the fleet picks up the keep-alive fix.
+     * Only libraries with a catalog audience count: the others lose their
+     * catalog by design once silent past its grace period (LibraryProfileRepository::
+     * pruneUnsharedCatalogs), and nobody reads it. Expected to converge to 0
+     * as the fleet picks up the keep-alive fix.
      */
     public function countCatalogCoverageGaps(\DateTimeImmutable $now): int
     {
@@ -68,7 +71,8 @@ class DirectoryHealthRepository
                     ON c.node_id = p.node_id AND c.expires_at >= ?
              WHERE p.book_count > 0
                AND p.last_seen_at >= ?
-               AND c.node_id IS NULL',
+               AND c.node_id IS NULL
+               AND ' . LibraryProfileRepository::catalogAudienceCondition('p.node_id'),
             [
                 $now->format('Y-m-d H:i:s'),
                 $now->modify('-7 days')->format('Y-m-d H:i:s'),
@@ -94,8 +98,10 @@ class DirectoryHealthRepository
                  WHERE p.book_count > 0
                    AND p.last_seen_at >= ?
                    AND c.node_id IS NULL
+                   AND %s
                  ORDER BY p.book_count DESC, p.last_seen_at DESC
                  LIMIT %d',
+                LibraryProfileRepository::catalogAudienceCondition('p.node_id'),
                 max(1, $limit),
             ),
             [

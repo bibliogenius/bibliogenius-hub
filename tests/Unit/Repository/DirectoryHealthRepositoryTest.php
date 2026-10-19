@@ -64,6 +64,10 @@ final class DirectoryHealthRepositoryTest extends TestCase
         $this->assertStringContainsStringIgnoringCase('c.node_id IS NULL', $capturedSql);
         $this->assertStringContainsStringIgnoringCase('p.book_count > 0', $capturedSql);
         $this->assertStringContainsStringIgnoringCase('p.last_seen_at >= ?', $capturedSql);
+        // A library nobody may read (unlisted, no follow) has its catalog
+        // purged on purpose: it is not a coverage gap.
+        $this->assertStringContainsStringIgnoringCase('is_listed = true', $capturedSql);
+        $this->assertStringContainsStringIgnoringCase('followed_node_id = p.node_id', $capturedSql);
         // Bound parameters only: now (TTL validity) then now-7d (liveness).
         $this->assertSame(['2026-07-02 12:00:00', '2026-06-25 12:00:00'], $capturedParams);
     }
@@ -87,6 +91,7 @@ final class DirectoryHealthRepositoryTest extends TestCase
         foreach (['node_id', 'display_name', 'book_count', 'last_seen_at', 'app_version'] as $column) {
             $this->assertStringContainsStringIgnoringCase($column, $capturedSql);
         }
+        $this->assertStringContainsStringIgnoringCase('is_listed = true', $capturedSql);
         $this->assertStringContainsStringIgnoringCase('ORDER BY p.book_count DESC', $capturedSql);
         $this->assertStringContainsStringIgnoringCase('LIMIT 10', $capturedSql);
     }

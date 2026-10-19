@@ -27,9 +27,43 @@ class LibraryProfileRepository extends ServiceEntityRepository
      */
     private const OWNER_INACTIVITY_DAYS = 365;
 
+    /**
+     * How long a catalog without audience (and its covers) survives its last
+     * accepted push. Clients push whatever their audience, so a library that
+     * pairs or gets followed must still find its copy on the hub: this has to
+     * outlast the longest gap between two real pushes of an active client,
+     * just under 6 days (4-day app keep-alive plus the 2-day local skip,
+     * CATALOG_LOCAL_SKIP_MAX_AGE_DAYS in
+     * bibliogenius/src/services/hub_directory_service.rs). Same value as the
+     * catalog TTL (CachedCatalog::TTL_DAYS), the contract that gap was sized
+     * against; only libraries silent for over a week lose their copy.
+     */
+    public const UNSHARED_CATALOG_GRACE_DAYS = 7;
+
     public function __construct(ManagerRegistry $registry)
     {
         parent::__construct($registry, LibraryProfile::class);
+    }
+
+    /**
+     * SQL condition: someone may legitimately read the catalog of the library
+     * whose node id is $nodeIdColumn. True when the profile is published, or
+     * when any follows row involves it, in either direction and whatever its
+     * status: a pending request or a pairing materialised as a follow
+     * (ADR-053) is a relationship.
+     *
+     * $nodeIdColumn is a column reference written in code, never user input.
+     */
+    public static function catalogAudienceCondition(string $nodeIdColumn): string
+    {
+        return sprintf(
+            '(EXISTS (SELECT 1 FROM library_profiles audience_lp
+                       WHERE audience_lp.node_id = %1$s AND audience_lp.is_listed = true)
+              OR EXISTS (SELECT 1 FROM follows audience_f
+                          WHERE audience_f.follower_node_id = %1$s
+                             OR audience_f.followed_node_id = %1$s))',
+            $nodeIdColumn,
+        );
     }
 
     public function findByNodeId(string $nodeId): ?LibraryProfile
@@ -193,6 +227,54 @@ class LibraryProfileRepository extends ServiceEntityRepository
                     'now' => $now->format('Y-m-d H:i:s'),
                     'activeCutoff' => $activeCutoff->format('Y-m-d H:i:s'),
                 ]
+            );
+    }
+
+    /**
+     * Drops the cached catalogs nobody may read (see catalogAudienceCondition)
+     * once their last accepted push is older than UNSHARED_CATALOG_GRACE_DAYS.
+     * The catalog is stored in clear and only serves listed libraries and
+     * follows, so keeping it otherwise holds personal data for no reader.
+     * Clients push on every launch whatever their audience, so an active
+     * library keeps a fresh copy; this reaches the dormant and abandoned ones.
+     *
+     * updated_at is refreshed by every accepted push, 304 included
+     * (CachedCatalog::refresh and ::touchTtl).
+     */
+    public function pruneUnsharedCatalogs(\DateTimeImmutable $now): int
+    {
+        $graceCutoff = $now->modify(sprintf('-%d days', self::UNSHARED_CATALOG_GRACE_DAYS));
+
+        return $this->getEntityManager()
+            ->getConnection()
+            ->executeStatement(
+                'DELETE FROM cached_catalogs
+                  WHERE updated_at < :graceCutoff
+                    AND NOT ' . self::catalogAudienceCondition('cached_catalogs.node_id'),
+                ['graceCutoff' => $graceCutoff->format('Y-m-d H:i:s')]
+            );
+    }
+
+    /**
+     * Node ids whose cover directory must be kept: those with a cached catalog
+     * row (any copy still within its grace period, see pruneUnsharedCatalogs) or a catalog
+     * audience. Candidates are every node id the hub knows of, so a follow
+     * toward a profile deleted since still protects its covers.
+     *
+     * @return list<string>
+     */
+    public function findNodeIdsKeepingCovers(): array
+    {
+        return $this->getEntityManager()
+            ->getConnection()
+            ->fetchFirstColumn(
+                'SELECT n.node_id
+                   FROM (SELECT node_id FROM library_profiles
+                         UNION SELECT follower_node_id FROM follows
+                         UNION SELECT followed_node_id FROM follows
+                         UNION SELECT node_id FROM cached_catalogs) n
+                  WHERE EXISTS (SELECT 1 FROM cached_catalogs kept_c WHERE kept_c.node_id = n.node_id)
+                     OR ' . self::catalogAudienceCondition('n.node_id')
             );
     }
 }

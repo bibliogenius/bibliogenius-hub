@@ -14,9 +14,9 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 /**
  * Downloads the analysis bundle for a single library.
  *
- * This is the narrow counterpart of /admin/backup: same admin-only surface,
- * one node instead of the whole database, and credentials reduced to a
- * present/absent marker by the exporter.
+ * Admin-only, one node at a time, credentials reduced to a present/absent
+ * marker by the exporter. There is no whole-database download in /admin:
+ * full dumps go to an encrypted disk image through `make hub-dump`.
  */
 #[IsGranted('ROLE_ADMIN')]
 class IdentityExportController extends AbstractController

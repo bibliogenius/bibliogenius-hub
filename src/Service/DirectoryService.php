@@ -514,6 +514,141 @@ class DirectoryService
     }
 
     /**
+     * Deletes the cover directories of libraries that keep neither a catalog
+     * row nor a catalog audience (LibraryProfileRepository::
+     * findNodeIdsKeepingCovers). Run by the nightly prune right after the
+     * unshared-catalog purge. Uploaded covers are often the owner's own
+     * photos and are served without authentication: they must not outlive
+     * the catalog they illustrate.
+     *
+     * Safety rails, in order:
+     *   - the keep-list is read before anything is touched; a failing query
+     *     throws and deletes nothing;
+     *   - an empty keep-list deletes nothing (a database that knows of no node
+     *     at all is wrong, not empty of readers);
+     *   - only real directories are considered, never symlinks or files;
+     *   - a directory modified within UNSHARED_CATALOG_GRACE_DAYS, or holding a
+     *     cover written within it, is kept: covers are uploaded a few seconds
+     *     before the catalog that references them, and re-uploaded by the
+     *     first push of every app run.
+     *
+     * Returns the number of directories removed.
+     */
+    public function pruneUnsharedCovers(\DateTimeImmutable $now): int
+    {
+        if (!is_dir($this->coversDirectory)) {
+            return 0;
+        }
+
+        $keep = array_flip($this->profileRepository->findNodeIdsKeepingCovers());
+        if ($keep === []) {
+            return 0;
+        }
+
+        $cutoff = $now
+            ->modify(sprintf('-%d days', LibraryProfileRepository::UNSHARED_CATALOG_GRACE_DAYS))
+            ->getTimestamp();
+
+        $removed = 0;
+        foreach (scandir($this->coversDirectory) ?: [] as $nodeId) {
+            if (isset($keep[$nodeId])) {
+                continue;
+            }
+            $dir = $this->coverDirectoryOf($nodeId);
+            if ($dir === null || is_link($dir) || !is_dir($dir)) {
+                continue;
+            }
+            if ($this->latestCoverActivity($dir) >= $cutoff) {
+                continue;
+            }
+            if ($this->removeCoverDirectory($nodeId)) {
+                $removed++;
+            }
+        }
+
+        return $removed;
+    }
+
+    /**
+     * Newest modification time among a cover directory and its covers.
+     * Overwriting an existing cover does not touch the directory's own mtime,
+     * hence the files are checked too.
+     */
+    private function latestCoverActivity(string $dir): int
+    {
+        $latest = (int) filemtime($dir);
+        foreach ($this->coverFilesIn($dir) as $file) {
+            $latest = max($latest, (int) filemtime($file));
+        }
+
+        return $latest;
+    }
+
+    /**
+     * Deletes a node's cover thumbnails and, when nothing else is left in it,
+     * its directory. Returns true when the directory is gone.
+     */
+    private function removeCoverDirectory(string $nodeId): bool
+    {
+        $coverDir = $this->coverDirectoryOf($nodeId);
+        if ($coverDir === null || !is_dir($coverDir)) {
+            return false;
+        }
+        array_map('unlink', $this->coverFilesIn($coverDir));
+        @rmdir($coverDir);
+
+        return !is_dir($coverDir);
+    }
+
+    /**
+     * A node's cover directory, or null for a node id that cannot be joined
+     * onto the covers directory without escaping it. Registration only bounds
+     * the node id's length, so ".", ".." and separators all reach here, from
+     * the database as well as from the filesystem. Same rule as the cover
+     * routes' isSafePathComponent.
+     */
+    private function coverDirectoryOf(string $nodeId): ?string
+    {
+        if (
+            $nodeId === ''
+            || $nodeId === '.'
+            || $nodeId === '..'
+            || str_contains($nodeId, '/')
+            || str_contains($nodeId, '\\')
+            || str_contains($nodeId, "\0")
+        ) {
+            return null;
+        }
+
+        return $this->coversDirectory . '/' . $nodeId;
+    }
+
+    /**
+     * The .jpg covers directly inside a node's cover directory. Lists the
+     * directory rather than globbing it: the node id is part of the path, any
+     * string without a slash is a valid node id, and glob() would read "*",
+     * "?" or "[" in it as wildcards reaching every other node's covers.
+     *
+     * @return list<string>
+     */
+    private function coverFilesIn(string $dir): array
+    {
+        $files = [];
+        foreach (scandir($dir) ?: [] as $entry) {
+            // Same set as the former '*.jpg' glob: no hidden entries.
+            if ($entry[0] === '.' || !str_ends_with($entry, '.jpg')) {
+                continue;
+            }
+            $path = $dir . '/' . $entry;
+            if (!is_dir($path)) {
+                $files[] = $path;
+            }
+        }
+
+        return $files;
+    }
+
+    /**
      * Compares the catalog's book_ids against files on disk under
      * covers/{nodeId}/ and deletes the orphans. Skips if:
      *   - the catalog decodes to an empty book_id set (suspicious)
@@ -524,8 +659,8 @@ class DirectoryService
      */
     private function pruneOrphanCoversForNode(string $nodeId, string $catalogPayload, string $trigger): int
     {
-        $dir = $this->coversDirectory . '/' . $nodeId;
-        if (!is_dir($dir)) {
+        $dir = $this->coverDirectoryOf($nodeId);
+        if ($dir === null || !is_dir($dir)) {
             return 0;
         }
 
@@ -551,7 +686,7 @@ class DirectoryService
             }
         }
 
-        $files = glob($dir . '/*.jpg') ?: [];
+        $files = $this->coverFilesIn($dir);
         $diskCount = count($files);
         if ($diskCount === 0) {
             return 0;
@@ -871,11 +1006,7 @@ class DirectoryService
         }
 
         // Delete cover thumbnails from filesystem
-        $coverDir = $this->coversDirectory . '/' . $nodeId;
-        if (is_dir($coverDir)) {
-            array_map('unlink', glob($coverDir . '/*.jpg') ?: []);
-            @rmdir($coverDir);
-        }
+        $this->removeCoverDirectory($nodeId);
 
         // cached_catalogs has onDelete CASCADE on the FK to library_profiles,
         // so removing the profile entity will cascade.
