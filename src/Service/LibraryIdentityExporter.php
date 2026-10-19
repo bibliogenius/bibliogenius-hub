@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Service;
 
 use App\Entity\BorrowRequest;
+use App\Entity\CachedCatalog;
 use App\Entity\Follow;
 use App\Entity\LibraryProfile;
 use App\Repository\BorrowRequestRepository;
@@ -134,13 +135,27 @@ final class LibraryIdentityExporter
     private function catalogSection(string $nodeId): ?array
     {
         $row = $this->connection->fetchAssociative(
-            'SELECT isbn_payload, catalog_payload, catalog_hash, updated_at, expires_at
+            'SELECT isbn_payload, catalog_payload, catalog_hash, catalog_format, updated_at, expires_at
              FROM cached_catalogs WHERE node_id = ?',
             [$nodeId],
         );
 
         if ($row === false) {
             return null;
+        }
+
+        // An encrypted catalog (ADR-072) is a ciphertext the hub cannot read:
+        // the export says so and gives its size, and nothing else. The
+        // ciphertext does not travel in the bundle, it is useless without the
+        // key and the bundle leaves the server.
+        if (($row['catalog_format'] ?? null) === CachedCatalog::FORMAT_E2EE_V1) {
+            return [
+                'format' => CachedCatalog::FORMAT_E2EE_V1,
+                'hash' => $row['catalog_hash'] ?? null,
+                'updated_at' => $row['updated_at'] ?? null,
+                'expires_at' => $row['expires_at'] ?? null,
+                'catalog_payload_bytes' => strlen((string) ($row['catalog_payload'] ?? '')),
+            ];
         }
 
         $isbns = self::decodeList($row['isbn_payload'] ?? null);
@@ -210,6 +225,7 @@ final class LibraryIdentityExporter
         }
 
         return [
+            'format' => 'clear',
             'hash' => $row['catalog_hash'] ?? null,
             'updated_at' => $row['updated_at'] ?? null,
             'expires_at' => $row['expires_at'] ?? null,

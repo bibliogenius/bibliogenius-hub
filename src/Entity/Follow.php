@@ -50,6 +50,15 @@ class Follow
     #[ORM\Column(type: 'text', nullable: true)]
     private ?string $encryptedContact = null;
 
+    /**
+     * E2EE sealed blob: the followed library's catalog key, wrapped for this
+     * specific follower (ADR-072 D3). Separate from the contact card on
+     * purpose: the card can be withheld from a follower who must still read
+     * the catalog. Opaque to the hub, like the card.
+     */
+    #[ORM\Column(type: 'text', nullable: true)]
+    private ?string $encryptedCatalogKey = null;
+
     public function __construct(string $followerNodeId, string $followedNodeId)
     {
         $this->followerNodeId = $followerNodeId;
@@ -145,16 +154,28 @@ class Follow
         return $this;
     }
 
+    public function getEncryptedCatalogKey(): ?string
+    {
+        return $this->encryptedCatalogKey;
+    }
+
+    public function setEncryptedCatalogKey(?string $encryptedCatalogKey): static
+    {
+        $this->encryptedCatalogKey = $encryptedCatalogKey;
+        return $this;
+    }
+
     public function toArray(): array
     {
         return [
-            'id'                => $this->id,
-            'follower_node_id'  => $this->followerNodeId,
-            'followed_node_id'  => $this->followedNodeId,
-            'status'            => $this->status,
-            'created_at'        => $this->createdAt->format(\DateTimeInterface::ATOM),
-            'resolved_at'       => $this->resolvedAt?->format(\DateTimeInterface::ATOM),
-            'encrypted_contact' => $this->encryptedContact,
+            'id'                    => $this->id,
+            'follower_node_id'      => $this->followerNodeId,
+            'followed_node_id'      => $this->followedNodeId,
+            'status'                => $this->status,
+            'created_at'            => $this->createdAt->format(\DateTimeInterface::ATOM),
+            'resolved_at'           => $this->resolvedAt?->format(\DateTimeInterface::ATOM),
+            'encrypted_contact'     => $this->encryptedContact,
+            'encrypted_catalog_key' => $this->encryptedCatalogKey,
         ];
     }
 }

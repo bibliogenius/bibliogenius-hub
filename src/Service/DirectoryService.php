@@ -53,6 +53,29 @@ class DirectoryService
      */
     private const COVER_GC_DEFAULT_MAX_DELETE_RATIO = 0.5;
 
+    /**
+     * Upper bound on the clear list of cover ids an encrypted push may carry
+     * (ADR-072 D6): a uuid weighs 36 bytes, so this caps the list under a
+     * megabyte, well past the largest library the catalog size limit admits.
+     */
+    public const MAX_COVER_BOOK_IDS = 20000;
+
+    /**
+     * Upper bound on a wrapped catalog key (ADR-072 D3). A sealed 32-byte key
+     * (ephemeral public key, nonce, ciphertext, tag, framing) encodes to a
+     * few hundred base64 characters; anything near this bound is not a wrap.
+     */
+    public const MAX_CATALOG_KEY_LENGTH = 1024;
+
+    /**
+     * Standard base64 alphabet with optional padding, the encoding the sealed
+     * blobs already use; url-safe payloads are refused so a reader never
+     * meets an alphabet it does not decode. Possessive quantifier: on a
+     * malformed multi-megabyte payload the engine must fail at the first
+     * foreign byte instead of backtracking over the whole string.
+     */
+    private const BASE64_PATTERN = '/^[A-Za-z0-9+\/]++={0,2}$/';
+
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly LibraryProfileRepository $profileRepository,
@@ -411,9 +434,22 @@ class DirectoryService
      * `unchanged=true`, which the controller translates into a
      * 304 Not Modified response (ADR-027).
      *
-     * @param string      $isbnPayload    JSON array of ISBNs (legacy format)
-     * @param string|null $catalogPayload JSON array of {isbn, title, author} objects (enriched format)
-     * @param string|null $catalogHash    SHA-256 hex digest (64 chars) of the client-canonical payload
+     * Encrypted catalogs (ADR-072 D6, $catalogFormat = e2ee-v1): the payload
+     * is an opaque base64 ciphertext the hub stores and serves as is, the
+     * ISBN list is empty by contract, book_count comes from the client only,
+     * and the orphan cover GC is driven by $coverBookIds (book ids in clear,
+     * never titles) instead of the entries it cannot decode. The hash is
+     * then a client-side HMAC; the hub only ever compares it to the stored
+     * value, so its shape is the same and nothing else changes.
+     *
+     * Every "exceeds maximum" message maps to 413 in the controller, every
+     * other InvalidArgumentException to 400.
+     *
+     * @param string         $isbnPayload    JSON array of ISBNs (legacy format), "[]" when encrypted
+     * @param string|null    $catalogPayload JSON array of {isbn, title, author} objects, or the ciphertext
+     * @param string|null    $catalogHash    64-char lowercase hex digest of the client-canonical payload
+     * @param string|null    $catalogFormat  null (clear) or CachedCatalog::FORMAT_E2EE_V1
+     * @param list<mixed>|null $coverBookIds book ids whose covers the hub holds, encrypted pushes only
      */
     public function pushCatalog(
         LibraryProfile $profile,
@@ -421,6 +457,8 @@ class DirectoryService
         ?string $catalogPayload = null,
         ?int $bookCount = null,
         ?string $catalogHash = null,
+        ?string $catalogFormat = null,
+        ?array $coverBookIds = null,
     ): PushCatalogResult {
         $this->probabilisticCleanup();
 
@@ -435,6 +473,19 @@ class DirectoryService
             throw new \InvalidArgumentException('catalog_hash must be a 64-char lowercase hex digest.');
         }
 
+        if ($catalogFormat !== null && $catalogFormat !== CachedCatalog::FORMAT_E2EE_V1) {
+            throw new \InvalidArgumentException('catalog_format is not supported.');
+        }
+        $encrypted = $catalogFormat === CachedCatalog::FORMAT_E2EE_V1;
+
+        $keepCoverIds = null;
+        if ($encrypted) {
+            $this->assertEncryptedPushShape($isbnPayload, $catalogPayload);
+            if ($coverBookIds !== null) {
+                $keepCoverIds = self::normalizeCoverBookIds($coverBookIds);
+            }
+        }
+
         $catalog = $this->entityManager->find(CachedCatalog::class, $profile->getNodeId());
 
         // Fast path: same hash as what we already have → no payload rewrite.
@@ -446,38 +497,92 @@ class DirectoryService
             $catalog->touchTtl();
             $profile->touchLastSeen();
             // book_count may still have drifted, update it without rewriting the payload.
-            $this->applyBookCount($profile, $isbnPayload, $bookCount);
+            $this->applyBookCount($profile, $isbnPayload, $bookCount, $encrypted);
             $this->entityManager->flush();
             return new PushCatalogResult($catalog, unchanged: true);
         }
 
         if ($catalog === null) {
-            $catalog = new CachedCatalog($profile, $isbnPayload, $catalogPayload, $catalogHash);
+            $catalog = new CachedCatalog($profile, $isbnPayload, $catalogPayload, $catalogHash, $catalogFormat);
             $this->entityManager->persist($catalog);
         } else {
-            $catalog->refresh($isbnPayload, $catalogPayload, $catalogHash);
+            $catalog->refresh($isbnPayload, $catalogPayload, $catalogHash, $catalogFormat);
         }
 
-        $this->applyBookCount($profile, $isbnPayload, $bookCount);
+        $this->applyBookCount($profile, $isbnPayload, $bookCount, $encrypted);
         $profile->touchLastSeen();
         $this->entityManager->flush();
 
         // Catalog-driven orphan cover GC (ADR-033). Runs only on the rewrite
         // path (not the hash-unchanged fast path) and only when the client
-        // sent enriched entries: legacy catalogs without book_id cannot
-        // drive safe GC. Best-effort: any failure is logged, not raised.
-        if ($catalogPayload !== null) {
-            try {
+        // sent something to key the covers by: enriched entries for a clear
+        // catalog, the clear id list for an encrypted one. Legacy catalogs
+        // without book ids cannot drive safe GC. Best-effort: any failure
+        // is logged, not raised.
+        try {
+            if ($encrypted && $keepCoverIds !== null) {
+                $this->pruneOrphanCoversKeeping($profile->getNodeId(), $keepCoverIds, 'push');
+            } elseif (!$encrypted && $catalogPayload !== null) {
                 $this->pruneOrphanCoversForNode($profile->getNodeId(), $catalogPayload, 'push');
-            } catch (\Throwable $e) {
-                $this->logCoverGcEvent('error', 'error', $profile->getNodeId(), [
-                    'trigger' => 'push',
-                    'error' => substr($e->getMessage(), 0, 200),
-                ]);
             }
+        } catch (\Throwable $e) {
+            $this->logCoverGcEvent('error', 'error', $profile->getNodeId(), [
+                'trigger' => 'push',
+                'error' => substr($e->getMessage(), 0, 200),
+            ]);
         }
 
         return new PushCatalogResult($catalog, unchanged: false);
+    }
+
+    /**
+     * Shape checks for an encrypted push: the hub validates nothing about the
+     * content (it cannot), only that the request carries what the contract
+     * says, so that a clear catalog can never be stored under the encrypted
+     * label by mistake and a ciphertext is always base64.
+     */
+    private function assertEncryptedPushShape(string $isbnPayload, ?string $catalogPayload): void
+    {
+        // The literal empty list, not anything that decodes to an empty PHP
+        // array ("{}" does too): the value is stored and served as is.
+        if (trim($isbnPayload) !== '[]') {
+            throw new \InvalidArgumentException('isbn_payload must be an empty list for an encrypted catalog.');
+        }
+        if ($catalogPayload === null || $catalogPayload === '') {
+            throw new \InvalidArgumentException('catalog_payload is required for an encrypted catalog.');
+        }
+        if (!preg_match(self::BASE64_PATTERN, $catalogPayload)) {
+            throw new \InvalidArgumentException('catalog_payload must be base64 for an encrypted catalog.');
+        }
+    }
+
+    /**
+     * Validates the clear cover id list of an encrypted push and returns it
+     * as the keep-map the GC consumes (lowercase string keys). Every id has
+     * to be a shape the cover routes accept as a file name, exactly like the
+     * ids decoded from a clear catalog.
+     *
+     * @param list<mixed> $coverBookIds
+     * @return array<string, true>
+     */
+    private static function normalizeCoverBookIds(array $coverBookIds): array
+    {
+        if (count($coverBookIds) > self::MAX_COVER_BOOK_IDS) {
+            throw new \InvalidArgumentException('cover_book_ids exceeds maximum allowed size.');
+        }
+
+        $keep = [];
+        foreach ($coverBookIds as $bookId) {
+            if (is_int($bookId) && $bookId > 0) {
+                $keep[(string) $bookId] = true;
+            } elseif (is_string($bookId) && self::isCoverBookId($bookId)) {
+                $keep[strtolower($bookId)] = true;
+            } else {
+                throw new \InvalidArgumentException('cover_book_ids must hold book ids only.');
+            }
+        }
+
+        return $keep;
     }
 
     /**
@@ -492,8 +597,11 @@ class DirectoryService
     public function pruneOrphanCoversForAllNodes(): int
     {
         $total = 0;
+        // Encrypted catalogs (ADR-072) are left out: the sweep cannot decode
+        // them, and their push already ran the GC with the clear id list.
         $rows = $this->entityManager->getConnection()->iterateAssociative(
-            'SELECT node_id, catalog_payload FROM cached_catalogs WHERE catalog_payload IS NOT NULL',
+            'SELECT node_id, catalog_payload FROM cached_catalogs
+              WHERE catalog_payload IS NOT NULL AND catalog_format IS NULL',
         );
         foreach ($rows as $row) {
             $nodeId = (string) ($row['node_id'] ?? '');
@@ -659,11 +767,6 @@ class DirectoryService
      */
     private function pruneOrphanCoversForNode(string $nodeId, string $catalogPayload, string $trigger): int
     {
-        $dir = $this->coverDirectoryOf($nodeId);
-        if ($dir === null || !is_dir($dir)) {
-            return 0;
-        }
-
         $entries = json_decode($catalogPayload, true);
         if (!is_array($entries)) {
             return 0;
@@ -684,6 +787,25 @@ class DirectoryService
             } elseif (is_string($bookId) && self::isUuidBookId($bookId)) {
                 $keep[strtolower($bookId)] = true;
             }
+        }
+
+        return $this->pruneOrphanCoversKeeping($nodeId, $keep, $trigger);
+    }
+
+    /**
+     * The GC itself, once the ids to keep are known: from the decoded
+     * entries of a clear catalog, or from the clear id list of an encrypted
+     * push (ADR-072 D6). Same rails either way: nothing is touched without
+     * ids, foreign file names are never claimed, and a batch past the
+     * threshold is skipped and logged.
+     *
+     * @param array<string, true> $keep lowercase book ids whose covers stay
+     */
+    private function pruneOrphanCoversKeeping(string $nodeId, array $keep, string $trigger): int
+    {
+        $dir = $this->coverDirectoryOf($nodeId);
+        if ($dir === null || !is_dir($dir)) {
+            return 0;
         }
 
         $files = $this->coverFilesIn($dir);
@@ -829,12 +951,17 @@ class DirectoryService
         }
     }
 
-    private function applyBookCount(LibraryProfile $profile, string $isbnPayload, ?int $bookCount): void
+    private function applyBookCount(LibraryProfile $profile, string $isbnPayload, ?int $bookCount, bool $encrypted = false): void
     {
         // Prefer the total count sent by the client (includes books without
         // ISBNs); fall back to the length of the legacy ISBN array.
         if ($bookCount !== null) {
             $profile->setBookCount($bookCount);
+            return;
+        }
+        // An encrypted catalog carries an empty ISBN list by contract: the
+        // fallback would zero a public number for no reason (ADR-072).
+        if ($encrypted) {
             return;
         }
         $isbns = json_decode($isbnPayload, true);
@@ -945,8 +1072,18 @@ class DirectoryService
      * Approves or rejects a pending follow request.
      * Only the followed library (authenticated) can resolve requests.
      */
-    public function resolveFollow(int $followId, string $resolution, LibraryProfile $authenticated, ?string $encryptedContact = null): Follow
-    {
+    /**
+     * Resolves a pending follow. On approval the owner may attach, for this
+     * follower, the sealed contact card and the wrapped catalog key (ADR-072
+     * D3); both are opaque to the hub and stored as given.
+     */
+    public function resolveFollow(
+        int $followId,
+        string $resolution,
+        LibraryProfile $authenticated,
+        ?string $encryptedContact = null,
+        ?string $encryptedCatalogKey = null,
+    ): Follow {
         $follow = $this->followRepository->find($followId);
 
         if ($follow === null) {
@@ -968,9 +1105,16 @@ class DirectoryService
             default   => throw new \InvalidArgumentException('Invalid resolution. Use: approve, reject, block.'),
         };
 
-        // Attach encrypted contact blob when approving (E2EE, opaque to hub)
-        if ($resolution === 'approve' && $encryptedContact !== null) {
-            $follow->setEncryptedContact($encryptedContact);
+        // Attach the sealed blobs when approving (E2EE, opaque to hub)
+        if ($resolution === 'approve') {
+            if ($encryptedContact !== null) {
+                $follow->setEncryptedContact($encryptedContact);
+            }
+            // Bounded here as well as in the controller so the rule holds
+            // for every caller; an oversized wrap is dropped, not stored.
+            if ($encryptedCatalogKey !== null && strlen($encryptedCatalogKey) <= self::MAX_CATALOG_KEY_LENGTH) {
+                $follow->setEncryptedCatalogKey($encryptedCatalogKey);
+            }
         }
 
         $this->entityManager->flush();
@@ -1037,16 +1181,34 @@ class DirectoryService
      * Called when the library owner changes their contact info and needs to
      * re-encrypt for every approved follower.
      *
-     * @param array<array{follow_id: int, encrypted_contact: string}> $contacts
+     * The same batch carries the wrapped catalog key (ADR-072 D3): an entry
+     * may hold the card, the key, or both, and an explicit null key withdraws
+     * a wrap (rotation after a reader left, D4). An entry without any blob,
+     * or with a malformed one, is skipped as a whole.
+     *
+     * @param array<array{follow_id: int, encrypted_contact?: string, encrypted_catalog_key?: string|null}> $contacts
      */
     public function syncFollowContacts(LibraryProfile $authenticated, array $contacts): int
     {
         $updated = 0;
         foreach ($contacts as $entry) {
             $followId = (int) ($entry['follow_id'] ?? 0);
-            $blob = $entry['encrypted_contact'] ?? null;
+            if ($followId <= 0) {
+                continue;
+            }
 
-            if ($followId <= 0 || !is_string($blob) || strlen($blob) > 8192) {
+            $blob = $entry['encrypted_contact'] ?? null;
+            if ($blob !== null && (!is_string($blob) || strlen($blob) > 8192)) {
+                continue;
+            }
+
+            $hasKey = array_key_exists('encrypted_catalog_key', $entry);
+            $key = $entry['encrypted_catalog_key'] ?? null;
+            if ($key !== null && (!is_string($key) || strlen($key) > self::MAX_CATALOG_KEY_LENGTH)) {
+                continue;
+            }
+
+            if ($blob === null && !$hasKey) {
                 continue;
             }
 
@@ -1062,7 +1224,12 @@ class DirectoryService
                 continue;
             }
 
-            $follow->setEncryptedContact($blob);
+            if ($blob !== null) {
+                $follow->setEncryptedContact($blob);
+            }
+            if ($hasKey) {
+                $follow->setEncryptedCatalogKey($key);
+            }
             $updated++;
         }
 

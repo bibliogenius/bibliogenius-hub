@@ -267,6 +267,19 @@ class DirectoryController extends AbstractController
             $catalogHash = $data['catalog_hash'];
         }
 
+        // Encrypted catalog (ADR-072): an opaque payload the hub stores as
+        // is, plus the clear list of book ids whose covers it holds so the
+        // orphan cover GC keeps working without reading the catalog. Both
+        // are validated for shape by the service.
+        $catalogFormat = null;
+        if (isset($data['catalog_format']) && is_string($data['catalog_format'])) {
+            $catalogFormat = $data['catalog_format'];
+        }
+        $coverBookIds = null;
+        if (isset($data['cover_book_ids']) && is_array($data['cover_book_ids'])) {
+            $coverBookIds = array_values($data['cover_book_ids']);
+        }
+
         try {
             $result = $this->directoryService->pushCatalog(
                 $profile,
@@ -274,13 +287,15 @@ class DirectoryController extends AbstractController
                 $catalogPayload,
                 $bookCount,
                 $catalogHash,
+                $catalogFormat,
+                $coverBookIds,
             );
         } catch (\InvalidArgumentException $e) {
-            // Size limit vs. hash format: both raise InvalidArgumentException.
-            // Map format errors to 400, size errors to 413.
-            $status = str_contains($e->getMessage(), 'catalog_hash')
-                ? Response::HTTP_BAD_REQUEST
-                : Response::HTTP_REQUEST_ENTITY_TOO_LARGE;
+            // Size limits and shape errors both raise InvalidArgumentException.
+            // Map size errors to 413, everything else to 400.
+            $status = str_contains($e->getMessage(), 'exceeds maximum')
+                ? Response::HTTP_REQUEST_ENTITY_TOO_LARGE
+                : Response::HTTP_BAD_REQUEST;
             $this->directoryService->logCatalogEvent('catalog_push_debug', 'warning', 'rejected', [
                 'node_id' => substr($profile->getNodeId(), 0, 12),
                 'status' => $status,
@@ -415,6 +430,12 @@ class DirectoryController extends AbstractController
 
         if ($catalog->getCatalogPayload() !== null) {
             $response['catalog_payload'] = $catalog->getCatalogPayload();
+        }
+
+        // Only present for a ciphertext (ADR-072): clear catalogs keep the
+        // exact response shape clients have always parsed.
+        if ($catalog->isEncrypted()) {
+            $response['catalog_format'] = $catalog->getCatalogFormat();
         }
 
         $json = $this->json($response);
@@ -717,8 +738,18 @@ class DirectoryController extends AbstractController
             $encryptedContact = $data['encrypted_contact'];
         }
 
+        // Optional wrapped catalog key for this follower (ADR-072 D3), same
+        // treatment as the contact blob: opaque, bounded, attached on approval.
+        $encryptedCatalogKey = null;
+        if (isset($data['encrypted_catalog_key']) && is_string($data['encrypted_catalog_key'])) {
+            if (strlen($data['encrypted_catalog_key']) > DirectoryService::MAX_CATALOG_KEY_LENGTH) {
+                return $this->error('encrypted_catalog_key exceeds maximum size (1 KB).', Response::HTTP_BAD_REQUEST);
+            }
+            $encryptedCatalogKey = $data['encrypted_catalog_key'];
+        }
+
         try {
-            $follow = $this->directoryService->resolveFollow($id, $resolution, $profile, $encryptedContact);
+            $follow = $this->directoryService->resolveFollow($id, $resolution, $profile, $encryptedContact, $encryptedCatalogKey);
         } catch (\InvalidArgumentException $e) {
             return $this->error($e->getMessage(), Response::HTTP_NOT_FOUND);
         } catch (\LogicException $e) {

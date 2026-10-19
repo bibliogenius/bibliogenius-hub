@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Repository;
 
+use App\Entity\CachedCatalog;
 use Doctrine\DBAL\Connection;
 
 /**
@@ -254,6 +255,29 @@ class DirectoryHealthRepository
      * Instant of the most recent duplicate_library_detected alert, for the
      * same 24h deduplication as the coverage alert.
      */
+    /**
+     * How many stored catalogs are ciphertexts (ADR-072), next to the total.
+     * The rollout watches this share: public libraries stay in clear by
+     * design, so the number is expected to climb toward "every catalog with
+     * known readers", never to 100 %.
+     *
+     * @return array{total: int, encrypted: int}
+     */
+    public function countCatalogsByFormat(): array
+    {
+        $row = $this->connection->fetchAssociative(
+            'SELECT COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE catalog_format = ?) AS encrypted
+             FROM cached_catalogs',
+            [CachedCatalog::FORMAT_E2EE_V1],
+        );
+
+        return [
+            'total' => (int) ($row['total'] ?? 0),
+            'encrypted' => (int) ($row['encrypted'] ?? 0),
+        ];
+    }
+
     public function lastDuplicateLibraryAlertAt(): ?\DateTimeImmutable
     {
         return $this->lastMaintenanceAlertAt(self::DUPLICATE_ALERT_MESSAGE);

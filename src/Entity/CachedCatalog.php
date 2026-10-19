@@ -42,6 +42,16 @@ class CachedCatalog
     #[ORM\Column(type: 'string', length: 64, nullable: true)]
     private ?string $catalogHash = null;
 
+    /**
+     * Storage format of catalog_payload (ADR-072). Null is the clear JSON
+     * list every client pushed before encrypted catalogs existed, and what
+     * public libraries keep pushing. FORMAT_E2EE_V1 marks an opaque
+     * ciphertext the hub stores and serves without reading: isbn_payload is
+     * then an empty list and nothing on the hub decodes the payload.
+     */
+    #[ORM\Column(type: 'string', length: 16, nullable: true)]
+    private ?string $catalogFormat = null;
+
     #[ORM\Column]
     private \DateTimeImmutable $updatedAt;
 
@@ -51,16 +61,21 @@ class CachedCatalog
 
     private const TTL_DAYS = 7;
 
+    /** The one encrypted format accepted so far (ADR-072 D6). */
+    public const FORMAT_E2EE_V1 = 'e2ee-v1';
+
     public function __construct(
         LibraryProfile $libraryProfile,
         string $isbnPayload,
         ?string $catalogPayload = null,
         ?string $catalogHash = null,
+        ?string $catalogFormat = null,
     ) {
         $this->libraryProfile = $libraryProfile;
         $this->isbnPayload = $isbnPayload;
         $this->catalogPayload = $catalogPayload;
         $this->catalogHash = $catalogHash;
+        $this->catalogFormat = $catalogFormat;
         $this->updatedAt = new \DateTimeImmutable();
         $this->expiresAt = new \DateTimeImmutable(sprintf('+%d days', self::TTL_DAYS));
     }
@@ -90,17 +105,33 @@ class CachedCatalog
         return $this->catalogHash;
     }
 
+    public function getCatalogFormat(): ?string
+    {
+        return $this->catalogFormat;
+    }
+
+    /** True when catalog_payload is a ciphertext the hub cannot read. */
+    public function isEncrypted(): bool
+    {
+        return $this->catalogFormat === self::FORMAT_E2EE_V1;
+    }
+
     public function isExpired(): bool
     {
         return $this->expiresAt < new \DateTimeImmutable();
     }
 
     /** Replaces the payload and resets the TTL. */
-    public function refresh(string $isbnPayload, ?string $catalogPayload = null, ?string $catalogHash = null): static
-    {
+    public function refresh(
+        string $isbnPayload,
+        ?string $catalogPayload = null,
+        ?string $catalogHash = null,
+        ?string $catalogFormat = null,
+    ): static {
         $this->isbnPayload = $isbnPayload;
         $this->catalogPayload = $catalogPayload;
         $this->catalogHash = $catalogHash;
+        $this->catalogFormat = $catalogFormat;
         $this->updatedAt = new \DateTimeImmutable();
         $this->expiresAt = new \DateTimeImmutable(sprintf('+%d days', self::TTL_DAYS));
         return $this;

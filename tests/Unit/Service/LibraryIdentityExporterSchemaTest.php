@@ -35,7 +35,7 @@ final class LibraryIdentityExporterSchemaTest extends TestCase
     private const SCANNED_COLUMNS = [
         'cached_catalogs' => [
             CachedCatalog::class,
-            ['node_id', 'isbn_payload', 'catalog_payload', 'catalog_hash', 'updated_at', 'expires_at'],
+            ['node_id', 'isbn_payload', 'catalog_payload', 'catalog_hash', 'catalog_format', 'updated_at', 'expires_at'],
         ],
         'registration_failures' => [
             RegistrationFailure::class,

@@ -178,6 +178,55 @@ final class LibraryIdentityExporterTest extends TestCase
         self::assertSame(['title', 'author', 'cover_url'], $samples[0]['missing']);
     }
 
+    public function testEncryptedCatalogIsReportedBySizeAndNeverDecoded(): void
+    {
+        // ADR-072: the payload is a ciphertext the hub cannot read. The export
+        // says so and gives its size; it must not try to parse entries out of
+        // it, and the ciphertext itself must not travel in the bundle.
+        $ciphertext = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMA==';
+
+        $bundle = $this->buildExporter(
+            profile: $this->makeProfile(),
+            catalogRow: [
+                'isbn_payload' => '[]',
+                'catalog_payload' => $ciphertext,
+                'catalog_hash' => str_repeat('c', 64),
+                'catalog_format' => 'e2ee-v1',
+                'updated_at' => '2026-10-19 07:00:00',
+                'expires_at' => '2026-10-26 07:00:00',
+            ],
+        )->export(self::NODE_ID);
+
+        self::assertNotNull($bundle);
+        $analysis = $bundle['catalog'];
+
+        self::assertSame('e2ee-v1', $analysis['format']);
+        self::assertSame(strlen($ciphertext), $analysis['catalog_payload_bytes']);
+        self::assertSame(str_repeat('c', 64), $analysis['hash']);
+        self::assertArrayNotHasKey('entry_count', $analysis);
+        self::assertArrayNotHasKey('incomplete_samples', $analysis);
+        self::assertStringNotContainsString($ciphertext, json_encode($bundle, JSON_THROW_ON_ERROR));
+    }
+
+    public function testClearCatalogReportsItsFormat(): void
+    {
+        $bundle = $this->buildExporter(
+            profile: $this->makeProfile(),
+            catalogRow: [
+                'isbn_payload' => json_encode(['9780000000001']),
+                'catalog_payload' => json_encode([['isbn' => '9780000000001', 'title' => 'T', 'author' => 'A', 'cover_url' => 'u']]),
+                'catalog_hash' => null,
+                'catalog_format' => null,
+                'updated_at' => '2026-08-13 07:00:00',
+                'expires_at' => '2026-08-20 07:00:00',
+            ],
+        )->export(self::NODE_ID);
+
+        self::assertNotNull($bundle);
+        self::assertSame('clear', $bundle['catalog']['format']);
+        self::assertSame(1, $bundle['catalog']['entry_count']);
+    }
+
     public function testCatalogSectionIsNullWhenNoCatalogWasEverPushed(): void
     {
         $bundle = $this->buildExporter(profile: $this->makeProfile())->export(self::NODE_ID);

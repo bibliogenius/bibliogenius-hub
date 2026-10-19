@@ -347,6 +347,21 @@
         </div>
     </div>
 
+    <div class="stat-card status-ok">
+        <div class="stat-label">
+            Encrypted Catalogs
+            <i class="tip" data-tip="Catalogs stored as a ciphertext the hub cannot read (ADR-072, format e2ee-v1), over every cached catalog. Libraries with known readers (paired peers, approved followers) encrypt once all their readers run a build that can decrypt; public libraries (listed, no approval) stay in clear by design, so this never reaches the total. A share that stops climbing while the fleet updates is the regression signal.">i</i>
+        </div>
+        <div class="stat-value">{{ catalogs_encrypted }} / {{ catalogs_total }}</div>
+        <div class="stat-sub">
+            {% if catalogs_total > 0 %}
+                {{ ((catalogs_encrypted * 100) / catalogs_total)|round }}% of cached catalogs are opaque to the hub
+            {% else %}
+                no cached catalog
+            {% endif %}
+        </div>
+    </div>
+
     <div class="stat-card {{ ghost_lookups_7d|length > 0 ? 'status-warn' : 'status-ok' }}">
         <div class="stat-label">
             Ghost Lookups (7d)

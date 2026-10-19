@@ -147,6 +147,10 @@ class DashboardController extends AbstractDashboardController
             : [];
         $ghostLookups7d = $this->directoryHealth->findGhostLookups($now->modify('-7 days'));
 
+        // Share of catalogs the hub stores as ciphertext (ADR-072): the number
+        // the rollout watches, informational, no alert.
+        $catalogsByFormat = $this->directoryHealth->countCatalogsByFormat();
+
         // Escalate a coverage regression into the errors tile and the
         // log-based cron alerting, at most once per 24h. Also evaluated
         // nightly by app:db:prune so the alert fires even when nobody
@@ -330,6 +334,8 @@ class DashboardController extends AbstractDashboardController
             'catalog_coverage_alert_threshold' => $this->catalogCoverageAlertThreshold,
             'placeholder_leaks_24h' => $placeholderLeaks24h,
             'ghost_lookups_7d' => $ghostLookups7d,
+            'catalogs_total' => $catalogsByFormat['total'],
+            'catalogs_encrypted' => $catalogsByFormat['encrypted'],
             'deposit_404s' => $deposit404s,
             'recent_warnings' => $recentWarnings,
             'recent_errors' => $recentErrors,

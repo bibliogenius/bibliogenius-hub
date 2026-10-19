@@ -335,4 +335,43 @@ final class DirectoryHealthRepositoryTest extends TestCase
         // The marker name travels as a bound parameter, never interpolated.
         $this->assertSame(['duplicate_library_detected'], $capturedParams);
     }
+
+    // -------------------------------------------------------------------
+    // Encrypted catalogs (ADR-072): the share the rollout watches
+    // -------------------------------------------------------------------
+
+    public function testCountCatalogsByFormatShape(): void
+    {
+        $capturedSql = null;
+        $capturedParams = null;
+
+        $conn = $this->createMock(Connection::class);
+        $conn->expects($this->once())
+            ->method('fetchAssociative')
+            ->willReturnCallback(function (string $sql, array $params = []) use (&$capturedSql, &$capturedParams) {
+                $capturedSql = $sql;
+                $capturedParams = $params;
+                return ['total' => '159', 'encrypted' => '25'];
+            });
+
+        $counts = (new DirectoryHealthRepository($conn))->countCatalogsByFormat();
+
+        $this->assertSame(['total' => 159, 'encrypted' => 25], $counts);
+        $this->assertStringContainsStringIgnoringCase('FROM cached_catalogs', $capturedSql);
+        // The format label is bound, never interpolated, and the count is
+        // over every stored catalog so the two numbers share one scan.
+        $this->assertStringContainsStringIgnoringCase('catalog_format = ?', $capturedSql);
+        $this->assertSame(['e2ee-v1'], $capturedParams);
+    }
+
+    public function testCountCatalogsByFormatTreatsAMissingRowAsZero(): void
+    {
+        $conn = $this->createStub(Connection::class);
+        $conn->method('fetchAssociative')->willReturn(false);
+
+        $this->assertSame(
+            ['total' => 0, 'encrypted' => 0],
+            (new DirectoryHealthRepository($conn))->countCatalogsByFormat(),
+        );
+    }
 }

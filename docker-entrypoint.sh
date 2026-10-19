@@ -148,6 +148,12 @@ php /app/bin/console dbal:run-sql "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS
 php /app/bin/console dbal:run-sql "CREATE TABLE IF NOT EXISTS discovery_cache (kind VARCHAR(16) NOT NULL, cache_key VARCHAR(255) NOT NULL, status VARCHAR(16) NOT NULL, payload TEXT DEFAULT NULL, source VARCHAR(32) DEFAULT NULL, created_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL DEFAULT NOW(), expires_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL, PRIMARY KEY (kind, cache_key))" --env=$ENV --no-interaction || echo "WARNING: discovery_cache creation failed"
 php /app/bin/console dbal:run-sql "CREATE INDEX IF NOT EXISTS idx_discovery_cache_expires ON discovery_cache (expires_at)" --env=$ENV --no-interaction || true
 
+# Encrypted directory catalog (Version20261019120000 - ADR-072)
+# catalog_format: NULL = clear JSON list, 'e2ee-v1' = opaque ciphertext.
+# encrypted_catalog_key: the owner's catalog key sealed for this follower.
+php /app/bin/console dbal:run-sql "ALTER TABLE cached_catalogs ADD COLUMN IF NOT EXISTS catalog_format VARCHAR(16) DEFAULT NULL" --env=$ENV --no-interaction || true
+php /app/bin/console dbal:run-sql "ALTER TABLE follows ADD COLUMN IF NOT EXISTS encrypted_catalog_key TEXT DEFAULT NULL" --env=$ENV --no-interaction || true
+
 # Clear and warm up cache
 php /app/bin/console cache:clear --env=$ENV --no-debug || true
 php /app/bin/console cache:warmup --env=$ENV || true
