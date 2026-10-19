@@ -701,13 +701,10 @@ class DirectoryController extends AbstractController
         $pending = $this->followRepository->findPendingFor($profile->getNodeId());
 
         // Enrich each follow with the follower's profile data.
-        $items = array_map(function (Follow $f) {
-            $data = $f->toArray();
-            $followerProfile = $this->profileRepository->findByNodeId($f->getFollowerNodeId());
-            $data['follower_display_name'] = $followerProfile?->getDisplayName();
-            $data['follower_x25519_public_key'] = $followerProfile?->getX25519PublicKey();
-            return $data;
-        }, $pending);
+        $items = array_map(
+            fn (Follow $f): array => $this->directoryService->describeFollowerForOwner($f),
+            $pending,
+        );
 
         return $this->json([
             'items' => $items,
@@ -783,17 +780,14 @@ class DirectoryController extends AbstractController
             return $this->error('direction must be: following or followers.', Response::HTTP_BAD_REQUEST);
         }
 
-        // Enrich with x25519 keys for E2EE contact exchange
-        $items = array_map(function (Follow $f) use ($direction) {
-            $data = $f->toArray();
-            if ($direction === 'followers') {
-                // Owner needs follower's key to encrypt contact for them
-                $followerProfile = $this->profileRepository->findByNodeId($f->getFollowerNodeId());
-                $data['follower_x25519_public_key'] = $followerProfile?->getX25519PublicKey();
-                $data['follower_display_name'] = $followerProfile?->getDisplayName();
-            }
-            return $data;
-        }, $follows);
+        // The owner needs each follower's key to seal for it, and its app
+        // version to decide whether it can read an encrypted catalog.
+        $items = array_map(
+            fn (Follow $f): array => $direction === 'followers'
+                ? $this->directoryService->describeFollowerForOwner($f)
+                : $f->toArray(),
+            $follows,
+        );
 
         return $this->json([
             'items' => $items,

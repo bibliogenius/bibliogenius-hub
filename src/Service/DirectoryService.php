@@ -1159,6 +1159,27 @@ class DirectoryService
     }
 
     /**
+     * A follow as its owner (the followed library) reads it: the row plus
+     * what the owner needs from the follower's profile to serve it. The
+     * X25519 key seals the contact card and the catalog key, the name labels
+     * the request, and the app version tells whether the follower can read
+     * an encrypted catalog (ADR-072 D8). All three are already public on the
+     * follower's profile; carrying them here spares one lookup per follower.
+     *
+     * @return array<string, mixed>
+     */
+    public function describeFollowerForOwner(Follow $follow): array
+    {
+        $data = $follow->toArray();
+        $follower = $this->profileRepository->findByNodeId($follow->getFollowerNodeId());
+        $data['follower_display_name'] = $follower?->getDisplayName();
+        $data['follower_x25519_public_key'] = $follower?->getX25519PublicKey();
+        $data['follower_app_version'] = $follower?->getAppVersion();
+
+        return $data;
+    }
+
+    /**
      * Removes an active follow. Only the follower can unfollow.
      */
     public function unfollow(string $followedNodeId, LibraryProfile $follower): bool
