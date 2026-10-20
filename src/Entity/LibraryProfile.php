@@ -457,6 +457,12 @@ class LibraryProfile
             'location_city_id'  => $this->locationCityId,
             'requires_approval' => $this->requiresApproval,
             'allow_borrowing'   => $this->allowBorrowing,
+            // Returned so a client that re-registers without the flag (relay
+            // refresh, rename, silent registration after a purge) mirrors
+            // the hub instead of a local default. Not a disclosure: a
+            // profile outside the directory listing is unlisted by
+            // construction.
+            'is_listed'         => $this->isListed,
             'last_seen_at'      => $this->lastSeenAt?->format(\DateTimeInterface::ATOM),
             'view_count'        => $this->viewCount,
             'hijack_attempts_total' => $this->hijackAttemptsTotal,
