@@ -24,6 +24,9 @@ RUN install-php-extensions \
 # zz- prefix loads it after the extension's own conf.d file so it wins.
 COPY docker/opcache-prod.ini /usr/local/etc/php/conf.d/zz-opcache-prod.ini
 
+# Production PHP hardening (prod image only).
+COPY docker/php-prod.ini /usr/local/etc/php/conf.d/zz-php-prod.ini
+
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
