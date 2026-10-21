@@ -1,6 +1,8 @@
-# Pinned for reproducible builds: FrankenPHP 1.12.4 (bundles Caddy 2.11.4
-# security fixes) on the PHP 8.3 line (8.3.30). Bump deliberately.
-FROM dunglas/frankenphp:1.12.4-php8.3
+# Pinned for reproducible builds: FrankenPHP 1.13.1 (Caddy 2.11.7) on PHP
+# 8.3.36 (CVE-2026-109618, CVE-2026-109619). Pin the PHP patch too: a bare
+# "-php8.3" tag stops being rebuilt once its FrankenPHP release is superseded,
+# silently freezing PHP. Bump deliberately.
+FROM dunglas/frankenphp:1.13.1-php8.3.36
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
