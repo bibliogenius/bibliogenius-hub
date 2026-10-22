@@ -3,9 +3,24 @@ set -e
 
 ENV=${APP_ENV:-prod}
 
-# Ensure var directory exists with proper permissions
-mkdir -p /app/var/cache /app/var/log
-chmod -R 777 /app/var
+# Ensure var directory exists with proper permissions.
+# The prod image runs as the unprivileged `hub` user (uid 10001); the dev
+# image still runs as root and keeps the historical world-writable var/.
+if [ "$(id -u)" = "0" ]; then
+    mkdir -p /app/var/cache /app/var/log
+    chmod -R 777 /app/var
+else
+    # A var volume first populated by a root-run image keeps root-owned
+    # files: cache warmup and cover uploads would then fail one by one.
+    # Stop loudly instead, with the one-time fix.
+    FOREIGN=$(find /app/var ! -user "$(id -u)" -print -quit)
+    if [ -n "$FOREIGN" ]; then
+        echo "ERROR: $FOREIGN is not owned by uid $(id -u)." >&2
+        echo "Run once on the host: docker run --rm -v <var volume>:/v alpine chown -R $(id -u):$(id -g) /v" >&2
+        exit 1
+    fi
+    mkdir -p /app/var/cache /app/var/log
+fi
 
 # Wait for PostgreSQL to be ready (max 30s)
 echo "Waiting for database..."

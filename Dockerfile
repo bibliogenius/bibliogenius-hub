@@ -53,13 +53,25 @@ ENV APP_VERSION=${APP_VERSION}
 # the entrypoint handles cache:clear and cache:warmup at runtime)
 RUN composer install --no-interaction --optimize-autoloader --no-dev --no-scripts
 
-# Create necessary directories and set permissions
-RUN mkdir -p var/cache var/log var/data && \
-    chmod -R 777 var
-
 # Copy and set up entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Run as an unprivileged user with a fixed UID, so the one-time chown of the
+# existing var volume and of the host cities dir is the same everywhere.
+# Only var/ (cache, logs, covers) and Caddy's own state dirs are writable;
+# the code stays root-owned and read-only for the PHP process.
+# setcap -r: the base image grants frankenphp cap_net_bind_service as a file
+# capability, which makes exec fail once compose drops every capability.
+# Port 80 still binds through Docker's default
+# net.ipv4.ip_unprivileged_port_start=0.
+RUN groupadd --system --gid 10001 hub && \
+    useradd --system --uid 10001 --gid hub --no-create-home --shell /usr/sbin/nologin hub && \
+    mkdir -p var/cache var/log var/data && \
+    chown -R hub:hub var /config/caddy /data/caddy && \
+    setcap -r /usr/local/bin/frankenphp
+
+USER hub
 
 # Expose port
 EXPOSE 80

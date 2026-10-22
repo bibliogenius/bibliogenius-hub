@@ -6,9 +6,9 @@
 # `make setup-vps-cities` from a workstation.
 #
 # Steps:
-#   1. Ensure /var/lib/bibliogenius/cities exists with permissions that
-#      let Caddy read (and the container, running as root via
-#      `docker exec`, write).
+#   1. Ensure /var/lib/bibliogenius/cities exists, owned by the hub image's
+#      unprivileged user (uid 10001, see Dockerfile) so `docker exec`
+#      can write it, and readable by Caddy.
 #   2. Bootstrap the city dataset by running `app:build-cities --all`
 #      inside hub-prod. Every ISO 3166-1 alpha-2 country GeoNames
 #      publishes is built (~250 files, ~30 MB, several minutes initial).
@@ -71,6 +71,7 @@ step() { echo; echo "==> $*"; }
 if [[ $DO_MKDIR -eq 1 ]]; then
   step "Ensuring ${CITIES_DIR} exists"
   mkdir -p "$CITIES_DIR"
+  chown -R 10001:10001 "$CITIES_DIR"
   chmod 0755 "$CITIES_DIR"
   ls -ld "$CITIES_DIR"
 fi

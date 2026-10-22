@@ -32,6 +32,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    # The image runs as the unprivileged `hub` user (uid 10001, see
+    # Dockerfile); drop every kernel capability and forbid regaining any.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   hub-staging:
     image: rg.fr-par.scw.cloud/bibliogenius-hub/hub:vps
@@ -54,6 +60,12 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    # The image runs as the unprivileged `hub` user (uid 10001, see
+    # Dockerfile); drop every kernel capability and forbid regaining any.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   ws-sidecar-prod:
     image: rg.fr-par.scw.cloud/bibliogenius-hub/ws-sidecar:vps
