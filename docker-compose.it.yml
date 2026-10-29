@@ -1,0 +1,31 @@
+# Throwaway hub for the two-instance integration tests of the Rust backend
+# (in bibliogenius: `cargo test --features it-loopback --test two_instances_hub`).
+#
+# Layered on docker-compose.dev.yml under its own project name, `bg-it`, so
+# the dev stack on 8082 and its database are never touched: the postgres and
+# var volumes are project-scoped and `make it-down` wipes them. Only vendor/
+# is shared with the dev stack (a composer install takes minutes), so run
+# `make up` once on a machine where that volume does not exist yet. The hub
+# image is the dev one, built here only when it is missing.
+#
+#   make it-up      # hub on http://127.0.0.1:8092, postgres on 5443
+#   make it-down    # stop and wipe the throwaway database
+
+services:
+  postgres:
+    ports: !override
+      - "5443:5432"
+
+  hub:
+    image: bibliogenius-hub-hub
+    ports: !override
+      - "8092:80"
+    volumes: !override
+      - .:/app
+      - dev_vendor:/app/vendor
+      - hub_var:/app/var
+
+volumes:
+  dev_vendor:
+    external: true
+    name: bibliogenius-hub_hub_vendor

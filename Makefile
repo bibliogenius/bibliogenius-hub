@@ -29,6 +29,8 @@ help:
 	@echo "  make logs         - Follow hub container logs"
 	@echo "  make shell        - Shell into the hub container"
 	@echo "  make phpunit      - Run PHPUnit (ARGS=<path> to scope)"
+	@echo "  make it-up        - Throwaway hub on :8092 for the Rust two-instance tests"
+	@echo "  make it-down      - Stop it and wipe its database"
 	@echo ""
 	@echo "  make build        - Build Docker image for Scaleway"
 	@echo "  make push         - Push image to Scaleway registry"
@@ -279,6 +281,26 @@ shell:
 .PHONY: phpunit
 phpunit:
 	$(DEV_COMPOSE) exec hub vendor/bin/phpunit $(ARGS)
+
+# Throwaway stack for the two-instance integration tests of the Rust backend
+# (docker-compose.it.yml): hub on http://127.0.0.1:8092, its own database,
+# wiped by it-down. Needs the dev stack's vendor volume (make up, once).
+IT_COMPOSE := docker compose -p bg-it -f docker-compose.dev.yml -f docker-compose.it.yml
+IT_HUB_URL := http://127.0.0.1:8092
+
+.PHONY: it-up
+it-up:
+	@docker volume inspect bibliogenius-hub_hub_vendor >/dev/null 2>&1 || { \
+	  echo "vendor volume missing: run 'make up' once (then 'make down')"; exit 1; }
+	$(IT_COMPOSE) up -d
+	@for i in $$(seq 1 60); do \
+	  curl -sf $(IT_HUB_URL)/api/health >/dev/null && { echo "hub ready on $(IT_HUB_URL)"; exit 0; }; \
+	  sleep 2; \
+	done; echo "hub not ready after 120 s, see: $(IT_COMPOSE) logs hub"; exit 1
+
+.PHONY: it-down
+it-down:
+	$(IT_COMPOSE) down -v
 
 # Behavioral end-to-end smoke for the account E2EE sync store (ADR-043),
 # run in the dev container against the live hub (needs ext-sodium + the DB).
